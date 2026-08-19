@@ -1,0 +1,231 @@
+# Hermes Hub: Multi-Provider Account Router Default Profiles Template
+# Copy this file to %LOCALAPPDATA%\hermes\config\router_profiles.yaml if not present.
+
+router:
+  enabled: true
+  default_role: "orchestrator"
+  max_failover_attempts: 3
+  cooldown_base_seconds: 300
+  cooldown_max_seconds: 3600
+  session_affinity_ttl_seconds: 1800
+
+roles:
+  orchestrator:
+    role_name: "orchestrator"
+    preferred_chain:
+      - "codex-orch"
+      - "ag-orch-fallback"
+      - "opengo-3"
+    fallback_capabilities:
+      - "orchestrator"
+      - "reasoning"
+    max_failover_attempts: 3
+    session_affinity_enabled: true
+    default_model: "gemini-3.7-flash"
+
+  coder-primary:
+    role_name: "coder-primary"
+    preferred_chain:
+      - "codex-worker-1"
+      - "ag-w1"
+      - "opengo-3"
+    fallback_capabilities:
+      - "coding"
+    max_failover_attempts: 3
+    session_affinity_enabled: true
+
+  coder-secondary:
+    role_name: "coder-secondary"
+    preferred_chain:
+      - "codex-worker-2"
+      - "ag-w2"
+      - "opengo-2"
+    fallback_capabilities:
+      - "coding"
+      - "reviewer"
+    max_failover_attempts: 3
+    session_affinity_enabled: true
+
+  reviewer:
+    role_name: "reviewer"
+    preferred_chain:
+      - "codex-worker-2"
+      - "opengo-2"
+      - "ag-w2"
+    fallback_capabilities:
+      - "reviewer"
+      - "coding"
+    max_failover_attempts: 3
+    session_affinity_enabled: true
+
+  research:
+    role_name: "research"
+    preferred_chain:
+      - "opengo-1"
+      - "ag-w3"
+      - "ag-w4"
+    fallback_capabilities:
+      - "research"
+      - "fast"
+    max_failover_attempts: 3
+    session_affinity_enabled: true
+
+  fast:
+    role_name: "fast"
+    preferred_chain:
+      - "opengo-1"
+      - "ag-w4"
+      - "ag-spare-1"
+    fallback_capabilities:
+      - "fast"
+      - "coding"
+    max_failover_attempts: 3
+    session_affinity_enabled: false
+
+profiles:
+  # Antigravity (10 accounts)
+  ag-orch-fallback:
+    profile_id: "ag-orch-fallback"
+    provider: "antigravity"
+    account_id: "ag-acc-orch"
+    enabled: true
+    capabilities: ["orchestrator", "reasoning", "coding"]
+    preferred_models: ["gemini-3.7-flash", "claude-sonnet-4-6", "gemini-3.5-flash"]
+    max_concurrency: 2
+
+  ag-w1:
+    profile_id: "ag-w1"
+    provider: "antigravity"
+    account_id: "ag-acc-w1"
+    enabled: true
+    capabilities: ["coding", "coder-primary", "reasoning"]
+    preferred_models: ["gemini-3.7-flash", "claude-sonnet-4-6", "gemini-3.5-flash"]
+    max_concurrency: 2
+
+  ag-w2:
+    profile_id: "ag-w2"
+    provider: "antigravity"
+    account_id: "ag-acc-w2"
+    enabled: true
+    capabilities: ["coding", "coder-secondary", "reviewer", "review"]
+    preferred_models: ["gemini-3.7-flash", "gemini-3.5-flash"]
+    max_concurrency: 2
+
+  ag-w3:
+    profile_id: "ag-w3"
+    provider: "antigravity"
+    account_id: "ag-acc-w3"
+    enabled: true
+    capabilities: ["research", "reasoning", "search"]
+    preferred_models: ["gemini-3.7-flash", "claude-sonnet-4-6"]
+    max_concurrency: 2
+
+  ag-w4:
+    profile_id: "ag-w4"
+    provider: "antigravity"
+    account_id: "ag-acc-w4"
+    enabled: true
+    capabilities: ["coding", "reasoning", "fast"]
+    preferred_models: ["gemini-3.5-flash", "gemini-3.7-flash"]
+    max_concurrency: 2
+
+  ag-spare-1:
+    profile_id: "ag-spare-1"
+    provider: "antigravity"
+    account_id: "ag-acc-sp1"
+    enabled: true
+    capabilities: ["hot-spare", "coding", "reasoning", "orchestrator", "research", "fast"]
+    preferred_models: ["gemini-3.7-flash", "gemini-3.5-flash"]
+    max_concurrency: 2
+
+  ag-spare-2:
+    profile_id: "ag-spare-2"
+    provider: "antigravity"
+    account_id: "ag-acc-sp2"
+    enabled: true
+    capabilities: ["hot-spare", "coding", "reasoning", "orchestrator", "research", "fast"]
+    preferred_models: ["gemini-3.7-flash", "gemini-3.5-flash"]
+    max_concurrency: 2
+
+  ag-cold-1:
+    profile_id: "ag-cold-1"
+    provider: "antigravity"
+    account_id: "ag-acc-cold1"
+    enabled: false
+    capabilities: ["cold-spare"]
+    preferred_models: []
+    max_concurrency: 1
+
+  ag-cold-2:
+    profile_id: "ag-cold-2"
+    provider: "antigravity"
+    account_id: "ag-acc-cold2"
+    enabled: false
+    capabilities: ["cold-spare"]
+    preferred_models: []
+    max_concurrency: 1
+
+  ag-cold-3:
+    profile_id: "ag-cold-3"
+    provider: "antigravity"
+    account_id: "ag-acc-cold3"
+    enabled: false
+    capabilities: ["cold-spare"]
+    preferred_models: []
+    max_concurrency: 1
+
+  # OpenAI Codex (3 accounts)
+  codex-orch:
+    profile_id: "codex-orch"
+    provider: "openai-codex"
+    account_id: "codex-acc-1"
+    enabled: true
+    capabilities: ["orchestrator", "coding", "reasoning"]
+    preferred_models: ["gpt-4o", "o3-mini", "codex"]
+    max_concurrency: 2
+
+  codex-worker-1:
+    profile_id: "codex-worker-1"
+    provider: "openai-codex"
+    account_id: "codex-acc-2"
+    enabled: true
+    capabilities: ["coding", "coder-primary", "reasoning"]
+    preferred_models: ["gpt-4o", "o3-mini", "codex"]
+    max_concurrency: 2
+
+  codex-worker-2:
+    profile_id: "codex-worker-2"
+    provider: "openai-codex"
+    account_id: "codex-acc-3"
+    enabled: true
+    capabilities: ["coding", "coder-secondary", "reviewer", "review"]
+    preferred_models: ["gpt-4o", "o3-mini", "codex"]
+    max_concurrency: 2
+
+  # OpenCode Go (3 accounts)
+  opengo-1:
+    profile_id: "opengo-1"
+    provider: "opencode-go"
+    account_id: "opengo-acc-1"
+    enabled: true
+    capabilities: ["research", "search", "fast", "review"]
+    preferred_models: ["qwen3.8-max", "glm-5.3", "deepseek-v4-flash", "grok-4.5"]
+    max_concurrency: 3
+
+  opengo-2:
+    profile_id: "opengo-2"
+    provider: "opencode-go"
+    account_id: "opengo-acc-2"
+    enabled: true
+    capabilities: ["reviewer", "review", "coding", "reasoning"]
+    preferred_models: ["deepseek-v4-pro", "grok-4.5", "qwen3.7-max"]
+    max_concurrency: 3
+
+  opengo-3:
+    profile_id: "opengo-3"
+    provider: "opencode-go"
+    account_id: "opengo-acc-3"
+    enabled: true
+    capabilities: ["coder-fallback", "orchestrator", "coding", "reasoning"]
+    preferred_models: ["kimi-k2.7-code", "deepseek-v4-pro", "qwen3.8-max"]
+    max_concurrency: 3

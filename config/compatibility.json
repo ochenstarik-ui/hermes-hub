@@ -1,0 +1,25 @@
+{
+  "hub_version": "0.1.0",
+  "min_hermes_version": "0.20.0",
+  "max_tested_hermes_version": "0.20.4",
+  "tested_versions": [
+    "0.20.0",
+    "0.20.1",
+    "0.20.2",
+    "0.20.3",
+    "0.20.4"
+  ],
+  "python_min_version": "3.10.0",
+  "recommended_python": "3.12",
+  "platforms": [
+    "win32",
+    "linux",
+    "darwin"
+  ],
+  "required_hermes_files": [
+    "hermes-agent/venv/Scripts/python.exe",
+    "hermes-agent/venv/Scripts/hermes.exe"
+  ],
+  "installed_plugin_name": "antigravity-provider",
+  "registry_uninstall_key": "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\HermesHub"
+}

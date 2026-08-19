@@ -1,0 +1,850 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hermes Hub — Multi-Agent & Multi-Provider Control Hub</title>
+  <style>
+    :root {
+      --bg-dark: #090d16;
+      --bg-card: #131b2e;
+      --bg-card-hover: #1c2742;
+      --border-color: #23314f;
+      --primary: #38bdf8;
+      --primary-hover: #0ea5e9;
+      --accent-green: #10b981;
+      --accent-yellow: #f59e0b;
+      --accent-red: #ef4444;
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg-dark);
+      color: var(--text-main);
+      font-family: var(--font-family);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* Header */
+    header {
+      background: #0f172a;
+      border-bottom: 1px solid var(--border-color);
+      padding: 16px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .brand { display: flex; align-items: center; gap: 12px; }
+    .brand-logo {
+      font-size: 22px;
+      background: linear-gradient(135deg, #38bdf8, #818cf8);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+    }
+    .brand-sub { color: var(--text-muted); font-size: 13px; font-weight: 500; }
+    .header-actions { display: flex; align-items: center; gap: 12px; }
+
+    /* Navigation Tabs */
+    .nav-tabs {
+      display: flex;
+      background: #0b1120;
+      border-bottom: 1px solid var(--border-color);
+      padding: 0 32px;
+      gap: 8px;
+    }
+    .tab-btn {
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 14px 20px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s ease;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .tab-btn:hover { color: var(--text-main); }
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom: 2px solid var(--primary);
+      background: rgba(56, 189, 248, 0.05);
+    }
+
+    /* Layout */
+    main {
+      padding: 24px 32px;
+      flex: 1;
+      max-width: 1440px;
+      margin: 0 auto;
+      width: 100%;
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    /* Top Summary Bar */
+    .stats-bar {
+      display: flex;
+      gap: 16px;
+      margin-bottom: 24px;
+      flex-wrap: wrap;
+    }
+    .stat-badge {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      padding: 10px 16px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 13px;
+    }
+    .stat-val { font-weight: 700; color: var(--primary); }
+
+    /* Section Category Titles */
+    .section-category {
+      margin-top: 24px;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.06);
+      padding-bottom: 8px;
+    }
+    .section-category-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #e2e8f0;
+      letter-spacing: 0.3px;
+    }
+    .section-category-count {
+      font-size: 12px;
+      background: #1e293b;
+      padding: 2px 8px;
+      border-radius: 12px;
+      color: var(--text-muted);
+    }
+
+    /* Buttons */
+    .btn {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 8px 14px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn:hover { background: var(--bg-card-hover); border-color: #3b82f6; }
+    .btn-primary { background: #0284c7; border-color: #0284c7; color: #fff; }
+    .btn-primary:hover { background: var(--primary-hover); }
+    .btn-success { background: #059669; border-color: #059669; color: #fff; }
+    .btn-warning { background: #d97706; border-color: #d97706; color: #fff; }
+    .btn-danger { background: rgba(239, 68, 68, 0.15); border-color: var(--accent-red); color: #fca5a5; }
+    .btn-danger:hover { background: var(--accent-red); color: #fff; }
+    .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+    /* Card Grid */
+    .cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(390px, 1fr));
+      gap: 18px;
+    }
+
+    .team-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 10px;
+      padding: 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      transition: all 0.15s ease;
+      position: relative;
+    }
+    .team-card:hover {
+      border-color: #38bdf8;
+      transform: translateY(-2px);
+    }
+    .team-card.is-main {
+      border-color: #f59e0b;
+      box-shadow: 0 0 15px rgba(245, 158, 11, 0.15);
+    }
+    .team-card.is-orchestrator {
+      border-left: 4px solid #38bdf8;
+    }
+
+    .card-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+    }
+    .card-role-title {
+      font-size: 16px;
+      font-weight: 700;
+      color: #fff;
+    }
+    .card-badges {
+      display: flex;
+      gap: 6px;
+      align-items: center;
+    }
+    .badge-main {
+      background: #f59e0b;
+      color: #000;
+      font-size: 10px;
+      font-weight: 800;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .badge-status {
+      font-size: 11px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 12px;
+      text-transform: uppercase;
+    }
+    .badge-healthy { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid #10b981; }
+    .badge-unauth { background: rgba(239, 68, 68, 0.15); color: #f87171; border: 1px solid #ef4444; }
+    .badge-spare { background: rgba(148, 163, 184, 0.15); color: #94a3b8; border: 1px solid #64748b; }
+
+    .card-body {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      font-size: 13px;
+    }
+    .card-row {
+      display: flex;
+      justify-content: space-between;
+      color: var(--text-muted);
+    }
+    .card-val { color: var(--text-main); font-weight: 600; }
+
+    .models-pill-box {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 4px;
+    }
+    .model-pill {
+      background: rgba(56, 189, 248, 0.1);
+      border: 1px solid rgba(56, 189, 248, 0.25);
+      color: #7dd3fc;
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-size: 11px;
+    }
+
+    .test-result-box {
+      background: #0f172a;
+      border: 1px solid #334155;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      display: none;
+      margin-top: 4px;
+    }
+
+    .card-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: auto;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255,255,255,0.06);
+    }
+
+    .card-tech-id {
+      font-size: 11px;
+      color: #64748b;
+      font-family: monospace;
+      margin-top: 2px;
+    }
+
+    /* Modal */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(4px);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .modal-overlay.active { display: flex; }
+
+    .modal-box {
+      background: #1e293b;
+      border: 1px solid var(--border-color);
+      border-radius: 12px;
+      padding: 24px;
+      width: 560px;
+      max-width: 90%;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.6);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .modal-head { display: flex; justify-content: space-between; align-items: center; }
+    .modal-title { font-size: 18px; font-weight: 700; }
+    .modal-close { background: transparent; border: none; color: var(--text-muted); font-size: 20px; cursor: pointer; }
+
+    .wizard-step { display: none; flex-direction: column; gap: 14px; }
+    .wizard-step.active { display: flex; }
+
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-label { font-size: 13px; font-weight: 600; color: var(--text-muted); }
+    .form-select, .form-input {
+      background: #0f172a;
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 10px;
+      border-radius: 6px;
+      font-size: 14px;
+      outline: none;
+    }
+    .form-select:focus, .form-input:focus { border-color: var(--primary); }
+
+    .radio-option {
+      background: #0f172a;
+      border: 1px solid var(--border-color);
+      padding: 10px 14px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+    .radio-option:hover { border-color: var(--primary); }
+
+    .oauth-url-box {
+      background: #0f172a;
+      border: 1px dashed #334155;
+      padding: 12px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 12px;
+      color: #93c5fd;
+      word-break: break-all;
+      max-height: 80px;
+      overflow-y: auto;
+    }
+
+    /* Logs Drawer */
+    .logs-drawer {
+      background: #0b1120;
+      border-top: 1px solid var(--border-color);
+      padding: 10px 32px;
+      font-family: monospace;
+      font-size: 12px;
+      max-height: 120px;
+      overflow-y: auto;
+      color: #94a3b8;
+    }
+    .log-line { margin-bottom: 3px; }
+    .log-pass { color: #34d399; }
+    .log-fail { color: #f87171; }
+    .log-info { color: #38bdf8; }
+  </style>
+</head>
+<body>
+
+  <header>
+    <div class="brand">
+      <div class="brand-logo">HERMES HUB</div>
+      <div class="brand-sub">Multi-Agent & Multi-Provider Control Hub</div>
+    </div>
+    <div class="header-actions">
+      <button class="btn btn-primary" onclick="openAddWizard()">+ Добавить аккаунт</button>
+      <button class="btn btn-sm" onclick="loadAllData()">🔄 Обновить статус</button>
+    </div>
+  </header>
+
+  <nav class="nav-tabs">
+    <button class="tab-btn active" onclick="switchTab('team')">👥 Команда Hermes</button>
+    <button class="tab-btn" onclick="switchTab('accounts')">🔑 Все Аккаунты</button>
+    <button class="tab-btn" onclick="switchTab('routing')">🔀 Маршрутизация (Failover)</button>
+  </nav>
+
+  <main>
+    <!-- Summary Header -->
+    <div class="stats-bar">
+      <div class="stat-badge">Всего ролей: <span class="stat-val" id="stat-total">16</span></div>
+      <div class="stat-badge">Готовы к работе: <span class="stat-val" id="stat-auth">0</span></div>
+      <div class="stat-badge">Требуют входа: <span class="stat-val" id="stat-needs-auth">0</span></div>
+      <div class="stat-badge">Основной аккаунт: <span class="stat-val" id="stat-main-ag">-</span></div>
+    </div>
+
+    <!-- Tab 1: Команда Hermes (Main View) -->
+    <div id="tab-team" class="tab-content active">
+      <div class="section-category">
+        <div class="section-category-title">ОРКЕСТРАТОР</div>
+        <div class="section-category-count" id="count-orch">2 слота</div>
+      </div>
+      <div class="cards-grid" id="grid-team-orch"></div>
+
+      <div class="section-category">
+        <div class="section-category-title">СУБАГЕНТЫ (ИСПОЛНИТЕЛИ)</div>
+        <div class="section-category-count" id="count-sub">6 слотов</div>
+      </div>
+      <div class="cards-grid" id="grid-team-sub"></div>
+
+      <div class="section-category">
+        <div class="section-category-title">РЕЗЕРВ И ЗАПАСНЫЕ АККАУНТЫ</div>
+        <div class="section-category-count" id="count-spare">5 слотов</div>
+      </div>
+      <div class="cards-grid" id="grid-team-spare"></div>
+    </div>
+
+    <!-- Tab 2: Все Аккаунты (Provider View) -->
+    <div id="tab-accounts" class="tab-content">
+      <div class="section-category">
+        <div class="section-category-title">Google Antigravity Profiles</div>
+      </div>
+      <div class="cards-grid" id="grid-prov-antigravity"></div>
+
+      <div class="section-category">
+        <div class="section-category-title">OpenAI Codex Profiles</div>
+      </div>
+      <div class="cards-grid" id="grid-prov-openai-codex"></div>
+
+      <div class="section-category">
+        <div class="section-category-title">OpenCode Go API Profiles</div>
+      </div>
+      <div class="cards-grid" id="grid-prov-opencode-go"></div>
+    </div>
+
+    <!-- Tab 3: Маршрутизация (Routing View) -->
+    <div id="tab-routing" class="tab-content">
+      <div class="section-category">
+        <div class="section-category-title">Цепочки Fallback для Логических Ролей</div>
+      </div>
+      <div id="routing-chains-container" style="display:flex; flex-direction:column; gap:16px;"></div>
+    </div>
+  </main>
+
+  <!-- Logs Console -->
+  <div class="logs-drawer" id="log-drawer">
+    <div class="log-line log-info">[Hermes Hub] Готов к работе. Подключен к локальному бэкенду.</div>
+  </div>
+
+  <!-- Unified Add Account Wizard Modal -->
+  <div class="modal-overlay" id="add-modal">
+    <div class="modal-box">
+      <div class="modal-head">
+        <div class="modal-title" id="wizard-modal-title">Добавить аккаунт</div>
+        <button class="modal-close" onclick="closeAddWizard()">&times;</button>
+      </div>
+
+      <!-- Step 1: Provider & Role Selection -->
+      <div class="wizard-step active" id="wiz-step-1">
+        <div class="form-group">
+          <label class="form-label">1. Выберите провайдера:</label>
+          <div style="display:flex; flex-direction:column; gap:8px;">
+            <label class="radio-option">
+              <input type="radio" name="wiz-prov" value="antigravity" checked>
+              <div>
+                <b>Google Antigravity</b>
+                <div style="font-size:12px; color:var(--text-muted);">OAuth-аккаунты с доступом к Gemini 3.7 Flash / Claude</div>
+              </div>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="wiz-prov" value="openai-codex">
+              <div>
+                <b>OpenAI Codex</b>
+                <div style="font-size:12px; color:var(--text-muted);">Codex OAuth для ролей Оркестратора и Кодера</div>
+              </div>
+            </label>
+            <label class="radio-option">
+              <input type="radio" name="wiz-prov" value="opencode-go">
+              <div>
+                <b>OpenCode Go</b>
+                <div style="font-size:12px; color:var(--text-muted);">API Key с доступом к резервным моделям</div>
+              </div>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:10px;">
+          <label class="form-label">2. Как использовать этот аккаунт?</label>
+          <select class="form-select" id="wiz-role-select">
+            <option value="auto">● Автоматически (рекомендуется — система сама назначит роль)</option>
+            <option value="main">⭐ Сделать основным аккаунтом Hermes</option>
+            <option value="orchestrator">👑 Назначить главным оркестратором</option>
+            <option value="coder">💻 Субагент: Кодер</option>
+            <option value="reviewer">🔍 Субагент: Ревьюер</option>
+            <option value="researcher">📚 Субагент: Исследователь</option>
+            <option value="spare">🛡️ В резерв</option>
+          </select>
+        </div>
+
+        <button class="btn btn-primary" style="margin-top:12px;" onclick="proceedToAuthStep()">Продолжить авторизацию ➔</button>
+      </div>
+
+      <!-- Step 2: OAuth Auth Flow -->
+      <div class="wizard-step" id="wiz-step-2">
+        <div style="display:flex; align-items:center; gap:10px; color:#38bdf8; font-weight:600;">
+          <span>⏳ Ожидание авторизации в браузере...</span>
+        </div>
+        <div class="form-label">Откройте ссылку в нужном профиле браузера:</div>
+        <div class="oauth-url-box" id="wiz-oauth-url"></div>
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" onclick="openWizardUrlInBrowser()">🌐 Открыть в браузере</button>
+          <button class="btn" onclick="copyWizardUrl()">📋 Копировать ссылку</button>
+        </div>
+      </div>
+
+      <!-- Step 3: Success Confirmation -->
+      <div class="wizard-step" id="wiz-step-3" style="text-align:center; padding:16px;">
+        <div style="font-size:36px; color:#10b981;">✔</div>
+        <div style="font-size:18px; font-weight:700; margin-top:8px;" id="wiz-success-title">Аккаунт успешно добавлен!</div>
+        <div style="color:var(--text-muted); font-size:13px; margin-top:6px;" id="wiz-success-sub"></div>
+        <div id="wiz-duplicate-warning" style="display:none; color:#f59e0b; background:rgba(245,158,11,0.1); border:1px solid #f59e0b; padding:10px; border-radius:6px; font-size:12px; margin-top:10px;"></div>
+        <button class="btn btn-success" style="margin-top:16px;" onclick="closeAddWizard()">Готово</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let teamData = null;
+    let currentOAuthSessionId = null;
+    let currentOAuthUrl = null;
+    let oauthPollInterval = null;
+
+    function log(msg, type = "info") {
+      const drawer = document.getElementById("log-drawer");
+      const line = document.createElement("div");
+      line.className = `log-line log-${type}`;
+      line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+      drawer.appendChild(line);
+      drawer.scrollTop = drawer.scrollHeight;
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      document.querySelectorAll(".tab-content").forEach(c => c.classList.remove("active"));
+      event.currentTarget.classList.add("active");
+      document.getElementById(`tab-${tabId}`).classList.add("active");
+    }
+
+    async function loadAllData() {
+      try {
+        const [teamRes, statusRes, routingRes] = await Promise.all([
+          fetch("/api/team"),
+          fetch("/api/status"),
+          fetch("/api/routing")
+        ]);
+
+        teamData = await teamRes.json();
+        const statusData = await statusRes.json();
+        const routingData = await routingRes.json();
+
+        // Update Summary Stats
+        document.getElementById("stat-total").textContent = teamData.summary.total;
+        document.getElementById("stat-auth").textContent = teamData.summary.active_authenticated;
+        document.getElementById("stat-needs-auth").textContent = teamData.summary.needs_auth;
+        document.getElementById("stat-main-ag").textContent = teamData.summary.main_antigravity || "-";
+
+        renderTeamView(teamData);
+        renderProviderTabs(statusData);
+        renderRoutingView(routingData);
+        log("Статус команды и аккаунтов обновлен.", "info");
+      } catch (err) {
+        log(`Ошибка обновления: ${err}`, "fail");
+      }
+    }
+
+    function renderTeamView(data) {
+      renderCardsGrid("grid-team-orch", data.orchestrator, true);
+      renderCardsGrid("grid-team-sub", data.subagents, false);
+      renderCardsGrid("grid-team-spare", data.spares, false);
+    }
+
+    function renderCardsGrid(containerId, cards, isOrchSection) {
+      const container = document.getElementById(containerId);
+      if (!container) return;
+      container.innerHTML = "";
+
+      cards.forEach(c => {
+        const card = document.createElement("div");
+        card.className = `team-card ${c.is_main ? 'is-main' : ''} ${c.logical_role === 'orchestrator' ? 'is-orchestrator' : ''}`;
+
+        const statusClass = c.authenticated ? "badge-healthy" : (c.enabled ? "badge-unauth" : "badge-spare");
+        const statusText = c.authenticated ? "ГОТОВ К РАБОТЕ" : (c.enabled ? "ТРЕБУЕТСЯ ВХОД" : "РЕЗЕРВ");
+
+        let modelsHtml = (c.preferred_models || ["gemini-3.7-flash"]).map(m => `<span class="model-pill">${m}</span>`).join("");
+
+        card.innerHTML = `
+          <div class="card-top">
+            <div>
+              <div class="card-role-title">${c.display_name}</div>
+              <div class="card-tech-id">${c.provider_label} &bull; ${c.profile_id}</div>
+            </div>
+            <div class="card-badges">
+              ${c.is_main ? '<div class="badge-main">★ MAIN</div>' : ''}
+              <div class="badge-status ${statusClass}">${statusText}</div>
+            </div>
+          </div>
+
+          <div class="card-body">
+            <div class="card-row"><span>Аккаунт:</span><span class="card-val">${c.identity}</span></div>
+            <div class="card-row"><span>Модели:</span></div>
+            <div class="models-pill-box">${modelsHtml}</div>
+            <div class="test-result-box" id="test-res-${c.profile_id}"></div>
+          </div>
+
+          <div class="card-actions">
+            ${c.authenticated ? `<button class="btn btn-sm" onclick="runSingleTest('${c.provider}', '${c.profile_id}')">⚡ Тест</button>` : ''}
+            ${!c.is_main && c.authenticated ? `<button class="btn btn-sm" onclick="setMainProfile('${c.provider}', '${c.profile_id}')">⭐ Сделать основным</button>` : ''}
+            ${c.logical_role !== 'orchestrator' && c.authenticated ? `<button class="btn btn-sm" onclick="setOrchestrator('${c.profile_id}')">👑 Оркестратор</button>` : ''}
+            ${!c.authenticated && c.provider === 'antigravity' ? `<button class="btn btn-sm btn-primary" onclick="openAddWizardForSlot('${c.profile_id}')">🔑 Подключить</button>` : ''}
+            ${c.authenticated ? `<button class="btn btn-sm btn-danger" onclick="deleteProfile('${c.provider}', '${c.profile_id}')">🗑️</button>` : ''}
+          </div>
+        `;
+        container.appendChild(card);
+      });
+    }
+
+    function renderProviderTabs(statusData) {
+      renderCardsGrid("grid-prov-antigravity", statusData.providers.antigravity, false);
+      renderCardsGrid("grid-prov-openai-codex", statusData.providers["openai-codex"], false);
+      renderCardsGrid("grid-prov-opencode-go", statusData.providers["opencode-go"], false);
+    }
+
+    function renderRoutingView(data) {
+      const container = document.getElementById("routing-chains-container");
+      if (!container) return;
+      container.innerHTML = "";
+
+      for (const rname in data.roles) {
+        const r = data.roles[rname];
+        const box = document.createElement("div");
+        box.className = "team-card";
+        const chainHtml = (r.chain_cards || []).map((item, idx) => 
+          `<span style="color:${idx === 0 ? '#38bdf8' : '#e2e8f0'}; font-weight:700;">${item.display_name}</span>`
+        ).join(" &rarr; ");
+
+        box.innerHTML = `
+          <div class="card-role-title" style="text-transform:uppercase;">РОЛЬ: ${rname}</div>
+          <div style="font-size:14px; margin-top:8px;">
+            Цепочка выполнения: ${chainHtml}
+          </div>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+            Сессионная фиксация (Session Affinity): ${r.session_affinity ? 'Включена' : 'Отключена'} | Лимит переключений: ${r.max_failover}
+          </div>
+        `;
+        container.appendChild(box);
+      }
+    }
+
+    /* Actions */
+    async function runSingleTest(provider, profileId) {
+      const resBox = document.getElementById(`test-res-${profileId}`);
+      if (resBox) {
+        resBox.style.display = "block";
+        resBox.innerHTML = "⏳ Тестирование live inference...";
+      }
+
+      log(`[Тест] Отправка запроса на профиль '${profileId}'...`, "info");
+      try {
+        const res = await fetch("/api/profile/test", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider, profile_id: profileId })
+        });
+        const data = await res.json();
+        if (data.success) {
+          if (resBox) {
+            resBox.innerHTML = `<span style="color:#34d399; font-weight:700;">✔ PASS (${data.duration_sec}s)</span> &bull; <i>${data.response}</i>`;
+          }
+          log(`[PASS] ${profileId} (${data.duration_sec}s): "${data.response}"`, "pass");
+        } else {
+          if (resBox) {
+            resBox.innerHTML = `<span style="color:#f87171; font-weight:700;">✖ ${data.error}</span>`;
+          }
+          log(`[FAIL] ${profileId}: ${data.error}`, "fail");
+        }
+      } catch (err) {
+        if (resBox) resBox.innerHTML = `<span style="color:#f87171;">Ошибка вызова: ${err}</span>`;
+        log(`[FAIL] Ошибка вызова: ${err}`, "fail");
+      }
+    }
+
+    async function setMainProfile(provider, profileId) {
+      log(`Назначение '${profileId}' основным аккаунтом Hermes...`, "info");
+      try {
+        const res = await fetch("/api/profile/set-main", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider, profile_id: profileId })
+        });
+        const data = await res.json();
+        if (data.success) {
+          log(`[PASS] ${data.message}`, "pass");
+          loadAllData();
+        }
+      } catch (err) {
+        log(`Ошибка: ${err}`, "fail");
+      }
+    }
+
+    async function setOrchestrator(profileId) {
+      log(`Назначение '${profileId}' главным оркестратором роутера...`, "info");
+      try {
+        const res = await fetch("/api/profile/set-orchestrator", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profile_id: profileId })
+        });
+        const data = await res.json();
+        if (data.success) {
+          log(`[PASS] ${data.message}`, "pass");
+          loadAllData();
+        }
+      } catch (err) {
+        log(`Ошибка: ${err}`, "fail");
+      }
+    }
+
+    async function deleteProfile(provider, profileId) {
+      if (!confirm(`Очистить сохраненные данные для '${profileId}'?`)) return;
+      try {
+        const res = await fetch("/api/profile/delete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ provider, profile_id: profileId })
+        });
+        const data = await res.json();
+        log(data.message, "info");
+        loadAllData();
+      } catch (err) {
+        log(`Ошибка удаления: ${err}`, "fail");
+      }
+    }
+
+    /* Add Account Wizard */
+    let selectedSlotId = null;
+
+    function openAddWizard() {
+      selectedSlotId = null;
+      document.getElementById("wiz-step-1").classList.add("active");
+      document.getElementById("wiz-step-2").classList.remove("active");
+      document.getElementById("wiz-step-3").classList.remove("active");
+      document.getElementById("add-modal").classList.add("active");
+    }
+
+    function openAddWizardForSlot(slotId) {
+      openAddWizard();
+      selectedSlotId = slotId;
+    }
+
+    function closeAddWizard() {
+      document.getElementById("add-modal").classList.remove("active");
+      if (oauthPollInterval) {
+        clearInterval(oauthPollInterval);
+        oauthPollInterval = null;
+      }
+      if (currentOAuthSessionId) {
+        fetch(`/api/antigravity/oauth/cancel/${currentOAuthSessionId}`, { method: "POST" });
+        currentOAuthSessionId = null;
+      }
+      loadAllData();
+    }
+
+    async function proceedToAuthStep() {
+      const prov = document.querySelector('input[name="wiz-prov"]:checked').value;
+      const role = document.getElementById("wiz-role-select").value;
+
+      if (prov === "antigravity") {
+        log("Инициализация OAuth для Antigravity...", "info");
+        try {
+          const res = await fetch("/api/antigravity/oauth/start", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ profile_id: selectedSlotId, requested_role: role })
+          });
+          const data = await res.json();
+          currentOAuthSessionId = data.session_id;
+          currentOAuthUrl = data.auth_url;
+
+          document.getElementById("wiz-oauth-url").textContent = currentOAuthUrl;
+          document.getElementById("wiz-step-1").classList.remove("active");
+          document.getElementById("wiz-step-2").classList.add("active");
+
+          // Start polling
+          oauthPollInterval = setInterval(pollWizardOAuth, 1500);
+        } catch (err) {
+          log(`Ошибка старта OAuth: ${err}`, "fail");
+        }
+      } else {
+        alert("Провайдер Codex и OpenCode Go будет доступен на следующем этапе.");
+      }
+    }
+
+    function openWizardUrlInBrowser() {
+      if (currentOAuthUrl) window.open(currentOAuthUrl, "_blank");
+    }
+
+    function copyWizardUrl() {
+      if (currentOAuthUrl) {
+        navigator.clipboard.writeText(currentOAuthUrl);
+        log("Ссылка авторизации скопирована в буфер обмена.", "pass");
+      }
+    }
+
+    async function pollWizardOAuth() {
+      if (!currentOAuthSessionId) return;
+      try {
+        const res = await fetch(`/api/antigravity/oauth/poll/${currentOAuthSessionId}`);
+        const data = await res.json();
+
+        if (data.status === "completed") {
+          clearInterval(oauthPollInterval);
+          oauthPollInterval = null;
+          log(`[PASS] Авторизация успешна! Аккаунт: ${data.completed_info?.email_masked || 'OK'}`, "pass");
+
+          document.getElementById("wiz-step-2").classList.remove("active");
+          document.getElementById("wiz-step-3").classList.add("active");
+          document.getElementById("wiz-success-sub").textContent = `Привязан аккаунт: ${data.completed_info?.email_masked || 'Google Account'}`;
+
+          if (data.duplicate_warning) {
+            const dupBox = document.getElementById("wiz-duplicate-warning");
+            dupBox.style.display = "block";
+            dupBox.textContent = `Внимание: ${data.duplicate_warning}`;
+          }
+        } else if (data.status === "failed") {
+          clearInterval(oauthPollInterval);
+          oauthPollInterval = null;
+          log(`[FAIL] Авторизация не удалась: ${data.error_msg}`, "fail");
+          alert(`Ошибка авторизации: ${data.error_msg}`);
+          closeAddWizard();
+        }
+      } catch (e) {}
+    }
+
+    window.onload = () => {
+      loadAllData();
+    };
+  </script>
+</body>
+</html>

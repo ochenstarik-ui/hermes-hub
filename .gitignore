@@ -1,0 +1,66 @@
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# User runtime data & credentials (CRITICAL - NEVER COMMIT)
+auth.json
+*.auth.json
+*.key
+*.pem
+*.token
+router_state.json
+router_active_profile.json
+router_profiles.yaml
+*.log
+logs/
+agy_profiles/
+codex_profiles/
+opengo_profiles/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Windows build scratch
+*.obj
+*.pdb
+*.ilk
+scratch/
