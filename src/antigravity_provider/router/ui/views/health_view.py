@@ -42,13 +42,16 @@ class HealthView(ctk.CTkFrame):
 
         self.update_data()
 
-    def update_data(self, app_state: Optional[Dict[str, Any]] = None):
+    def update_data(self, snapshot: Optional[Any] = None):
         for w in self.scroll.winfo_children():
             w.destroy()
 
-        service = UnifiedHealthService.get()
-        readiness = service.get_system_readiness()
-        profiles_by_prov = service.scan_all()
+        from antigravity_provider.router.state_store import HubStateStore
+        if snapshot is None:
+            snapshot = HubStateStore.get().get_snapshot()
+
+        readiness = snapshot.readiness
+        profiles_by_prov = snapshot.profiles_by_provider
 
         # Top Diagnostic Banner
         banner = HubCard(self.scroll, border_color=Theme.BORDER_ACCENT, fg_color=Theme.DARK)

@@ -18,17 +18,27 @@ class SessionAffinityRecord:
 
 
 class SessionAffinityTracker:
-    """Thread-safe tracker maintaining session affinity across conversation turns."""
+    """Thread-safe tracker maintaining session affinity across conversation turns with TTL & LRU bounds."""
 
-    def __init__(self) -> None:
+    def __init__(self, ttl_seconds: int = 1800, max_entries: int = 1000) -> None:
         self._lock = threading.RLock()
+        self.ttl_seconds = ttl_seconds
+        self.max_entries = max_entries
         self._sessions: dict[str, SessionAffinityRecord] = {}
 
     def get_affinity(self, session_id: Optional[str]) -> Optional[SessionAffinityRecord]:
         if not session_id:
             return None
         with self._lock:
-            return self._sessions.get(session_id)
+            rec = self._sessions.get(session_id)
+            if not rec:
+                return None
+            now = time.time()
+            if self.ttl_seconds > 0 and (now - rec.updated_at) > self.ttl_seconds:
+                # Expired -> prune and return None
+                self._sessions.pop(session_id, None)
+                return None
+            return rec
 
     def set_affinity(
         self,
@@ -41,6 +51,14 @@ class SessionAffinityTracker:
             return
         with self._lock:
             now = time.time()
+            # Enforce max capacity & pruning
+            if len(self._sessions) >= self.max_entries and session_id not in self._sessions:
+                self.prune_expired()
+                if len(self._sessions) >= self.max_entries:
+                    # Evict oldest entry (LRU)
+                    oldest_key = min(self._sessions.keys(), key=lambda k: self._sessions[k].updated_at)
+                    self._sessions.pop(oldest_key, None)
+
             if session_id in self._sessions:
                 rec = self._sessions[session_id]
                 rec.role = role
@@ -56,6 +74,17 @@ class SessionAffinityTracker:
                     created_at=now,
                     updated_at=now,
                 )
+
+    def prune_expired(self) -> int:
+        """Remove all expired affinity records. Returns count of pruned records."""
+        with self._lock:
+            if self.ttl_seconds <= 0:
+                return 0
+            now = time.time()
+            expired_keys = [k for k, v in self._sessions.items() if (now - v.updated_at) > self.ttl_seconds]
+            for k in expired_keys:
+                self._sessions.pop(k, None)
+            return len(expired_keys)
 
     def clear_session(self, session_id: str) -> None:
         with self._lock:

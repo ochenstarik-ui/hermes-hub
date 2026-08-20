@@ -180,6 +180,7 @@ class HubEvent:
 
 class EventLogService:
     _instance: Optional[EventLogService] = None
+    _instance_lock = threading.Lock()
     _events: List[HubEvent] = []
     _lock = threading.RLock()
 
@@ -189,19 +190,21 @@ class EventLogService:
     @classmethod
     def get(cls) -> EventLogService:
         if cls._instance is None:
-            cls._instance = cls()
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
         return cls._instance
 
     def log(self, category: str, message: str, details: Optional[str] = None, level: str = "info"):
+        ts = time.strftime("%H:%M:%S")
+        event = HubEvent(timestamp=ts, category=category, message=message, details=details, level=level)
         with self._lock:
-            ts = time.strftime("%H:%M:%S")
-            event = HubEvent(timestamp=ts, category=category, message=message, details=details, level=level)
             self._events.append(event)
             # Cap at last 200 events
             if len(self._events) > 200:
                 self._events = self._events[-200:]
-            # Append to hermes-hub.log
-            self._append_to_file(event)
+        # Append to hermes-hub.log outside lock
+        self._append_to_file(event)
 
     def get_events(self, limit: int = 50, category: Optional[str] = None) -> List[HubEvent]:
         with self._lock:
@@ -235,6 +238,7 @@ class EventLogService:
 
 class UnifiedHealthService:
     _instance: Optional[UnifiedHealthService] = None
+    _instance_lock = threading.Lock()
 
     def __init__(self):
         self._last_scan_time: Optional[float] = None
@@ -244,7 +248,9 @@ class UnifiedHealthService:
     @classmethod
     def get(cls) -> UnifiedHealthService:
         if cls._instance is None:
-            cls._instance = cls()
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
         return cls._instance
 
     def scan_all(self, force: bool = False) -> Dict[str, List[ProfileViewModel]]:
@@ -443,9 +449,32 @@ class UnifiedHealthService:
 
             return result
 
+    def get_cached_profiles(self) -> Dict[str, List[ProfileViewModel]]:
+        """Return currently cached profiles grouped by provider without disk I/O."""
+        with self._lock:
+            if not self._cached_profiles:
+                return self.scan_all(force=False)
+            res: Dict[str, List[ProfileViewModel]] = {}
+            for p in self._cached_profiles.values():
+                res.setdefault(p.provider, []).append(p)
+            return res
+
+    def get_profile_status(self, provider: str, profile_id: str) -> Dict[str, Any]:
+        """Return authentication status for a specific profile."""
+        with self._lock:
+            p = self._cached_profiles.get(profile_id)
+            if p:
+                return {
+                    "authenticated": p.auth_state == "AUTHENTICATED",
+                    "auth_mode": "oauth" if "ChatGPT" in p.account_identity or "Google" in p.provider_display_name or "Claude" in p.provider_display_name else "api_key",
+                    "email": p.email or p.account_identity,
+                    "profile_id": profile_id,
+                }
+        return ProfileAuthManager.get_profile_status(provider, profile_id)
+
     def get_system_readiness(self) -> SystemReadiness:
         """Calculate aggregate system readiness based on real routing availability."""
-        profiles_by_prov = self.scan_all()
+        profiles_by_prov = self.scan_all(force=False)
         config = load_router_config()
 
         total_roles = len(config.roles)
@@ -525,7 +554,7 @@ class UnifiedHealthService:
     def get_agent_view_models(self) -> List[AgentViewModel]:
         """Build logical agent representations."""
         config = load_router_config()
-        self.scan_all()
+        self.scan_all(force=False)
 
         ROLE_META = {
             "orchestrator": ("Главный оркестратор", "Управление командой, планирование, контроль исполнения"),
@@ -582,7 +611,7 @@ class UnifiedHealthService:
 
     def get_provider_summaries(self) -> List[ProviderSummary]:
         """Build real summaries per provider."""
-        profiles_by_prov = self.scan_all()
+        profiles_by_prov = self.scan_all(force=False)
         summaries: List[ProviderSummary] = []
         now_str = time.strftime("%H:%M:%S")
 
@@ -590,6 +619,8 @@ class UnifiedHealthService:
             ("antigravity", "Google Antigravity"),
             ("openai-codex", "OpenAI Codex"),
             ("opencode-go", "OpenCode Go"),
+            ("claude", "Claude"),
+            ("grok", "Grok"),
         ]:
             profs = profiles_by_prov.get(prov_id, [])
             total = len(profs)
@@ -621,9 +652,9 @@ class UnifiedHealthService:
         return summaries
 
     def get_routing_pipelines(self) -> Dict[str, RolePipeline]:
-        """Build visual pipeline representation per role."""
+        """Build visual pipeline representation per role without redundant disk scans."""
         config = load_router_config()
-        self.scan_all()
+        self.scan_all(force=False)
         pipelines: Dict[str, RolePipeline] = {}
 
         ROLE_NAMES = {

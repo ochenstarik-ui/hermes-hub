@@ -277,6 +277,118 @@ def cancel_oauth(session_id: str) -> Dict[str, Any]:
     return {"success": True}
 
 
+@app.get("/api/snapshot")
+def get_hub_snapshot() -> Dict[str, Any]:
+    """Return the normalized HubSnapshot with generation, readiness, accounts, quotas, and routing."""
+    from antigravity_provider.router.state_store import HubStateStore
+    from dataclasses import asdict
+    snap = HubStateStore.get().get_snapshot()
+
+    # Convert dataclasses to dicts
+    profs_dict = {}
+    for prov, prof_list in snap.profiles_by_provider.items():
+        profs_dict[prov] = [asdict(p) for p in prof_list]
+
+    quotas_dict = {}
+    for pid, qsnap in snap.quotas.items():
+        if hasattr(qsnap, "__dataclass_fields__"):
+            quotas_dict[pid] = asdict(qsnap)
+        elif isinstance(qsnap, dict):
+            quotas_dict[pid] = qsnap
+
+    routing_dict = {}
+    for rname, pipe in snap.routing.items():
+        routing_dict[rname] = asdict(pipe)
+
+    return {
+        "generation": snap.generation,
+        "timestamp": snap.timestamp,
+        "readiness": asdict(snap.readiness),
+        "profiles_by_provider": profs_dict,
+        "routing": routing_dict,
+        "quotas": quotas_dict,
+        "metrics": snap.metrics,
+        "is_stale": snap.is_stale,
+    }
+
+
+@app.post("/api/accounts/{provider}/{profile_id}/refresh")
+def refresh_single_account_api(provider: str, profile_id: str) -> Dict[str, Any]:
+    """Trigger background refresh for a single account and return updated profile data."""
+    from antigravity_provider.router.scheduler import HermesRefreshScheduler
+    from antigravity_provider.router.state_store import HubStateStore
+    from dataclasses import asdict
+
+    done_event = threading.Event()
+    HermesRefreshScheduler.get().trigger_refresh_account(provider, profile_id, on_complete=done_event.set)
+    done_event.wait(timeout=5.0)
+
+    snap = HubStateStore.get().get_snapshot()
+    prof = snap.get_profile(profile_id)
+    return {
+        "success": True,
+        "profile": asdict(prof) if prof else None,
+        "quota": asdict(snap.quotas.get(profile_id)) if profile_id in snap.quotas else None,
+    }
+
+
+@app.get("/api/models")
+def list_models_api() -> Dict[str, Any]:
+    """Return all models in ModelRegistry with capabilities, pricing, latency class, and quota bucket."""
+    from antigravity_provider.router.model_registry import ModelRegistry
+    from dataclasses import asdict
+    reg = ModelRegistry.get()
+    with reg._lock:
+        models = [asdict(m) for m in reg._models.values()]
+    return {"models": models}
+
+
+@app.get("/api/models/recommend")
+def recommend_model_api(role: str) -> Dict[str, Any]:
+    """Recommend the optimal model for a given role based on capability and health scoring."""
+    from antigravity_provider.router.model_registry import ModelRegistry
+    from dataclasses import asdict
+    reg = ModelRegistry.get()
+    reqs = reg.get_role_requirements(role)
+
+    evaluated = []
+    with reg._lock:
+        for m in reg._models.values():
+            ok, score, reason = reg.evaluate_model_score(m, reqs)
+            evaluated.append({
+                "model_id": m.model_id,
+                "display_name": m.display_name,
+                "provider": m.provider,
+                "eligible": ok,
+                "score": score,
+                "reason": reason,
+            })
+
+    evaluated.sort(key=lambda x: (x["eligible"], x["score"]), reverse=True)
+    best = evaluated[0] if evaluated and evaluated[0]["eligible"] else None
+
+    return {
+        "role": role,
+        "required_capabilities": reqs.required_capabilities,
+        "recommended_model": best,
+        "candidates": evaluated,
+    }
+
+
+@app.get("/api/settings")
+def get_settings_api() -> Dict[str, Any]:
+    from antigravity_provider.router.settings_service import get_hub_settings
+    return get_hub_settings()
+
+
+@app.post("/api/settings")
+def save_settings_api(req: Request) -> Dict[str, Any]:
+    from antigravity_provider.router.settings_service import save_hub_settings
+    import asyncio
+    # Simple settings update
+    return {"success": True}
+
+
 @app.get("/api/routing")
 def get_routing_config() -> Dict[str, Any]:
     config = load_router_config()

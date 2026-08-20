@@ -279,10 +279,13 @@ class TeamView(ctk.CTkFrame):
         for col_idx in range(3):
             self.cards_grid.grid_columnconfigure(col_idx, weight=1)
 
-    def update_data(self, app_state: Optional[Dict[str, Any]] = None):
-        service = UnifiedHealthService.get()
-        readiness = service.get_system_readiness()
-        agents = service.get_agent_view_models()
+    def update_data(self, snapshot: Optional[Any] = None):
+        from antigravity_provider.router.state_store import HubStateStore
+        if snapshot is None:
+            snapshot = HubStateStore.get().get_snapshot()
+
+        readiness = snapshot.readiness
+        agents = snapshot.agents
 
         # Update metric cards
         self.m1.val_label.configure(text=f"{readiness.roles_ready_count}/{readiness.total_roles}")

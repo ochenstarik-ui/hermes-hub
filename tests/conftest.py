@@ -24,10 +24,32 @@ def isolate_hermes_environment(tmp_path, monkeypatch):
     temp_hermes.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv("HERMES_HOME", str(temp_hermes))
 
-    # Also isolate agy profile dirs
+    # Isolate all provider profile dirs
     (temp_hermes / "agy_profiles").mkdir(exist_ok=True)
     (temp_hermes / "codex_profiles").mkdir(exist_ok=True)
     (temp_hermes / "opengo_profiles").mkdir(exist_ok=True)
+    (temp_hermes / "claude_profiles").mkdir(exist_ok=True)
+    (temp_hermes / "grok_profiles").mkdir(exist_ok=True)
     (temp_hermes / "logs").mkdir(exist_ok=True)
 
     yield temp_hermes
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "ui: mark test as requiring CustomTkinter / Tk graphical environment")
+
+
+def pytest_collection_modifyitems(config, items):
+    """Ensure tests requiring CustomTkinter gracefully skip if it cannot be loaded."""
+    has_ctk = False
+    try:
+        import customtkinter as _ctk  # noqa
+        has_ctk = True
+    except Exception:
+        has_ctk = False
+
+    if not has_ctk:
+        skip_ui = pytest.mark.skip(reason="customtkinter is not installed in current environment")
+        for item in items:
+            if "ui" in item.keywords or "view" in item.name.lower() or "wizard" in item.name.lower():
+                item.add_marker(skip_ui)

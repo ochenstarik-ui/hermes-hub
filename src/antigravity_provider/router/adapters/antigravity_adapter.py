@@ -49,11 +49,26 @@ class AntigravityAdapter(BaseProviderAdapter):
 
         # Load profile-specific auth and swap into Windows Credential Manager if present
         profile_auth = ProfileAuthManager.load_profile_auth("antigravity", profile.profile_id)
+        prev_cred = None
 
-        with _CM_LOCK:
-            if profile_auth:
+        if profile_auth:
+            with _CM_LOCK:
+                try:
+                    prev_cred = ProfileAuthManager.read_windows_credential("gemini:antigravity")
+                except Exception:
+                    prev_cred = None
                 ProfileAuthManager.write_windows_credential("gemini:antigravity", profile_auth)
+
+        try:
             res = agy_generate(req, custom_env=custom_env)
+        finally:
+            if profile_auth:
+                with _CM_LOCK:
+                    try:
+                        if prev_cred:
+                            ProfileAuthManager.write_windows_credential("gemini:antigravity", prev_cred)
+                    except Exception:
+                        pass
 
         if isinstance(res, dict) and "error" in res:
             err_dict = res.get("error")

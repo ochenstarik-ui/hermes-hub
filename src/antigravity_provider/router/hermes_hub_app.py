@@ -153,6 +153,7 @@ class HermesHubApp(ctk.CTk):
 
         self._current_view = "team"
         self._views: Dict[str, ctk.CTkFrame] = {}
+        self._view_generations: Dict[str, int] = {}
         self._shutting_down = False
         self._resize_timer_id = None
 
@@ -161,6 +162,12 @@ class HermesHubApp(ctk.CTk):
 
         self._build_layout()
         self._show_view("team")
+
+        try:
+            from antigravity_provider.router.scheduler import HermesRefreshScheduler
+            HermesRefreshScheduler.get().start()
+        except Exception:
+            pass
 
         try:
             from antigravity_provider.router.quota_collector import AccountQuotaService
@@ -280,7 +287,7 @@ class HermesHubApp(ctk.CTk):
             return TeamView(self.content, app_state={}, on_action=self._handle_action)
 
     def _show_view(self, view_name: str):
-        """Instant view switching using pack_forget() and cached widgets with latency instrumentation."""
+        """Instant view switching using pack_forget() and cached widgets with lazy generation update."""
         t0 = time.time()
         prev_view = self._current_view
         self._current_view = view_name
@@ -310,9 +317,20 @@ class HermesHubApp(ctk.CTk):
         if target_view:
             target_view.pack(fill="both", expand=True)
 
+            # Lazy update if view state is behind current snapshot generation
+            from antigravity_provider.router.state_store import HubStateStore
+            snap = HubStateStore.get().get_snapshot()
+            if self._view_generations.get(view_name, 0) < snap.generation:
+                if hasattr(target_view, "update_data"):
+                    try:
+                        target_view.update_data(snap)
+                    except Exception as ex:
+                        logger.warning("Error in lazy view update for %s: %s", view_name, ex)
+                self._view_generations[view_name] = snap.generation
+
         # Instrument tab switch latency
         el_ms = round((time.time() - t0) * 1000, 2)
-        if el_ms > 200:
+        if el_ms > 100:
             logger.warning(f"[TAB SWITCH SLOW] {prev_view} -> {view_name}: {el_ms} ms")
         else:
             logger.debug(f"[TAB SWITCH] {prev_view} -> {view_name}: {el_ms} ms")
@@ -331,7 +349,7 @@ class HermesHubApp(ctk.CTk):
     def _handle_debounced_resize(self):
         self._resize_timer_id = None
 
-    # ─────── Data Refresh (Threaded) ───────
+    # ─────── Data Refresh (Threaded via Scheduler & HubStateStore) ───────
 
     def _refresh_data(self):
         if self._shutting_down:
@@ -345,11 +363,10 @@ class HermesHubApp(ctk.CTk):
             if self._shutting_down:
                 return
             try:
-                service = UnifiedHealthService.get()
-                service.scan_all()
-                readiness = service.get_system_readiness()
+                from antigravity_provider.router.state_store import HubStateStore
+                snap = HubStateStore.get().refresh(force_scan=True)
                 if not self._shutting_down:
-                    self.after(0, lambda: self._on_data_loaded(readiness))
+                    self.after(0, lambda: self._on_data_loaded(snap))
             except Exception as e:
                 if not self._shutting_down:
                     try:
@@ -359,9 +376,17 @@ class HermesHubApp(ctk.CTk):
 
         threading.Thread(target=_load, daemon=True).start()
 
-    def _on_data_loaded(self, readiness: SystemReadiness):
+    def _on_data_loaded(self, snapshot_or_readiness: Any):
         if self._shutting_down:
             return
+
+        from antigravity_provider.router.state_store import HubSnapshot, HubStateStore
+        if isinstance(snapshot_or_readiness, HubSnapshot):
+            snap = snapshot_or_readiness
+            readiness = snap.readiness
+        else:
+            snap = HubStateStore.get().get_snapshot()
+            readiness = snapshot_or_readiness
 
         self.status_left.configure(
             text=f"Аккаунты: {readiness.accounts_connected_count}/{readiness.total_accounts} | Роли: {readiness.roles_ready_count}/{readiness.total_roles} | Провайдеры: {readiness.providers_ready_count}/{readiness.total_providers} | Обновлено: {time.strftime('%H:%M:%S')}"
@@ -370,13 +395,14 @@ class HermesHubApp(ctk.CTk):
         r_color = Theme.STATUS_HEALTHY if readiness.state == "healthy" else (Theme.STATUS_WARNING if readiness.state in ("limited", "degraded") else Theme.STATUS_ERROR)
         self.status_right.configure(text=f"● {readiness.title_ru}", text_color=r_color)
 
-        # Update active cached views
-        for v in self._views.values():
-            if hasattr(v, "update_data"):
-                try:
-                    v.update_data()
-                except Exception:
-                    pass
+        # Update ONLY the currently visible view (others are updated lazily on tab switch)
+        curr_view = self._views.get(self._current_view)
+        if curr_view and hasattr(curr_view, "update_data"):
+            try:
+                curr_view.update_data(snap)
+            except Exception as ex:
+                logger.warning("Error updating current view %s: %s", self._current_view, ex)
+            self._view_generations[self._current_view] = snap.generation
 
     def _on_data_error(self, error: str):
         if self._shutting_down:
@@ -513,8 +539,8 @@ class HermesHubApp(ctk.CTk):
     def _restore_status(self):
         if self._shutting_down:
             return
-        service = UnifiedHealthService.get()
-        readiness = service.get_system_readiness()
+        from antigravity_provider.router.state_store import HubStateStore
+        readiness = HubStateStore.get().get_snapshot().readiness
         self.status_left.configure(
             text=f"Аккаунты: {readiness.accounts_connected_count}/{readiness.total_accounts} | Роли: {readiness.roles_ready_count}/{readiness.total_roles} | Провайдеры: {readiness.providers_ready_count}/{readiness.total_providers} | Обновлено: {time.strftime('%H:%M:%S')}"
         )
@@ -522,6 +548,11 @@ class HermesHubApp(ctk.CTk):
     def _on_close(self):
         """Graceful shutdown coordinator without leaving orphan processes."""
         self._shutting_down = True
+        try:
+            from antigravity_provider.router.scheduler import HermesRefreshScheduler
+            HermesRefreshScheduler.get().stop()
+        except Exception:
+            pass
         try:
             from antigravity_provider.router.quota_collector import AccountQuotaService
             AccountQuotaService.get().stop_background_scheduler()
@@ -533,14 +564,25 @@ class HermesHubApp(ctk.CTk):
         except Exception:
             pass
         try:
+            global _APP_MUTEX_HANDLE
+            if _APP_MUTEX_HANDLE and sys.platform == "win32":
+                ctypes.windll.kernel32.CloseHandle(_APP_MUTEX_HANDLE)
+                _APP_MUTEX_HANDLE = None
+        except Exception:
+            pass
+        try:
             self.destroy()
         except Exception:
             pass
         os._exit(0)
 
 
+_APP_MUTEX_HANDLE = None
+
+
 def check_single_instance() -> bool:
     """Ensure only one Hermes Hub instance runs. If already running, activate existing window and return False."""
+    global _APP_MUTEX_HANDLE
     if sys.platform != "win32":
         return True
     try:
@@ -557,7 +599,11 @@ def check_single_instance() -> bool:
             if hwnd:
                 user32.ShowWindow(hwnd, 9)  # SW_RESTORE
                 user32.SetForegroundWindow(hwnd)
+            if mutex:
+                kernel32.CloseHandle(mutex)
             return False
+
+        _APP_MUTEX_HANDLE = mutex
         return True
     except Exception:
         return True

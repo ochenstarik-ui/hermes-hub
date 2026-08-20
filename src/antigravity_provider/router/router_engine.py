@@ -119,6 +119,10 @@ class RouterEngine:
         else:
             max_attempts = 1
 
+        from .model_registry import ModelRegistry, RouterSelectionTrace
+        registry = ModelRegistry.get()
+        role_reqs = registry.get_role_requirements(target_role)
+
         for pid in candidate_profiles:
             if attempts >= max_attempts:
                 break
@@ -127,29 +131,58 @@ class RouterEngine:
             if not pconfig or not pconfig.enabled:
                 continue
 
-            # Model selection with same-account fallback support
+            # Model selection with capability evaluation & same-account fallback support
             selected_model = requested_model
             prefer_same_account = bool(hub_settings.get("prefer_same_account_model_fallback", False)) or getattr(role_policy, "allow_model_fallback", False)
 
-            # Check health and quota for requested model
-            if not self.health.is_healthy(pid, requested_model):
-                # If same-account model fallback is enabled, check alternate models on this profile
-                fallback_found = False
-                if prefer_same_account and pconfig.preferred_models:
-                    for alt_m in pconfig.preferred_models:
-                        if alt_m != requested_model and self.health.is_healthy(pid, alt_m):
-                            selected_model = alt_m
-                            fallback_found = True
-                            logger.info("Router same-account model fallback for %s: %s -> %s", pid, requested_model, alt_m)
-                            break
+            # Determine viable model list for this profile
+            viable_models = list(pconfig.preferred_models) if pconfig.preferred_models else []
+            if requested_model and requested_model not in viable_models:
+                viable_models.insert(0, requested_model)
+            if role_policy.default_model and role_policy.default_model not in viable_models:
+                viable_models.append(role_policy.default_model)
 
-                if not fallback_found:
-                    failover_trail.append({
-                        "profile_id": pid,
-                        "provider": pconfig.provider,
-                        "status": "skipped_unhealthy",
-                    })
-                    continue
+            # Score and filter models by capability
+            scored_candidates: list[tuple[float, str]] = []
+            for m_candidate in viable_models:
+                m_desc = registry.get_model(m_candidate)
+                if m_desc:
+                    ok, score, _ = registry.evaluate_model_score(m_desc, role_reqs)
+                    if ok:
+                        scored_candidates.append((score, m_candidate))
+                else:
+                    # Model not in registry -> allow with baseline score
+                    scored_candidates.append((0.5, m_candidate))
+
+            scored_candidates.sort(key=lambda x: x[0], reverse=True)
+
+            # Find first healthy model
+            chosen_model = None
+            if requested_model and self.health.is_healthy(pid, requested_model):
+                chosen_model = requested_model
+            elif prefer_same_account and scored_candidates:
+                for _, m_cand in scored_candidates:
+                    if m_cand != requested_model and self.health.is_healthy(pid, m_cand):
+                        chosen_model = m_cand
+                        logger.info("Router same-account model fallback for %s: %s -> %s", pid, requested_model, m_cand)
+                        break
+            elif not requested_model and scored_candidates:
+                for _, m_cand in scored_candidates:
+                    if self.health.is_healthy(pid, m_cand):
+                        chosen_model = m_cand
+                        break
+            elif self.health.is_healthy(pid, None):
+                chosen_model = requested_model or "default"
+
+            if not chosen_model:
+                failover_trail.append({
+                    "profile_id": pid,
+                    "provider": pconfig.provider,
+                    "status": "skipped_unhealthy",
+                })
+                continue
+
+            selected_model = chosen_model
 
             # Try to acquire concurrency lease
             if not self.leases.acquire(pid, pconfig.max_concurrency):
@@ -190,6 +223,17 @@ class RouterEngine:
                 if target_session and affinity_enabled:
                     self.affinity.set_affinity(target_session, target_role, pid, exec_request.get("model"))
 
+                # Selection trace
+                selection_trace = {
+                    "role": target_role,
+                    "required_capabilities": role_reqs.required_capabilities,
+                    "candidates_evaluated": len(candidate_profiles),
+                    "selected_profile_id": pid,
+                    "selected_provider": pconfig.provider,
+                    "selected_model": exec_request.get("model"),
+                    "decision_rationale": f"Matched capability requirements for role '{target_role}' with health score.",
+                }
+
                 # Attach router telemetry
                 if isinstance(response, dict):
                     response.setdefault("router_metadata", {
@@ -200,6 +244,7 @@ class RouterEngine:
                         "failover_count": attempts - 1,
                         "elapsed_seconds": round(elapsed, 3),
                         "failover_trail": failover_trail,
+                        "selection_trace": selection_trace,
                     })
 
                 return response

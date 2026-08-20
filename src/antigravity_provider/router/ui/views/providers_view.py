@@ -39,11 +39,15 @@ class ProvidersView(ctk.CTkFrame):
 
         self.update_data()
 
-    def update_data(self, app_state: Optional[Dict[str, Any]] = None):
+    def update_data(self, snapshot: Optional[Any] = None):
         for w in self.scroll.winfo_children():
             w.destroy()
 
-        summaries = UnifiedHealthService.get().get_provider_summaries()
+        from antigravity_provider.router.state_store import HubStateStore
+        if snapshot is None:
+            snapshot = HubStateStore.get().get_snapshot()
+
+        summaries = snapshot.providers
 
         for s in summaries:
             col = Theme.PROVIDER_ANTIGRAVITY if "antigravity" in s.provider_id else (Theme.PROVIDER_CODEX if "codex" in s.provider_id else Theme.PROVIDER_OPENCODE)

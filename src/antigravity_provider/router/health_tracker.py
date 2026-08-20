@@ -161,6 +161,17 @@ class HealthTracker:
             if record.overall_state == DISABLED:
                 return False
 
+            # Check profile-level default family
+            if "default" in record.families:
+                def_rec = record.families["default"]
+                if def_rec.state in (QUOTA_EXHAUSTED, RATE_LIMITED, COOLDOWN):
+                    if def_rec.reset_at and now >= def_rec.reset_at:
+                        def_rec.state = HEALTHY
+                        def_rec.reset_at = None
+                        def_rec.simulated = False
+                    else:
+                        return False
+
             family = extract_model_family(model_name)
             if family in record.families:
                 frec = record.families[family]
@@ -184,7 +195,7 @@ class HealthTracker:
                 if frec.state in (AUTH_REQUIRED, UNHEALTHY, DISABLED):
                     return False
 
-            if record.overall_state in (AUTH_REQUIRED, UNHEALTHY, DISABLED):
+            if record.overall_state in (AUTH_REQUIRED, UNHEALTHY, DISABLED, QUOTA_EXHAUSTED, RATE_LIMITED):
                 return False
 
             return True
@@ -199,13 +210,16 @@ class HealthTracker:
             record.simulated = False
 
             family = extract_model_family(model_name)
-            if family not in record.families:
-                record.families[family] = FamilyHealthRecord(family=family)
-            frec = record.families[family]
-            frec.state = HEALTHY
-            frec.reset_at = None
-            frec.success_count += 1
-            frec.simulated = False
+            if family in record.families:
+                frec = record.families[family]
+                frec.state = HEALTHY
+                frec.reset_at = None
+                frec.success_count += 1
+                frec.simulated = False
+            if "default" in record.families:
+                record.families["default"].state = HEALTHY
+                record.families["default"].reset_at = None
+                record.families["default"].simulated = False
 
             self._save_state()
 
@@ -223,6 +237,8 @@ class HealthTracker:
             record.last_used = now
             record.last_error = reason
             record.simulated = simulated
+            if not model_name or model_name == "default":
+                record.overall_state = QUOTA_EXHAUSTED
 
             family = extract_model_family(model_name)
             if family not in record.families:
