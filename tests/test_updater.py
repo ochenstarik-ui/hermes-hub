@@ -3,6 +3,8 @@
 Verifies:
 - Semantic version comparison logic.
 - Cryptographic SHA-256 verification.
+- Host allowlist validation (allowing GitHub feeds, rejecting arbitrary external domains).
+- Friendly handling when release feed is not configured (404 handling).
 - Rejection of corrupt / tampered update packages.
 - Automatic hermetic rollback on post-update verification failure.
 - E2E dogfood update flow (0.1.1 -> 0.1.2) preserving all credentials and configuration.
@@ -13,12 +15,15 @@ import io
 import json
 import zipfile
 from pathlib import Path
+from unittest.mock import MagicMock, patch
+import urllib.error
 import pytest
 
 from antigravity_provider.updater.update_manager import (
     UpdateManager,
     UpdateManifest,
     compute_sha256,
+    is_allowed_update_host,
     is_newer_version,
     parse_semver,
 )
@@ -44,6 +49,42 @@ def test_sha256_verification(tmp_path):
     h = compute_sha256(f)
     assert len(h) == 64
     assert h == compute_sha256(f)
+
+
+@pytest.mark.unit
+def test_host_allowlist_validation():
+    """Verify that update host allowlist allows GitHub domains and rejects arbitrary/evil URLs."""
+    # Allowlisted hosts
+    assert is_allowed_update_host("https://raw.githubusercontent.com/ochenstarik-ui/hermes-hub-releases/main/update_manifest.json") is True
+    assert is_allowed_update_host("https://github.com/ochenstarik-ui/hermes-hub-releases/releases/download/v0.1.1/pkg.zip") is True
+    assert is_allowed_update_host("https://objects.githubusercontent.com/github-production-release-asset/pkg.zip") is True
+
+    # Untrusted / Malicious hosts
+    assert is_allowed_update_host("http://evil-server.com/malicious_update.zip") is False
+    assert is_allowed_update_host("https://evil-server.com/malicious_update.zip") is False
+    assert is_allowed_update_host("ftp://github.com/pkg.zip") is False
+
+
+@pytest.mark.unit
+def test_manifest_404_friendly_message(tmp_path, monkeypatch):
+    """Verify that when release feed is not configured (404), a friendly message is returned without crash."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+
+    mgr = UpdateManager(manifest_url="https://raw.githubusercontent.com/ochenstarik-ui/hermes-hub-releases/main/update_manifest.json")
+
+    mock_http_404 = urllib.error.HTTPError(
+        url=mgr.manifest_url,
+        code=404,
+        msg="Not Found",
+        hdrs={},
+        fp=io.BytesIO(b"Not Found"),
+    )
+
+    with patch("urllib.request.urlopen", side_effect=mock_http_404):
+        res = mgr.check_for_updates()
+        assert res.update_available is False
+        assert res.error is not None
+        assert "не настроен" in res.error.lower()
 
 
 @pytest.mark.unit
@@ -94,7 +135,7 @@ def test_updater_rollback_on_failure(tmp_path, monkeypatch):
     # Rollback must occur
     assert ok is False
     assert "откат" in msg.lower() or "rollback" in msg.lower()
-    
+
     # Original version must remain intact
     restored_code = (src_dir / "version.py").read_text(encoding="utf-8")
     assert '__version__ = "0.1.1"' in restored_code

@@ -73,14 +73,36 @@ def compute_sha256(file_path: Path) -> str:
     return h.hexdigest().lower()
 
 
+DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/ochenstarik-ui/hermes-hub-releases/main/update_manifest.json"
+
+ALLOWED_UPDATE_HOSTS = {
+    "github.com",
+    "raw.githubusercontent.com",
+    "objects.githubusercontent.com",
+    "github-releases.githubusercontent.com",
+}
+
+
+def is_allowed_update_host(url: str, allow_dev_local: bool = False) -> bool:
+    """Verify that URL points to an authorized release feed host."""
+    if url.startswith("file://") or Path(url).exists():
+        return allow_dev_local or os.environ.get("HERMES_HUB_DEV_MODE") == "1"
+    try:
+        from urllib.parse import urlparse
+        parsed = urlparse(url)
+        if parsed.scheme.lower() != "https":
+            return False
+        hostname = (parsed.hostname or "").lower()
+        return hostname in ALLOWED_UPDATE_HOSTS or any(hostname.endswith("." + h) for h in ALLOWED_UPDATE_HOSTS)
+    except Exception:
+        return False
+
+
 class UpdateManager:
     """Manages update checks, package download, hash validation, and updater execution."""
 
     def __init__(self, manifest_url: Optional[str] = None):
-        self.manifest_url = manifest_url or os.environ.get(
-            "HERMES_HUB_UPDATE_URL",
-            "https://raw.githubusercontent.com/ochenstarik-ui/hermes-hub/main/dist/update_manifest.json"
-        )
+        self.manifest_url = manifest_url or os.environ.get("HERMES_HUB_UPDATE_URL", DEFAULT_UPDATE_URL)
         self.updates_dir = paths.get_hermes_home() / "updates"
         self.staging_dir = self.updates_dir / "staging"
         self.backup_dir = self.updates_dir / "backup_prev"
@@ -92,12 +114,25 @@ class UpdateManager:
             if manifest_dict:
                 data = manifest_dict
             else:
+                if not is_allowed_update_host(self.manifest_url, allow_dev_local=True):
+                    raise ValueError(f"Недопустимый хост источника обновлений: {self.manifest_url}")
+
                 req = urllib.request.Request(
                     self.manifest_url,
                     headers={"User-Agent": f"HermesHub/{__version__} (Windows)"}
                 )
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    data = json.loads(resp.read().decode("utf-8"))
+                try:
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        data = json.loads(resp.read().decode("utf-8"))
+                except urllib.error.HTTPError as http_err:
+                    if http_err.code == 404:
+                        return UpdateCheckResult(
+                            update_available=False,
+                            current_version=__version__,
+                            latest_version=__version__,
+                            error="Канал обновлений пока не настроен.",
+                        )
+                    raise
 
             manifest = UpdateManifest(
                 version=data.get("version", "0.0.0"),
@@ -136,6 +171,9 @@ class UpdateManager:
         dest_file = self.staging_dir / f"hermes-hub-{manifest.version}.zip"
 
         try:
+            if not is_allowed_update_host(manifest.package_url, allow_dev_local=True):
+                return False, f"Недопустимый хост пакета обновления: {manifest.package_url}", None
+
             if manifest.package_url.startswith("file://") or Path(manifest.package_url).is_file():
                 local_src = Path(manifest.package_url.replace("file://", ""))
                 shutil.copy2(local_src, dest_file)
