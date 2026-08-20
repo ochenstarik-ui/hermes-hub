@@ -405,6 +405,8 @@ class HermesHubApp(ctk.CTk):
                 lambda: do_delete_credentials(prov, pid),
                 on_success=lambda r: self._show_toast(f"✅ {r[1]}" if r[0] else f"❌ {r[1]}"),
             )
+        elif action == "assign_role":
+            self._open_assign_role_modal(pid, data.get("display_name", pid))
         elif action == "auto_assign_all":
             self._show_toast("⚡ Автоматическое распределение ролей...")
             self._run_in_thread(
@@ -413,6 +415,51 @@ class HermesHubApp(ctk.CTk):
             )
         elif action == "refresh_data":
             self._refresh_data()
+
+    def _open_assign_role_modal(self, profile_id: str, display_name: str):
+        modal = HubModal(self, title=f"Назначение роли: {display_name}", width=500, height=420)
+        
+        ctk.CTkLabel(
+            modal.body,
+            text=f"Выберите роль в команде Hermes для профиля «{display_name}» ({profile_id}):",
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_SECONDARY,
+            wraplength=440,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 12))
+
+        role_var = ctk.StringVar(value="orchestrator")
+        roles = [
+            ("orchestrator", "👑 Главный оркестратор"),
+            ("coder", "💻 Кодер (Code Generation)"),
+            ("reviewer", "🔍 Ревьюер (Code Review)"),
+            ("researcher", "🌐 Исследователь (Search / Docs)"),
+            ("tester", "🧪 Тестировщик (Deterministic Tests)"),
+            ("general", "⚡ Агент общего назначения (Subagent)"),
+            ("spare", "🛡️ Резерв (Spare)"),
+        ]
+
+        for val, lbl in roles:
+            ctk.CTkRadioButton(
+                modal.body,
+                text=lbl,
+                variable=role_var,
+                value=val,
+                font=Theme.font_body(),
+                text_color=Theme.TEXT_PRIMARY,
+                fg_color=Theme.ACCENT,
+                hover_color=Theme.ACCENT_HOVER,
+            ).pack(anchor="w", padx=8, pady=3)
+
+        def _save():
+            chosen = role_var.get()
+            ok, msg = AutoAssigner.assign_profile_to_role(profile_id, chosen, is_primary=(chosen != "spare"))
+            modal.destroy()
+            self._show_toast(f"✅ {msg}" if ok else f"❌ {msg}")
+            self._refresh_data()
+
+        HubButton(modal.footer, text="Отмена", variant="secondary", width=100, command=modal.destroy).pack(side="left")
+        HubButton(modal.footer, text="Применить роль", variant="primary", width=160, command=_save).pack(side="right")
 
     def _open_add_account_wizard(self):
         wizard = AddAccountWizard(self, on_complete=self._on_wizard_complete)

@@ -1,5 +1,5 @@
 {
-  "hub_version": "0.1.0",
+  "hub_version": "0.1.1",
   "min_hermes_version": "0.20.0",
   "max_tested_hermes_version": "0.20.4",
   "tested_versions": [

@@ -582,26 +582,13 @@ def agy_generate(
 
 
 def _error_completion(model: str, error_msg: str) -> dict[str, Any]:
-    """Build an OpenAI-shaped error completion."""
+    """Build a structured provider error object for router failover."""
     logger.error("agy_generate error: %s", error_msg)
     return {
-        "id": "chatcmpl-agy-err-" + uuid.uuid4().hex[:12],
-        "object": "chat.completion",
-        "created": int(time.time()),
-        "model": model or "google-antigravity/unknown",
-        "choices": [
-            {
-                "index": 0,
-                "message": {
-                    "role": "assistant",
-                    "content": f"Antigravity (agy) error: {error_msg}",
-                },
-                "finish_reason": "stop",
-            }
-        ],
-        "usage": {
-            "prompt_tokens": 0,
-            "completion_tokens": 0,
-            "total_tokens": 0,
-        },
+        "error": {
+            "message": f"Antigravity error: {error_msg}",
+            "type": "provider_error",
+            "model": model or "google-antigravity/unknown",
+        }
     }
+

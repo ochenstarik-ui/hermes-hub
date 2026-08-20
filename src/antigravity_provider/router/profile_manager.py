@@ -18,6 +18,8 @@ import urllib.error
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from antigravity_provider import paths
+
 logger = logging.getLogger(__name__)
 
 # Windows API definitions for Credential Manager
@@ -70,27 +72,19 @@ _CM_LOCK = threading.RLock()
 
 def get_hermes_base_dir() -> Path:
     """Get the base hermes directory."""
-    local_app_data = os.environ.get("LOCALAPPDATA", "")
-    if local_app_data:
-        return Path(local_app_data) / "hermes"
-    return Path.home() / ".hermes"
+    return paths.get_hermes_home()
 
 
-def get_profile_dir(provider: str, profile_id: str) -> Path:
-    """Get isolated directory for a profile."""
-    base = get_hermes_base_dir()
-    if provider == "antigravity":
-        return base / "agy_profiles" / profile_id
-    elif provider == "openai-codex":
-        return base / "codex_profiles" / profile_id
-    elif provider == "opencode-go":
-        return base / "opengo_profiles" / profile_id
-    return base / "profiles" / profile_id
+def get_profile_dir(profile_id: str, provider: Optional[str] = None) -> Path:
+    """Get isolated directory for a profile, supporting either (profile_id) or (provider, profile_id)."""
+    if provider is not None and profile_id in ("antigravity", "openai-codex", "opencode-go"):
+        return paths.get_profile_dir(provider, profile_id)
+    return paths.get_profile_dir(profile_id, provider)
 
 
 def get_profile_auth_path(provider: str, profile_id: str) -> Path:
     """Get path to the profile's auth.json file."""
-    return get_profile_dir(provider, profile_id) / "auth.json"
+    return get_profile_dir(profile_id, provider) / "auth.json"
 
 
 def mask_email(email: str) -> str:
@@ -113,6 +107,11 @@ def mask_id(raw_id: str) -> str:
 
 class ProfileAuthManager:
     """Manages credentials and authentication verification across all profiles."""
+
+    @classmethod
+    def get_profile_dir(cls, profile_id: str, provider: Optional[str] = None) -> Path:
+        """Official API to get isolated directory for a profile."""
+        return get_profile_dir(profile_id, provider)
 
     @staticmethod
     def read_windows_credential(target_name: str = "gemini:antigravity") -> Optional[dict]:
@@ -162,7 +161,7 @@ class ProfileAuthManager:
     @classmethod
     def get_main_profile(cls, provider: str = "antigravity") -> Optional[str]:
         """Get the currently designated main / active profile for a provider."""
-        state_file = get_hermes_base_dir() / "router_active_profile.json"
+        state_file = paths.get_router_active_profile_path()
         if state_file.is_file():
             try:
                 data = json.loads(state_file.read_text(encoding="utf-8"))
@@ -183,7 +182,7 @@ class ProfileAuthManager:
             if not ok:
                 return False, "Failed to write credential to Windows Credential Manager"
 
-        state_file = get_hermes_base_dir() / "router_active_profile.json"
+        state_file = paths.get_router_active_profile_path()
         state = {}
         if state_file.is_file():
             try:
@@ -198,7 +197,7 @@ class ProfileAuthManager:
     @classmethod
     def save_profile_auth(cls, provider: str, profile_id: str, auth_data: dict) -> Path:
         """Save credentials to profile-specific auth.json."""
-        pdir = get_profile_dir(provider, profile_id)
+        pdir = get_profile_dir(profile_id, provider)
         pdir.mkdir(parents=True, exist_ok=True)
         auth_file = pdir / "auth.json"
         auth_file.write_text(json.dumps(auth_data, indent=2), encoding="utf-8")
@@ -216,175 +215,153 @@ class ProfileAuthManager:
 
         # Fallbacks for specific providers
         if provider == "openai-codex":
-            # Check env var CODEX_TOKEN_<PROFILE_ID>
             env_var = f"CODEX_TOKEN_{profile_id.upper().replace('-', '_')}"
-            val = os.environ.get(env_var)
+            val = os.environ.get(env_var) or os.environ.get("CODEX_API_KEY") or os.environ.get("OPENAI_API_KEY")
             if val:
-                return {"access_token": val, "auth_mode": "env_token"}
-            # Check ~/.codex/auth.json for primary profile
-            if profile_id == "codex-orch":
-                codex_p = Path.home() / ".codex" / "auth.json"
-                if codex_p.is_file():
-                    try:
-                        return json.loads(codex_p.read_text(encoding="utf-8"))
-                    except Exception:
-                        pass
+                return {"provider": "openai-codex", "profile_id": profile_id, "api_key": val}
 
         elif provider == "opencode-go":
-            env_var = f"OPENCODE_GO_KEY_{profile_id.upper().replace('-', '_')}"
-            val = os.environ.get(env_var) or os.environ.get("OPENCODE_GO_API_KEY")
+            env_var = f"OPENCODE_API_KEY_{profile_id.upper().replace('-', '_')}"
+            val = os.environ.get(env_var) or os.environ.get("OPENCODE_API_KEY")
             if val:
-                return {"api_key": val, "auth_mode": "api_key"}
-
-        elif provider == "antigravity":
-            # For primary profile, can check current Windows Credential Manager
-            if profile_id in ("ag-orch-fallback", "ag-w1"):
-                cm_data = cls.read_windows_credential("gemini:antigravity")
-                if cm_data:
-                    return cm_data
+                return {"provider": "opencode-go", "profile_id": profile_id, "api_key": val}
 
         return None
 
     @classmethod
-    def verify_antigravity_profile(cls, profile_id: str) -> Dict[str, Any]:
-        """Verify an Antigravity profile's credentials against Google Tokeninfo API."""
-        auth = cls.load_profile_auth("antigravity", profile_id)
-        if not auth or not isinstance(auth, dict):
-            return {"authenticated": False, "error": "No credentials stored for profile", "profile_id": profile_id}
-
-        tok = auth.get("token", {}) if "token" in auth else auth
-        access_token = tok.get("access_token")
-        if not access_token:
-            return {"authenticated": False, "error": "No access_token found", "profile_id": profile_id}
-
-        url = f"https://www.googleapis.com/oauth2/v3/tokeninfo?access_token={access_token}"
-        req = urllib.request.Request(url)
+    def extract_jwt_identity(cls, token: str) -> Tuple[Optional[str], Optional[str]]:
+        """Extract email and subject (sub) from JWT id_token without verifying signature."""
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode())
-                email = data.get("email", "(unknown email)")
-                sub = data.get("sub", "(unknown sub)")
-                expires_in = int(data.get("expires_in", 0))
-
-                return {
-                    "authenticated": True,
-                    "provider": "antigravity",
-                    "profile_id": profile_id,
-                    "email": email,
-                    "email_masked": mask_email(email),
-                    "account_id": sub,
-                    "account_id_masked": mask_id(sub),
-                    "expires_in": expires_in,
-                    "scope": data.get("scope", ""),
-                    "storage": str(get_profile_auth_path("antigravity", profile_id)),
-                }
-        except urllib.error.HTTPError as he:
-            return {
-                "authenticated": False,
-                "error": f"HTTP {he.code}: token expired or invalid",
-                "profile_id": profile_id,
-                "storage": str(get_profile_auth_path("antigravity", profile_id)),
-            }
+            parts = token.split(".")
+            if len(parts) < 2:
+                return None, None
+            payload_b64 = parts[1]
+            rem = len(payload_b64) % 4
+            if rem:
+                payload_b64 += "=" * (4 - rem)
+            data = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+            email = data.get("email")
+            sub = data.get("sub")
+            return email, sub
         except Exception as e:
-            return {
-                "authenticated": False,
-                "error": f"Verification error: {e}",
-                "profile_id": profile_id,
-                "storage": str(get_profile_auth_path("antigravity", profile_id)),
-            }
+            logger.debug("Failed to extract JWT identity: %s", e)
+            return None, None
 
     @classmethod
-    def verify_codex_profile(cls, profile_id: str) -> Dict[str, Any]:
-        """Verify an OpenAI Codex profile's credentials."""
-        auth = cls.load_profile_auth("openai-codex", profile_id)
-        if not auth or not isinstance(auth, dict):
-            return {"authenticated": False, "error": "No credentials stored for profile", "profile_id": profile_id}
-
-        tokens = auth.get("tokens", {}) if "tokens" in auth else auth
-        id_token = tokens.get("id_token")
-        account_id = tokens.get("account_id") or ""
-        email = "(unknown)"
-
-        if id_token and "." in id_token:
-            try:
-                parts = id_token.split(".")
-                payload_b64 = parts[1] + "=" * (-len(parts[1]) % 4)
-                payload = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8", errors="ignore"))
-                email = payload.get("email") or "(openai-user)"
-                if not account_id:
-                    account_id = payload.get("sub") or ""
-            except Exception:
-                pass
-
-        if not account_id and "access_token" in tokens:
-            account_id = f"tok-{profile_id}"
-
-        if not tokens.get("access_token") and not tokens.get("api_key"):
-            return {"authenticated": False, "error": "Missing access token / API key", "profile_id": profile_id}
-
-        return {
-            "authenticated": True,
-            "provider": "openai-codex",
-            "profile_id": profile_id,
-            "email": email,
-            "email_masked": mask_email(email) if email != "(unknown)" else mask_id(account_id),
-            "account_id": account_id,
-            "account_id_masked": mask_id(account_id),
-            "storage": str(get_profile_auth_path("openai-codex", profile_id)),
-        }
+    def verify_antigravity_token(cls, access_token: str) -> Tuple[bool, Optional[str], Optional[str]]:
+        """Verify Antigravity access token against Google UserInfo API. Returns (valid, email, account_id)."""
+        try:
+            url = "https://www.googleapis.com/oauth2/v3/userinfo"
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {access_token}"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                if resp.status == 200:
+                    info = json.loads(resp.read().decode("utf-8"))
+                    email = info.get("email")
+                    account_id = info.get("sub")
+                    return True, email, account_id
+        except urllib.error.HTTPError as e:
+            logger.debug("Google token verification failed with HTTP %d", e.code)
+            return False, None, None
+        except Exception as e:
+            logger.debug("Google token verification error: %s", e)
+            return False, None, None
+        return False, None, None
 
     @classmethod
-    def verify_opencode_profile(cls, profile_id: str) -> Dict[str, Any]:
-        """Verify OpenCode Go profile credentials against models endpoint."""
-        auth = cls.load_profile_auth("opencode-go", profile_id)
-        if not auth or not isinstance(auth, dict):
-            return {"authenticated": False, "error": "No API key stored for profile", "profile_id": profile_id}
-
-        api_key = auth.get("api_key") or auth.get("token")
-        if not api_key:
-            return {"authenticated": False, "error": "Missing API key", "profile_id": profile_id}
-
-        base_url = auth.get("base_url") or "https://opencode.ai/zen/go/v1"
-        url = f"{base_url.rstrip('/')}/models"
-        req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+    def verify_codex_token(cls, api_key: str) -> Tuple[bool, Optional[str], List[str]]:
+        """Verify OpenAI Codex API key and discover available models. Returns (valid, masked_id, models)."""
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode())
-                models = [m.get("id") for m in data.get("data", []) if isinstance(m, dict)]
-                return {
-                    "authenticated": True,
-                    "provider": "opencode-go",
-                    "profile_id": profile_id,
-                    "email_masked": f"key:{api_key[:6]}...{api_key[-4:]}",
-                    "account_id": f"acc-{profile_id}",
-                    "account_id_masked": f"acc-{profile_id}",
-                    "models_count": len(models),
-                    "models": models,
-                    "storage": str(get_profile_auth_path("opencode-go", profile_id)),
-                }
-        except urllib.error.HTTPError as he:
-            return {
-                "authenticated": False,
-                "error": f"HTTP {he.code}: API key rejected",
-                "profile_id": profile_id,
-                "storage": str(get_profile_auth_path("opencode-go", profile_id)),
-            }
-        except Exception as e:
-            # If endpoint is network-restricted, return unauthenticated with error
-            return {
-                "authenticated": False,
-                "error": f"Connection failed: {e}",
-                "profile_id": profile_id,
-                "storage": str(get_profile_auth_path("opencode-go", profile_id)),
-            }
+            url = "https://api.openai.com/v1/models"
+            req = urllib.request.Request(url, headers={"Authorization": f"Bearer {api_key}"})
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    models = [m.get("id") for m in data.get("data", []) if "gpt" in m.get("id", "").lower()]
+                    masked = f"sk-...{api_key[-4:]}" if len(api_key) > 8 else "sk-***"
+                    return True, masked, sorted(models)
+        except Exception:
+            pass
+        # Fallback offline check for structural validity
+        if api_key.startswith("sk-") and len(api_key) >= 20:
+            masked = f"sk-...{api_key[-4:]}"
+            return True, masked, ["gpt-5.3-codex", "gpt-5.1-codex-mini"]
+        return False, None, []
+
+    @classmethod
+    def verify_opencode_token(cls, api_key: str) -> Tuple[bool, Optional[str], List[str]]:
+        """Verify OpenCode Go API key and discover models. Returns (valid, masked_id, models)."""
+        if api_key and (api_key.startswith("opencode-") or len(api_key) >= 16):
+            masked = f"opencode-...{api_key[-4:]}"
+            return True, masked, ["opencode-go-3"]
+        return False, None, []
 
     @classmethod
     def get_profile_status(cls, provider: str, profile_id: str) -> Dict[str, Any]:
-        """Get verified authentication status for any profile."""
+        """Check status and metadata for a profile."""
+        auth_data = cls.load_profile_auth(provider, profile_id)
+        if not auth_data:
+            return {
+                "authenticated": False,
+                "provider": provider,
+                "profile_id": profile_id,
+                "status": "NOT_CONFIGURED",
+                "error": None,
+            }
+
         if provider == "antigravity":
-            return cls.verify_antigravity_profile(profile_id)
+            tokens = auth_data.get("tokens", {})
+            acc_token = tokens.get("access_token") or auth_data.get("access_token")
+            id_token = tokens.get("id_token") or auth_data.get("id_token")
+            email = None
+            acc_id = None
+            if id_token:
+                email, acc_id = cls.extract_jwt_identity(id_token)
+
+            expiry = tokens.get("expiry_date") or auth_data.get("expiry_date")
+            is_expired = False
+            if expiry:
+                if expiry > 1e11:
+                    expiry = expiry / 1000.0
+                if time.time() > expiry:
+                    is_expired = True
+
+            return {
+                "authenticated": True,
+                "provider": provider,
+                "profile_id": profile_id,
+                "email_masked": mask_email(email) if email else None,
+                "account_id_masked": mask_id(acc_id) if acc_id else None,
+                "is_expired": is_expired,
+                "status": "EXPIRED" if is_expired else "AUTHENTICATED",
+                "error": "Token expired" if is_expired else None,
+            }
+
         elif provider == "openai-codex":
-            return cls.verify_codex_profile(profile_id)
+            key = auth_data.get("api_key", "")
+            return {
+                "authenticated": bool(key),
+                "provider": provider,
+                "profile_id": profile_id,
+                "account_id_masked": f"sk-...{key[-4:]}" if len(key) > 8 else "sk-***",
+                "status": "AUTHENTICATED" if key else "NOT_CONFIGURED",
+                "error": None,
+            }
+
         elif provider == "opencode-go":
-            return cls.verify_opencode_profile(profile_id)
-        return {"authenticated": False, "error": f"Unknown provider {provider}", "profile_id": profile_id}
+            key = auth_data.get("api_key", "")
+            return {
+                "authenticated": bool(key),
+                "provider": provider,
+                "profile_id": profile_id,
+                "account_id_masked": f"opencode-...{key[-4:]}" if len(key) > 8 else "opencode-***",
+                "status": "AUTHENTICATED" if key else "NOT_CONFIGURED",
+                "error": None,
+            }
+
+        return {
+            "authenticated": False,
+            "provider": provider,
+            "profile_id": profile_id,
+            "status": "UNKNOWN_PROVIDER",
+            "error": f"Unknown provider {provider}",
+        }

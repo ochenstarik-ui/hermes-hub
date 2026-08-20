@@ -12,7 +12,7 @@ import yaml
 class RouterProfileConfig:
     profile_id: str
     provider: str  # "openai-codex", "antigravity", "opencode-go"
-    account_id: str
+    account_id: str = ""
     capabilities: list[str] = field(default_factory=list)
     preferred_models: list[str] = field(default_factory=list)
     fallback_models: list[str] = field(default_factory=list)

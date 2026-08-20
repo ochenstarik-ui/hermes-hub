@@ -1,6 +1,7 @@
 """Hermes Hub — Add Account Multi-Step Wizard Modal."""
 from __future__ import annotations
 
+import json
 import os
 import threading
 import time
@@ -27,6 +28,7 @@ class AddAccountWizard(HubModal):
         self.target_slot: str = ""
         self.discovered_identity: str = ""
         self.discovered_models: List[str] = []
+        self.is_verified: bool = False
         self.oauth_session_id: Optional[str] = None
         self.oauth_url: Optional[str] = None
         self._polling_active = False
@@ -57,9 +59,9 @@ class AddAccountWizard(HubModal):
         prov_var = ctk.StringVar(value=self.selected_provider)
 
         providers = [
-            ("antigravity", "Google Antigravity", "OAuth 2.0 • Gemini 3.7 Flash, Gemini 2.5 Pro, Claude Sonnet", Theme.PROVIDER_ANTIGRAVITY),
-            ("openai-codex", "OpenAI Codex", "API Key • GPT-4o, GPT-4.1, o3-mini, reasoning модели", Theme.PROVIDER_CODEX),
-            ("opencode-go", "OpenCode Go", "Bearer API Key • Открытые модели Qwen, DeepSeek Coder", Theme.PROVIDER_OPENCODE),
+            ("antigravity", "Google Antigravity", "OAuth 2.0 • Gemini 2.5 Pro, Gemini 2.5 Flash, Claude Sonnet", Theme.PROVIDER_ANTIGRAVITY),
+            ("openai-codex", "OpenAI Codex", "API Key • GPT-5.3 Codex, GPT-5.1 Codex Mini", Theme.PROVIDER_CODEX),
+            ("opencode-go", "OpenCode Go", "Bearer API Key • OpenCode Go 3", Theme.PROVIDER_OPENCODE),
         ]
 
         for p_id, p_name, p_desc, p_col in providers:
@@ -196,14 +198,29 @@ class AddAccountWizard(HubModal):
             if not k:
                 self.key_status_lbl.configure(text="Пожалуйста, введите ключ API.")
                 return
-            # Save auth
-            auth_dir = ProfileAuthManager.get_profile_dir(self.selected_provider, self.target_slot)
-            auth_dir.mkdir(parents=True, exist_ok=True)
-            auth_file = auth_dir / "auth.json"
-            auth_file.write_text(json.dumps({"api_key": k, "provider": self.selected_provider}, indent=2), encoding="utf-8")
 
-            self.discovered_identity = k[:8] + "..." + k[-4:] if len(k) > 12 else "API Key"
-            self.discovered_models = ["gpt-4o", "gpt-4.1", "o3-mini"] if "codex" in self.selected_provider else ["qwen-coder", "deepseek-v2"]
+            # Perform real key verification
+            is_valid = False
+            masked_id = None
+            models: List[str] = []
+
+            if self.selected_provider == "openai-codex":
+                is_valid, masked_id, models = ProfileAuthManager.verify_codex_token(k)
+            elif self.selected_provider == "opencode-go":
+                is_valid, masked_id, models = ProfileAuthManager.verify_opencode_token(k)
+
+            # Save auth data safely
+            auth_data = {
+                "provider": self.selected_provider,
+                "profile_id": self.target_slot,
+                "api_key": k,
+                "created_at": time.time(),
+            }
+            ProfileAuthManager.save_profile_auth(self.selected_provider, self.target_slot, auth_data)
+
+            self.is_verified = is_valid
+            self.discovered_identity = masked_id or (k[:8] + "..." + k[-4:] if len(k) > 12 else "API Key")
+            self.discovered_models = models if is_valid else []
             self._show_step_3_validation()
 
         HubButton(self.footer, text="⬅ Назад", variant="secondary", width=100, command=self._show_step_1_provider).pack(side="left")
@@ -212,7 +229,7 @@ class AddAccountWizard(HubModal):
     def _start_antigravity_oauth(self):
         self.oauth_status_lbl.configure(text="Запуск локального слушателя и открытие Google...")
         try:
-            from antigravity_provider.router.profile_oauth import start_profile_oauth, get_oauth_session
+            from antigravity_provider.router.profile_oauth import start_profile_oauth
             self.oauth_session_id, self.oauth_url = start_profile_oauth(self.target_slot)
             webbrowser.open(self.oauth_url)
             self.oauth_status_lbl.configure(text="🌐 Ожидание авторизации в браузере...")
@@ -234,14 +251,23 @@ class AddAccountWizard(HubModal):
                 return
             time.sleep(1)
             session = get_oauth_session(self.oauth_session_id)
-            if session and session.status == "completed":
-                info = session.completed_profile_info or {}
+            if not session:
+                continue
+
+            status = getattr(session, "status", "").lower()
+            if status in ("completed", "success"):
+                info = getattr(session, "completed_profile_info", {}) or {}
                 self.discovered_identity = info.get("email") or "Google Account"
-                self.discovered_models = ["gemini-3.7-flash", "gemini-2.5-pro", "claude-sonnet-4.6"]
+                self.discovered_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-thinking"]
+                self.is_verified = True
                 self.after(0, self._show_step_3_validation)
                 return
-            elif session and session.status == "error":
-                self.after(0, lambda: self.oauth_status_lbl.configure(text=f"❌ Ошибка OAuth: {session.error_msg}"))
+            elif status in ("error", "failed", "cancelled"):
+                err_msg = getattr(session, "error_msg", None) or "Авторизация отменена или не удалась"
+                self.after(0, lambda m=err_msg: self.oauth_status_lbl.configure(text=f"❌ {m}"))
+                return
+            elif status == "timeout":
+                self.after(0, lambda: self.oauth_status_lbl.configure(text="❌ Время ожидания авторизации истекло"))
                 return
 
     # ═══════════════════════════════════════════════════════════════
@@ -270,15 +296,18 @@ class AddAccountWizard(HubModal):
                 justify="left",
             ).pack(padx=14, pady=10)
 
-        # Success card
-        succ_card = HubCard(self.body, border_color=Theme.STATUS_HEALTHY)
+        # Status card
+        status_color = Theme.STATUS_HEALTHY if self.is_verified else Theme.STATUS_WARNING
+        status_text = f"✓ Аккаунт успешно проверен: {self.discovered_identity}" if self.is_verified else f"⚠ Аккаунт сохранён (НЕ ПРОВЕРЕН): {self.discovered_identity}"
+
+        succ_card = HubCard(self.body, border_color=status_color)
         succ_card.pack(fill="x", pady=6)
 
         ctk.CTkLabel(
             succ_card,
-            text=f"✓ Аккаунт успешно проверен: {self.discovered_identity}",
+            text=status_text,
             font=Theme.font_heading(),
-            text_color=Theme.STATUS_HEALTHY,
+            text_color=status_color,
         ).pack(anchor="w", padx=16, pady=(12, 4))
 
         ctk.CTkLabel(
@@ -289,9 +318,12 @@ class AddAccountWizard(HubModal):
         ).pack(anchor="w", padx=16, pady=(0, 12))
 
         # Models list
-        ctk.CTkLabel(self.body, text="Доступные проверенные модели:", font=Theme.font_subheading(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", pady=(8, 4))
-        for m in self.discovered_models:
-            ctk.CTkLabel(self.body, text=f"  ✓ {m}", font=Theme.font_mono_sm(), text_color=Theme.TEXT_SECONDARY).pack(anchor="w")
+        if self.discovered_models:
+            ctk.CTkLabel(self.body, text="Доступные проверенные модели:", font=Theme.font_subheading(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", pady=(8, 4))
+            for m in self.discovered_models:
+                ctk.CTkLabel(self.body, text=f"  ✓ {m}", font=Theme.font_mono_sm(), text_color=Theme.TEXT_SECONDARY).pack(anchor="w")
+        else:
+            ctk.CTkLabel(self.body, text="Модели не обнаружены или не проверены.", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED).pack(anchor="w", pady=(8, 4))
 
         HubButton(self.footer, text="Перейти к назначению роли ➔", variant="primary", width=220, command=self._show_step_4_assignment).pack(side="right")
 
@@ -351,9 +383,22 @@ class AddAccountWizard(HubModal):
 
         def _finish():
             chosen = role_var.get()
+            target_role = "orchestrator" if chosen == "orchestrator" else (
+                "coder" if chosen == "coder" else (
+                    "reviewer" if chosen == "reviewer" else (
+                        "researcher" if chosen == "researcher" else (
+                            "spare" if chosen == "spare" else "general"
+                        )
+                    )
+                )
+            )
+
+            # Apply role to live config
+            AutoAssigner.assign_profile_to_role(self.target_slot, target_role, is_primary=(chosen != "spare"))
+
             EventLogService.get().log(
                 "account",
-                f"Подключён аккаунт {self.discovered_identity} ({self.selected_provider}). Назначен как: {rec_title if chosen == 'auto' else chosen}.",
+                f"Подключён аккаунт {self.discovered_identity} ({self.selected_provider}). Назначен на роль: {target_role}.",
                 level="success",
             )
             self.destroy()
@@ -362,7 +407,7 @@ class AddAccountWizard(HubModal):
                     "provider": self.selected_provider,
                     "slot": self.target_slot,
                     "identity": self.discovered_identity,
-                    "role": chosen,
+                    "role": target_role,
                 })
 
         HubButton(self.footer, text="Готово (Завершить)", variant="primary", width=180, command=_finish).pack(side="right")

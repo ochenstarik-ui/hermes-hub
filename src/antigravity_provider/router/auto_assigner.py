@@ -42,14 +42,14 @@ HUMAN_ROLE_LABELS = {
 DEFAULT_SLOT_ROLES = {
     "codex-orch": ("Главный оркестратор", "orchestrator", "primary"),
     "ag-orch-fallback": ("Резервный оркестратор", "orchestrator", "fallback"),
-    "codex-worker-1": ("Кодер 1", "coder-primary", "primary"),
-    "ag-w1": ("Кодер 2", "coder-primary", "fallback"),
+    "codex-worker-1": ("Кодер 1", "coder", "primary"),
+    "ag-w1": ("Кодер 2", "coder", "fallback"),
     "codex-worker-2": ("Ревьюер", "reviewer", "primary"),
-    "ag-w2": ("Исследователь", "research", "primary"),
-    "ag-w3": ("Быстрый агент", "fast", "primary"),
-    "ag-w4": ("Универсальный субагент", "universal", "primary"),
-    "opengo-1": ("Кодер (OpenCode)", "coder-primary", "fallback_2"),
-    "opengo-2": ("Исследователь (OpenCode)", "research", "fallback"),
+    "ag-w2": ("Исследователь", "researcher", "primary"),
+    "ag-w3": ("Быстрый агент", "general", "primary"),
+    "ag-w4": ("Универсальный субагент", "general", "primary"),
+    "opengo-1": ("Кодер (OpenCode)", "coder", "fallback_2"),
+    "opengo-2": ("Исследователь (OpenCode)", "researcher", "fallback"),
     "opengo-3": ("Резервный роутер (OpenCode)", "orchestrator", "fallback_2"),
     "ag-spare-1": ("Резерв 1", "spare", "spare"),
     "ag-spare-2": ("Резерв 2", "spare", "spare"),
@@ -171,6 +171,56 @@ class AutoAssigner:
         return "ag-spare-1", "Резерв", "Дополнительный слот резерва."
 
     @staticmethod
+    def assign_profile_to_role(profile_id: str, role_name: str, is_primary: bool = True) -> Tuple[bool, str]:
+        """Assign a profile to a specified logical role, updating fallback chains and persisting config."""
+        config = load_router_config()
+        pcfg = config.get_profile(profile_id)
+        if not pcfg:
+            return False, f"Профиль '{profile_id}' не найден"
+
+        rpolicy = config.get_role_policy(role_name)
+        chain = list(rpolicy.preferred_chain)
+        if profile_id in chain:
+            chain.remove(profile_id)
+
+        if is_primary:
+            chain.insert(0, profile_id)
+        else:
+            chain.append(profile_id)
+
+        rpolicy.preferred_chain = chain
+        config.roles[role_name] = rpolicy
+        save_router_config(config)
+        return True, f"Профиль '{profile_id}' назначен на роль '{role_name}' ({'основной' if is_primary else 'резервный'})"
+
+    @staticmethod
+    def auto_assign_all() -> Dict[str, Any]:
+        """Automatically distribute all authenticated profiles across logical roles."""
+        config = load_router_config()
+        authenticated_profiles = []
+        for pid, pcfg in config.profiles.items():
+            if not pcfg.enabled:
+                continue
+            st = ProfileAuthManager.get_profile_status(pcfg.provider, pid)
+            if st.get("authenticated"):
+                authenticated_profiles.append((pid, pcfg))
+
+        changes = []
+        roles_order = ["orchestrator", "coder", "reviewer", "researcher", "tester", "general"]
+        for idx, (pid, pcfg) in enumerate(authenticated_profiles):
+            target_role = roles_order[idx % len(roles_order)]
+            ok, msg = AutoAssigner.assign_profile_to_role(pid, target_role, is_primary=(idx < len(roles_order)))
+            if ok:
+                changes.append({"profile_id": pid, "role": target_role, "message": msg})
+
+        return {
+            "success": True,
+            "total_authenticated": len(authenticated_profiles),
+            "assigned_count": len(changes),
+            "changes": changes,
+        }
+
+    @staticmethod
     def build_team_hierarchy() -> Dict[str, Any]:
         """Build the structured Hermes Team hierarchy for the Cockpit UI."""
         config = load_router_config()
@@ -231,22 +281,4 @@ class AutoAssigner:
     @staticmethod
     def set_primary_orchestrator(profile_id: str) -> Tuple[bool, str]:
         """Designate a profile as the primary orchestrator and adjust fallback chains."""
-        config = load_router_config()
-        pcfg = config.get_profile(profile_id)
-        if not pcfg:
-            return False, f"Profile '{profile_id}' not found"
-
-        # Update orchestrator role chain in router_profiles.yaml
-        orch_policy = config.get_role_policy("orchestrator")
-        current_chain = list(orch_policy.preferred_chain)
-
-        if profile_id in current_chain:
-            current_chain.remove(profile_id)
-        current_chain.insert(0, profile_id)
-
-        orch_policy.preferred_chain = current_chain
-        config.roles["orchestrator"] = orch_policy
-        save_router_config(config)
-
-        display_name, _, _ = AutoAssigner.get_display_name_and_role(profile_id)
-        return True, f"'{display_name}' ({profile_id}) назначен главным оркестратором роутера"
+        return AutoAssigner.assign_profile_to_role(profile_id, "orchestrator", is_primary=True)

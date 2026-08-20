@@ -1,52 +1,116 @@
-"""Hermes Hub — Windows Installer with Hermes Agent prerequisite verification.
+"""Hermes Hub — Canonical Windows Installer with Hermes Agent prerequisite verification.
 
 Prerequisite Enforcement:
-Hermes Hub is a control panel for Hermes Agent. It requires Hermes Agent to be installed.
+Hermes Hub is a control center for Hermes Agent. It requires Hermes Agent to be installed.
 If Hermes Agent is not found in %LOCALAPPDATA%\\hermes\\hermes-agent, the installation is aborted with
 a clear message and instructions for the user.
+
+Installs and verifies required GUI packages (customtkinter, Pillow, psutil, pyyaml) in the Hermes venv.
 """
 from __future__ import annotations
 
+import json
 import os
 import shutil
 import sys
 import subprocess
 from pathlib import Path
 
-def check_hermes_agent_installed() -> bool:
-    local_app = Path(os.environ.get("LOCALAPPDATA", ""))
-    agent_dir = local_app / "hermes" / "hermes-agent"
-    return agent_dir.exists() and (agent_dir / "venv").exists()
+from antigravity_provider.version import __version__, MINIMUM_HERMES_VERSION
+from antigravity_provider import paths
 
-def run_installation():
+
+def get_hermes_agent_paths() -> tuple[Path, Path]:
+    hermes_home = paths.get_hermes_home()
+    agent_dir = hermes_home / "hermes-agent"
+    venv_python = agent_dir / "venv" / "Scripts" / "python.exe"
+    return agent_dir, venv_python
+
+
+def check_hermes_agent_installed() -> bool:
+    agent_dir, venv_python = get_hermes_agent_paths()
+    return agent_dir.exists() and venv_python.exists()
+
+
+def verify_dependencies(venv_python: Path) -> bool:
+    """Verify that required UI packages can be imported without error."""
+    code = "import customtkinter; from PIL import Image; import yaml; import psutil; print('OK')"
+    try:
+        res = subprocess.run(
+            [str(venv_python), "-c", code],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+        return res.returncode == 0 and "OK" in res.stdout
+    except Exception:
+        return False
+
+
+def install_dependencies(venv_python: Path) -> bool:
+    """Install required UI packages into Hermes venv."""
+    packages = ["customtkinter>=6.0.0", "pillow>=10.0.0", "psutil>=5.9.0", "pyyaml>=6.0.1", "requests>=2.31.0"]
+    try:
+        res = subprocess.run(
+            [str(venv_python), "-m", "pip", "install", "--upgrade"] + packages,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+        return res.returncode == 0
+    except Exception as e:
+        print(f"Error executing pip install: {e}")
+        return False
+
+
+def run_installation(silent: bool = False):
     print("=" * 60)
-    print(" Hermes Hub Setup — Master Installer")
+    print(f" Hermes Hub Setup — Master Installer v{__version__}")
     print("=" * 60)
 
     # 1. Prerequisite check
-    print("\n[1/4] Проверка наличия установленного Hermes Agent...")
+    print("\n[1/5] Проверка наличия установленного Hermes Agent...")
     if not check_hermes_agent_installed():
+        agent_dir, _ = get_hermes_agent_paths()
         print("\n" + "!" * 60)
         print(" [ОШИБКА УСТАНОВКИ] Hermes Agent не обнаружен!")
         print(" Hermes Hub является центром управления для Hermes Agent.")
         print(" Для работы требуется предварительно установленный Hermes Agent.")
-        print(f" Ожидаемый путь: {Path(os.environ.get('LOCALAPPDATA', '')) / 'hermes' / 'hermes-agent'}")
+        print(f" Ожидаемый путь: {agent_dir}")
         print(" Пожалуйста, установите сначала Hermes Agent и повторите запуск.")
         print("!" * 60 + "\n")
-        input("Нажмите Enter для завершения...")
+        if not silent:
+            input("Нажмите Enter для завершения...")
         sys.exit(1)
 
-    print(" ✓ Hermes Agent найден и готов к интеграции.")
+    _, venv_python = get_hermes_agent_paths()
+    print(f" ✓ Hermes Agent найден ({venv_python})")
 
-    # 2. Destination Setup
-    local_app = Path(os.environ.get("LOCALAPPDATA", ""))
-    hub_dest = local_app / "hermes" / "plugins" / "antigravity-provider"
-    print(f"\n[2/4] Развертывание файлов Hermes Hub в: {hub_dest}")
+    # 2. Dependency verification and install
+    print("\n[2/5] Проверка и установка зависимостей UI (customtkinter, Pillow)...")
+    if not verify_dependencies(venv_python):
+        print(" Установка недостающих пакетов в окружение Hermes...")
+        ok = install_dependencies(venv_python)
+        if not ok or not verify_dependencies(venv_python):
+            print("\n" + "!" * 60)
+            print(" [ОШИБКА УСТАНОВКИ] Не удалось установить зависимости GUI (customtkinter / Pillow)!")
+            print(" Пожалуйста, проверьте подключение к сети и права доступа к venv.")
+            print("!" * 60 + "\n")
+            if not silent:
+                input("Нажмите Enter для завершения...")
+            sys.exit(1)
+        print(" ✓ Зависимости успешно установлены.")
+    else:
+        print(" ✓ Все необходимые зависимости уже присутствуют в venv.")
+
+    # 3. Destination Setup
+    hermes_home = paths.get_hermes_home()
+    hub_dest = hermes_home / "plugins" / "antigravity-provider"
+    print(f"\n[3/5] Развертывание файлов Hermes Hub в: {hub_dest}")
     hub_dest.mkdir(parents=True, exist_ok=True)
 
-    src_root = Path(__file__).resolve().parent.parent
-    # Copy src, assets, launcher
-    for folder in ["src", "assets", "launcher"]:
+    src_root = paths.get_repo_root()
+    for folder in ["src", "assets", "launcher", "config"]:
         src_folder = src_root / folder
         dest_folder = hub_dest / folder
         if src_folder.exists():
@@ -55,15 +119,20 @@ def run_installation():
             shutil.copytree(src_folder, dest_folder)
             print(f" ✓ Скопирована папка: {folder}")
 
-    # 3. Create Windows Shortcuts
-    print("\n[3/4] Создание ярлыков Windows с AppUserModelID (HermesHub.Desktop)...")
+    # Copy root files if available
+    for f in ["pyproject.toml", "README.md"]:
+        sf = src_root / f
+        if sf.exists():
+            shutil.copy2(sf, hub_dest / f)
+
+    # 4. Create Windows Shortcuts
+    print("\n[4/5] Создание ярлыков Windows с AppUserModelID (HermesHub.Desktop)...")
     try:
         launcher_exe = hub_dest / "launcher" / "HermesHub.exe"
         ico_file = hub_dest / "assets" / "branding" / "app" / "HermesHub.ico"
         desktop_dir = Path(os.environ.get("USERPROFILE", "")) / "Desktop"
         start_menu_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
 
-        # PowerShell shortcut creation script
         ps_script = f"""
         $WshShell = New-Object -comObject WScript.Shell
         
@@ -83,13 +152,14 @@ def run_installation():
         $Shortcut2.Description = "Hermes Hub — Multi-Agent Control Center"
         $Shortcut2.Save()
         """
-        subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], check=True)
+        subprocess.run(["powershell", "-NoProfile", "-Command", ps_script], check=True, capture_output=True)
         print(" ✓ Ярлыки созданы на Рабочем столе и в Главном меню Windows.")
     except Exception as e:
         print(f" ! Предупреждение при создании ярлыков: {e}")
 
-    # 4. Final verification
-    print("\n[4/4] Проверка целостности установки...")
+    # 5. Final verification
+    print("\n[5/5] Проверка целостности установки...")
+    print(f" ✓ Версия Hermes Hub: {__version__}")
     print(" ✓ Multi-Provider Router: OK")
     print(" ✓ AppUserModelID: HermesHub.Desktop")
     print(" ✓ Theme & Branding: Obsidian Forest")
@@ -97,5 +167,7 @@ def run_installation():
     print(" [УСПЕХ] Установка Hermes Hub успешно завершена!")
     print("=" * 60)
 
+
 if __name__ == "__main__":
-    run_installation()
+    is_silent = "/silent" in [a.lower() for a in sys.argv] or "-s" in sys.argv
+    run_installation(silent=is_silent)

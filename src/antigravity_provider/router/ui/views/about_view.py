@@ -12,7 +12,7 @@ from antigravity_provider.router.ui.components import (
     HubSectionHeader,
 )
 
-__version__ = "1.3.0"
+from antigravity_provider.version import __version__
 
 
 class AboutView(ctk.CTkFrame):
