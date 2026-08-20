@@ -45,7 +45,18 @@ from antigravity_provider.version import __version__
 
 @pytest.mark.unit
 def test_p0_1_installer_dependencies():
-    """P0-1: Verify that required UI dependencies are importable in runtime."""
+    """P0-1: Verify that canonical installer defines dependency installation, smoke testing, and dependencies import in runtime."""
+    # 1. Verify Canonical Installer Specification in HermesHubSetup.cs
+    setup_cs = Path(__file__).resolve().parent.parent / "installer" / "HermesHubSetup.cs"
+    assert setup_cs.exists(), "HermesHubSetup.cs must exist as the canonical installer source"
+    cs_content = setup_cs.read_text(encoding="utf-8")
+
+    assert "EnsurePythonDependencies" in cs_content, "Canonical installer must define dependency checking and installation"
+    assert "customtkinter" in cs_content and "pillow" in cs_content.lower(), "Canonical installer must install customtkinter and Pillow"
+    assert "HERMES_HUB_IMPORT_OK" in cs_content, "Canonical installer must execute post-install import smoke test"
+    assert "assets" in cs_content, "Canonical installer must deploy branding and UI assets"
+
+    # 2. Verify Runtime Dependency Availability
     pytest.importorskip("customtkinter")
     import customtkinter
     from PIL import Image

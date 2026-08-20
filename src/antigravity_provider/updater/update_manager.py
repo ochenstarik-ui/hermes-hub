@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -85,11 +86,23 @@ ALLOWED_UPDATE_HOSTS = {
 
 def is_allowed_update_host(url: str, allow_dev_local: bool = False) -> bool:
     """Verify that URL points to an authorized release feed host."""
-    if url.startswith("file://") or Path(url).exists():
-        return allow_dev_local or os.environ.get("HERMES_HUB_DEV_MODE") == "1"
+    is_dev = allow_dev_local or os.environ.get("HERMES_HUB_DEV_MODE") == "1"
+
+    if url.startswith("file://"):
+        return is_dev
+    if re.match(r"^[a-zA-Z]:[/\\]", url) or url.startswith(("\\\\", "./", "../", ".\\", "..\\")):
+        return is_dev
+    if not url.startswith("http://") and not url.startswith("https://") and not url.startswith("ftp://"):
+        if Path(url).is_absolute() or Path(url).exists():
+            return is_dev
+
     try:
         from urllib.parse import urlparse
         parsed = urlparse(url)
+        if parsed.scheme.lower() not in ("https", "http"):
+            return False
+        if parsed.hostname in ("127.0.0.1", "localhost") and is_dev:
+            return True
         if parsed.scheme.lower() != "https":
             return False
         hostname = (parsed.hostname or "").lower()
@@ -114,7 +127,7 @@ class UpdateManager:
             if manifest_dict:
                 data = manifest_dict
             else:
-                if not is_allowed_update_host(self.manifest_url, allow_dev_local=True):
+                if not is_allowed_update_host(self.manifest_url, allow_dev_local=False):
                     raise ValueError(f"Недопустимый хост источника обновлений: {self.manifest_url}")
 
                 req = urllib.request.Request(
@@ -123,7 +136,7 @@ class UpdateManager:
                 )
                 try:
                     with urllib.request.urlopen(req, timeout=10) as resp:
-                        data = json.loads(resp.read().decode("utf-8"))
+                        data = json.loads(resp.read().decode("utf-8-sig"))
                 except urllib.error.HTTPError as http_err:
                     if http_err.code == 404:
                         return UpdateCheckResult(
@@ -171,7 +184,7 @@ class UpdateManager:
         dest_file = self.staging_dir / f"hermes-hub-{manifest.version}.zip"
 
         try:
-            if not is_allowed_update_host(manifest.package_url, allow_dev_local=True):
+            if not is_allowed_update_host(manifest.package_url, allow_dev_local=False):
                 return False, f"Недопустимый хост пакета обновления: {manifest.package_url}", None
 
             if manifest.package_url.startswith("file://") or Path(manifest.package_url).is_file():

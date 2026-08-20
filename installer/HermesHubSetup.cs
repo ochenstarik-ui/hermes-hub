@@ -12,7 +12,7 @@ namespace HermesHubSetup
 {
     public class SetupEngine
     {
-        public const string HUB_VERSION = "0.1.0";
+        public const string HUB_VERSION = "0.1.1";
         public const string MIN_HERMES_VERSION = "0.20.0";
         public const string MAX_TESTED_HERMES = "0.20.4";
 
@@ -86,6 +86,139 @@ namespace HermesHubSetup
             IsInstalled = File.Exists(installedExe);
         }
 
+        private static bool EnsurePythonDependencies(string pythonExe, Action<string, int> progressCallback)
+        {
+            bool needsInstall = false;
+            try
+            {
+                ProcessStartInfo checkPsi = new ProcessStartInfo();
+                checkPsi.FileName = pythonExe;
+                checkPsi.Arguments = "-c \"import customtkinter, PIL, yaml, psutil; print('DEPS_OK')\"";
+                checkPsi.UseShellExecute = false;
+                checkPsi.RedirectStandardOutput = true;
+                checkPsi.RedirectStandardError = true;
+                checkPsi.CreateNoWindow = true;
+                using (Process p = Process.Start(checkPsi))
+                {
+                    string outText = p.StandardOutput.ReadToEnd();
+                    p.WaitForExit(10000);
+                    if (p.ExitCode != 0 || !outText.Contains("DEPS_OK"))
+                    {
+                        needsInstall = true;
+                    }
+                }
+            }
+            catch
+            {
+                needsInstall = true;
+            }
+
+            if (needsInstall)
+            {
+                if (progressCallback != null) progressCallback("Installing dependencies into Hermes venv (customtkinter, Pillow, PyYAML, psutil)...", 40);
+                
+                // 1. Ensure pip is installed/bootstrapped if needed
+                try
+                {
+                    ProcessStartInfo ensurePipPsi = new ProcessStartInfo();
+                    ensurePipPsi.FileName = pythonExe;
+                    ensurePipPsi.Arguments = "-m ensurepip --default-pip";
+                    ensurePipPsi.UseShellExecute = false;
+                    ensurePipPsi.RedirectStandardOutput = true;
+                    ensurePipPsi.RedirectStandardError = true;
+                    ensurePipPsi.CreateNoWindow = true;
+                    using (Process p = Process.Start(ensurePipPsi))
+                    {
+                        p.WaitForExit(30000);
+                    }
+                }
+                catch { }
+
+                bool installSuccess = false;
+
+                // 2. Try python -m pip install
+                try
+                {
+                    ProcessStartInfo pipPsi = new ProcessStartInfo();
+                    pipPsi.FileName = pythonExe;
+                    pipPsi.Arguments = "-m pip install --no-warn-script-location customtkinter pillow pyyaml psutil";
+                    pipPsi.UseShellExecute = false;
+                    pipPsi.RedirectStandardOutput = true;
+                    pipPsi.RedirectStandardError = true;
+                    pipPsi.CreateNoWindow = true;
+                    using (Process p = Process.Start(pipPsi))
+                    {
+                        string errText = p.StandardError.ReadToEnd();
+                        p.WaitForExit(180000);
+                        if (p.ExitCode == 0)
+                        {
+                            installSuccess = true;
+                        }
+                    }
+                }
+                catch { }
+
+                // 3. If pip install didn't succeed, try uv if installed on system
+                if (!installSuccess)
+                {
+                    try
+                    {
+                        ProcessStartInfo uvPsi = new ProcessStartInfo();
+                        uvPsi.FileName = "uv";
+                        uvPsi.Arguments = string.Format("pip install --python \"{0}\" customtkinter pillow pyyaml psutil", pythonExe);
+                        uvPsi.UseShellExecute = false;
+                        uvPsi.RedirectStandardOutput = true;
+                        uvPsi.RedirectStandardError = true;
+                        uvPsi.CreateNoWindow = true;
+                        using (Process p = Process.Start(uvPsi))
+                        {
+                            p.WaitForExit(60000);
+                            if (p.ExitCode == 0)
+                            {
+                                installSuccess = true;
+                            }
+                        }
+                    }
+                    catch { }
+                }
+
+                if (!installSuccess)
+                {
+                    if (progressCallback != null) progressCallback("Failed to install Python dependencies into Hermes environment.", 0);
+                    return false;
+                }
+
+                // Verify imports after installation
+                try
+                {
+                    ProcessStartInfo recheckPsi = new ProcessStartInfo();
+                    recheckPsi.FileName = pythonExe;
+                    recheckPsi.Arguments = "-c \"import customtkinter, PIL, yaml, psutil; print('DEPS_VERIFIED')\"";
+                    recheckPsi.UseShellExecute = false;
+                    recheckPsi.RedirectStandardOutput = true;
+                    recheckPsi.RedirectStandardError = true;
+                    recheckPsi.CreateNoWindow = true;
+                    using (Process p = Process.Start(recheckPsi))
+                    {
+                        string outText = p.StandardOutput.ReadToEnd();
+                        p.WaitForExit(10000);
+                        if (p.ExitCode != 0 || !outText.Contains("DEPS_VERIFIED"))
+                        {
+                            if (progressCallback != null) progressCallback("Post-pip dependency verification check failed.", 0);
+                            return false;
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    if (progressCallback != null) progressCallback("Post-pip verification error: " + ex.Message, 0);
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         public static int PerformInstall(string sourceRoot, Action<string, int> progressCallback = null)
         {
             if (!IsHermesFound) return 10;
@@ -99,7 +232,7 @@ namespace HermesHubSetup
                 }
 
                 // 1. Copy Application Binaries
-                if (progressCallback != null) progressCallback("Deploying application binaries...", 30);
+                if (progressCallback != null) progressCallback("Deploying application binaries...", 20);
                 string launcherSrc = Path.Combine(sourceRoot, @"launcher\HermesHub.exe");
                 if (!File.Exists(launcherSrc))
                 {
@@ -119,8 +252,25 @@ namespace HermesHubSetup
                     try { File.Copy(setupSrc, Path.Combine(TargetInstallDir, "HermesHubSetup.exe"), true); } catch { }
                 }
 
-                // 2. Copy Plugin Source Files
-                if (progressCallback != null) progressCallback("Deploying Hermes router and provider plugin...", 60);
+                // 2. Install UI & System Dependencies into Hermes Python Environment
+                if (progressCallback != null) progressCallback("Checking Python UI dependencies (customtkinter, Pillow)...", 35);
+                if (!EnsurePythonDependencies(HermesPython, progressCallback))
+                {
+                    return 13; // Dependency install failed
+                }
+
+                // 3. Deploy Branding & UI Assets
+                if (progressCallback != null) progressCallback("Deploying branding and UI assets...", 50);
+                string assetsSrc = Path.Combine(sourceRoot, "assets");
+                if (Directory.Exists(assetsSrc))
+                {
+                    CopyDirectoryRecursive(assetsSrc, Path.Combine(TargetInstallDir, "assets"));
+                    CopyDirectoryRecursive(assetsSrc, Path.Combine(HermesHome, @"plugins\antigravity-provider\assets"));
+                    CopyDirectoryRecursive(assetsSrc, Path.Combine(HermesHome, "assets"));
+                }
+
+                // 4. Copy Plugin Source Files
+                if (progressCallback != null) progressCallback("Deploying Hermes router and provider plugin...", 65);
                 string pluginDst = Path.Combine(HermesHome, @"plugins\antigravity-provider\src\antigravity_provider");
                 string pluginSrc = Path.Combine(sourceRoot, @"src\antigravity_provider");
 
@@ -129,7 +279,7 @@ namespace HermesHubSetup
                     CopyDirectoryRecursive(pluginSrc, pluginDst);
                 }
 
-                // 3. Install Default Template Config if not exists
+                // 5. Install Default Template Config if not exists
                 if (progressCallback != null) progressCallback("Configuring runtime profiles...", 80);
                 string configDir = Path.Combine(HermesHome, "config");
                 if (!Directory.Exists(configDir)) Directory.CreateDirectory(configDir);
@@ -141,14 +291,35 @@ namespace HermesHubSetup
                     File.Copy(templateConfig, runtimeConfig, true);
                 }
 
-                // 4. Create Start Menu Shortcut
+                // 6. Create Start Menu Shortcut
                 CreateStartMenuShortcut();
 
-                // 5. Register in Windows Registry
+                // 7. Register in Windows Registry
                 RegisterInWindowsUninstall();
 
-                // 6. Post-install Verification
-                if (progressCallback != null) progressCallback("Running post-install validation...", 95);
+                // 8. Post-install Verification & Import Smoke Test
+                if (progressCallback != null) progressCallback("Running post-install import validation...", 90);
+                string pluginSrcDir = Path.Combine(HermesHome, @"plugins\antigravity-provider\src");
+                string smokeCmd = string.Format("-c \"import sys; sys.path.insert(0, r'{0}'); import customtkinter; from PIL import Image; import antigravity_provider.router.hermes_hub_app; print('HERMES_HUB_IMPORT_OK')\"", pluginSrcDir);
+                ProcessStartInfo smokePsi = new ProcessStartInfo();
+                smokePsi.FileName = HermesPython;
+                smokePsi.Arguments = smokeCmd;
+                smokePsi.UseShellExecute = false;
+                smokePsi.RedirectStandardOutput = true;
+                smokePsi.RedirectStandardError = true;
+                smokePsi.CreateNoWindow = true;
+                using (Process p = Process.Start(smokePsi))
+                {
+                    string outText = p.StandardOutput.ReadToEnd();
+                    string errText = p.StandardError.ReadToEnd();
+                    p.WaitForExit(15000);
+                    if (p.ExitCode != 0 || !outText.Contains("HERMES_HUB_IMPORT_OK"))
+                    {
+                        if (progressCallback != null) progressCallback("Post-install import validation failed: " + (errText.Length > 0 ? errText : outText), 0);
+                        return 14;
+                    }
+                }
+
                 string verifyScript = Path.Combine(sourceRoot, @"scripts\verify_multi_provider_router.py");
                 if (File.Exists(verifyScript))
                 {
@@ -162,7 +333,7 @@ namespace HermesHubSetup
                         p.WaitForExit(10000);
                         if (p.ExitCode != 0)
                         {
-                            return 12; // Verification failed
+                            return 12; // Router Verification failed
                         }
                     }
                 }

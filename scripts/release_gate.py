@@ -62,7 +62,7 @@ def check_p0_release_gate() -> tuple[bool, str]:
     res = _run_pytest(["-v", "tests/test_p0_release_gate.py"])
     if res.returncode != 0:
         return False, f"P0 tests failed:\n{res.stdout}\n{res.stderr}"
-    return True, "12/12 P0 release blockers & regression checks verified"
+    return True, "16/16 P0 release blockers & regression checks verified"
 
 
 def check_updater_and_rollback() -> tuple[bool, str]:
@@ -213,7 +213,7 @@ def check_production_update_feed() -> tuple[bool, str]:
         )
         with urllib.request.urlopen(req, timeout=5) as resp:
             if resp.status == 200:
-                data = json.loads(resp.read().decode("utf-8"))
+                data = json.loads(resp.read().decode("utf-8-sig"))
                 if not data.get("version") or not data.get("package_url"):
                     return False, "Public update manifest is missing version or package_url"
                 return True, f"Public update manifest live at {DEFAULT_UPDATE_URL} (v{data.get('version')})"

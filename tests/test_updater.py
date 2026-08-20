@@ -52,17 +52,29 @@ def test_sha256_verification(tmp_path):
 
 
 @pytest.mark.unit
-def test_host_allowlist_validation():
-    """Verify that update host allowlist allows GitHub domains and rejects arbitrary/evil URLs."""
-    # Allowlisted hosts
+def test_host_allowlist_validation(monkeypatch):
+    """Verify that update host allowlist allows GitHub domains and rejects arbitrary/evil URLs and dev files in prod."""
+    # Ensure production mode by default
+    monkeypatch.delenv("HERMES_HUB_DEV_MODE", raising=False)
+
+    # 1. Allowlisted production hosts
     assert is_allowed_update_host("https://raw.githubusercontent.com/ochenstarik-ui/hermes-hub-releases/main/update_manifest.json") is True
     assert is_allowed_update_host("https://github.com/ochenstarik-ui/hermes-hub-releases/releases/download/v0.1.1/pkg.zip") is True
     assert is_allowed_update_host("https://objects.githubusercontent.com/github-production-release-asset/pkg.zip") is True
 
-    # Untrusted / Malicious hosts
-    assert is_allowed_update_host("http://evil-server.com/malicious_update.zip") is False
-    assert is_allowed_update_host("https://evil-server.com/malicious_update.zip") is False
-    assert is_allowed_update_host("ftp://github.com/pkg.zip") is False
+    # 2. Production mode REJECTS local files and arbitrary hosts
+    assert is_allowed_update_host("file:///C:/local/update.zip", allow_dev_local=False) is False
+    assert is_allowed_update_host("C:\\local\\update.zip", allow_dev_local=False) is False
+    assert is_allowed_update_host("http://evil-server.com/malicious_update.zip", allow_dev_local=False) is False
+    assert is_allowed_update_host("https://evil-server.com/malicious_update.zip", allow_dev_local=False) is False
+    assert is_allowed_update_host("ftp://github.com/pkg.zip", allow_dev_local=False) is False
+
+    # 3. Explicit dev mode ALLOWS local files
+    monkeypatch.setenv("HERMES_HUB_DEV_MODE", "1")
+    assert is_allowed_update_host("file:///C:/local/update.zip", allow_dev_local=False) is True
+    assert is_allowed_update_host("C:\\local\\update.zip", allow_dev_local=False) is True
+    assert is_allowed_update_host("http://localhost:8000/manifest.json", allow_dev_local=False) is True
+    assert is_allowed_update_host("https://evil-server.com/malicious_update.zip", allow_dev_local=False) is False
 
 
 @pytest.mark.unit
@@ -91,6 +103,7 @@ def test_manifest_404_friendly_message(tmp_path, monkeypatch):
 def test_bad_hash_rejection(tmp_path, monkeypatch):
     """Verify that packages with invalid / tampered hashes are rejected and staging is cleaned."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HUB_DEV_MODE", "1")
 
     # Create dummy zip package
     pkg_file = tmp_path / "tampered_pkg.zip"
@@ -145,6 +158,7 @@ def test_updater_rollback_on_failure(tmp_path, monkeypatch):
 def test_dogfood_update_e2e(tmp_path, monkeypatch):
     """Verify successful end-to-end update from 0.1.1 to 0.1.2."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HUB_DEV_MODE", "1")
 
     # Target app directory
     app_dir = tmp_path / "app"
