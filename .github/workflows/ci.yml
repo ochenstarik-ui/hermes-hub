@@ -37,3 +37,29 @@ jobs:
       - name: Run Automated Release Gate
         run: |
           python scripts/release_gate.py
+
+  headless:
+    name: Headless Run (no GUI dependencies)
+    runs-on: windows-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies without GUI extras
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+          pip uninstall -y customtkinter
+
+      # A test module importing customtkinter at module scope aborts collection
+      # of the WHOLE session instead of skipping itself, which takes the release
+      # gate down with it. This job fails if that guard is ever dropped again.
+      - name: Suite must skip, not abort, without GUI dependencies
+        run: |
+          pytest -q

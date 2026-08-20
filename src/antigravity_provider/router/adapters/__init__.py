@@ -1,13 +1,14 @@
 """Adapter registry for router provider backends."""
 from __future__ import annotations
 
-from typing import Dict
-from .base_adapter import BaseProviderAdapter
+
 from .antigravity_adapter import AntigravityAdapter
-from .codex_adapter import CodexAdapter
-from .opencode_adapter import OpenCodeGoAdapter
+from .base_adapter import BaseProviderAdapter
 from .claude_adapter import ClaudeAdapter
+from .codex_adapter import CodexAdapter
+from .deepseek_adapter import DeepSeekResponsesAdapter
 from .grok_adapter import GrokAdapter
+from .opencode_adapter import OpenCodeGoAdapter
 
 _ADAPTERS: dict[str, BaseProviderAdapter] = {
     "antigravity": AntigravityAdapter(),
@@ -22,6 +23,7 @@ _ADAPTERS: dict[str, BaseProviderAdapter] = {
     "grok": GrokAdapter(),
     "xai": GrokAdapter(),
     "xai-oauth": GrokAdapter(),
+    "deepseek": DeepSeekResponsesAdapter(),
 }
 
 
