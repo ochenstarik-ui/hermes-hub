@@ -127,14 +127,29 @@ class RouterEngine:
             if not pconfig or not pconfig.enabled:
                 continue
 
-            # Check health and quota
+            # Model selection with same-account fallback support
+            selected_model = requested_model
+            prefer_same_account = bool(hub_settings.get("prefer_same_account_model_fallback", False)) or getattr(role_policy, "allow_model_fallback", False)
+
+            # Check health and quota for requested model
             if not self.health.is_healthy(pid, requested_model):
-                failover_trail.append({
-                    "profile_id": pid,
-                    "provider": pconfig.provider,
-                    "status": "skipped_unhealthy",
-                })
-                continue
+                # If same-account model fallback is enabled, check alternate models on this profile
+                fallback_found = False
+                if prefer_same_account and pconfig.preferred_models:
+                    for alt_m in pconfig.preferred_models:
+                        if alt_m != requested_model and self.health.is_healthy(pid, alt_m):
+                            selected_model = alt_m
+                            fallback_found = True
+                            logger.info("Router same-account model fallback for %s: %s -> %s", pid, requested_model, alt_m)
+                            break
+
+                if not fallback_found:
+                    failover_trail.append({
+                        "profile_id": pid,
+                        "provider": pconfig.provider,
+                        "status": "skipped_unhealthy",
+                    })
+                    continue
 
             # Try to acquire concurrency lease
             if not self.leases.acquire(pid, pconfig.max_concurrency):
@@ -151,11 +166,12 @@ class RouterEngine:
             try:
                 # Prepare profile-specific model selection
                 exec_request = dict(request)
-                if not exec_request.get("model") or exec_request["model"] == "default":
-                    if pconfig.preferred_models:
-                        exec_request["model"] = pconfig.preferred_models[0]
-                    elif role_policy.default_model:
-                        exec_request["model"] = role_policy.default_model
+                if selected_model and selected_model != "default":
+                    exec_request["model"] = selected_model
+                elif pconfig.preferred_models:
+                    exec_request["model"] = pconfig.preferred_models[0]
+                elif role_policy.default_model:
+                    exec_request["model"] = role_policy.default_model
 
                 t0 = time.time()
                 response = adapter.invoke(pconfig, exec_request)
@@ -195,14 +211,26 @@ class RouterEngine:
                 if err_class.category == ErrorCategory.QUOTA_EXHAUSTED:
                     self.health.mark_quota_exhausted(
                         profile_id=pid,
-                        model_name=requested_model,
+                        model_name=exec_request.get("model") or requested_model,
                         duration=err_class.reset_duration_seconds,
                         reason=err_class.message,
                     )
+                    # Immediate update to QuotaSnapshot
+                    try:
+                        from .quota_collector import AccountQuotaService
+                        AccountQuotaService.get().record_runtime_quota_error(
+                            provider=pconfig.provider,
+                            profile_id=pid,
+                            model=exec_request.get("model") or requested_model or "",
+                            error_msg=err_class.message,
+                            reset_seconds=err_class.reset_duration_seconds,
+                        )
+                    except Exception:
+                        pass
                 elif err_class.category == ErrorCategory.RATE_LIMITED:
                     self.health.mark_rate_limited(
                         profile_id=pid,
-                        model_name=requested_model,
+                        model_name=exec_request.get("model") or requested_model,
                         duration=err_class.retry_delay_seconds,
                         reason=err_class.message,
                     )

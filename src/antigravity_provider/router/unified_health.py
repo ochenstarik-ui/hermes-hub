@@ -88,6 +88,10 @@ class ProfileViewModel:
     enabled: bool
     is_cold_spare: bool
     is_empty_slot: bool
+    email: str = ""
+    plan: str = "Тариф: неизвестен"
+    plan_code: str = "UNKNOWN"
+    quota_snapshot: Optional[Any] = None
     preferred_models: List[str] = field(default_factory=list)
 
 
@@ -391,17 +395,27 @@ class UnifiedHealthService:
                     health_state = STATUS_HEALTHY
                     health_lbl = "Работает"
 
+                from .quota_collector import AccountQuotaService
+                ident = AccountQuotaService.get().get_identity(prov, pid)
+                snap = AccountQuotaService.get().get_snapshot(prov, pid)
+
                 display_name, log_role, tier = AutoAssigner.get_display_name_and_role(pid)
                 prov_display = {
                     "antigravity": "Google Antigravity",
                     "openai-codex": "OpenAI Codex",
+                    "codex": "OpenAI Codex",
                     "opencode-go": "OpenCode Go",
-                }.get(prov, prov)
+                    "opencode": "OpenCode Go",
+                    "claude": "Claude",
+                    "anthropic": "Claude",
+                    "grok": "Grok",
+                    "xai": "Grok",
+                }.get(prov.lower(), prov)
 
                 vm = ProfileViewModel(
                     profile_id=pid,
                     display_name=display_name,
-                    account_identity=identity,
+                    account_identity=ident.primary_identifier() if is_authenticated else identity,
                     provider=prov,
                     provider_display_name=prov_display,
                     assigned_roles=role_assignments.get(pid, [log_role]),
@@ -417,10 +431,14 @@ class UnifiedHealthService:
                     enabled=pcfg.enabled,
                     is_cold_spare=is_cold,
                     is_empty_slot=is_empty,
+                    email=ident.email or "",
+                    plan=ident.plan.display_name if is_authenticated else "Тариф: неизвестен",
+                    plan_code=ident.plan.code if is_authenticated else "UNKNOWN",
+                    quota_snapshot=snap,
                     preferred_models=pcfg.preferred_models,
                 )
 
-                result[prov].append(vm)
+                result.setdefault(prov, []).append(vm)
                 self._cached_profiles[pid] = vm
 
             return result

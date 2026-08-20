@@ -297,18 +297,16 @@ wheels = [
 
 [[package]]
 name = "hermes-hub"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "customtkinter" },
-    { name = "fastapi" },
     { name = "httpx" },
     { name = "pillow" },
     { name = "psutil" },
     { name = "pydantic" },
     { name = "pyyaml" },
     { name = "requests" },
-    { name = "uvicorn" },
 ]
 
 [package.optional-dependencies]
@@ -318,12 +316,16 @@ dev = [
     { name = "pytest-asyncio" },
     { name = "ruff" },
 ]
+legacy = [
+    { name = "fastapi" },
+    { name = "uvicorn" },
+]
 
 [package.metadata]
 requires-dist = [
     { name = "anyio", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "customtkinter", specifier = ">=6.0.0" },
-    { name = "fastapi", specifier = ">=0.110.0" },
+    { name = "fastapi", marker = "extra == 'legacy'", specifier = ">=0.110.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "pillow", specifier = ">=12.3.0" },
     { name = "psutil", specifier = ">=5.9.0" },
@@ -333,9 +335,9 @@ requires-dist = [
     { name = "pyyaml", specifier = ">=6.0.1" },
     { name = "requests", specifier = ">=2.31.0" },
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0" },
-    { name = "uvicorn", specifier = ">=0.28.0" },
+    { name = "uvicorn", marker = "extra == 'legacy'", specifier = ">=0.28.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["dev", "legacy"]
 
 [[package]]
 name = "httpcore"

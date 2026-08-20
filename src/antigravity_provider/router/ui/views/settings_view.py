@@ -56,8 +56,22 @@ class SettingsView(ctk.CTkFrame):
                 self.settings["failover_attempts"] = str(self.fo_menu.get())
             if hasattr(self, "ret_sw"):
                 self.settings["auto_return_primary"] = bool(self.ret_sw.get())
-            if hasattr(self, "mon_sw"):
-                self.settings["auto_monitoring"] = bool(self.mon_sw.get())
+            if hasattr(self, "same_acc_sw"):
+                self.settings["prefer_same_account_model_fallback"] = bool(self.same_acc_sw.get())
+            if hasattr(self, "refr_menu"):
+                lbl = str(self.refr_menu.get())
+                self.settings["quota_refresh_interval_label"] = lbl
+                interval_sec_map = {
+                    "Выкл": 0,
+                    "1 мин": 60,
+                    "5 мин": 300,
+                    "10 мин": 600,
+                    "30 мин": 1800,
+                }
+                sec = interval_sec_map.get(lbl, 300)
+                self.settings["quota_refresh_interval_sec"] = sec
+                from antigravity_provider.router.quota_collector import AccountQuotaService
+                AccountQuotaService.get().set_refresh_interval(sec)
 
             self.settings_file.parent.mkdir(parents=True, exist_ok=True)
             self.settings_file.write_text(json.dumps(self.settings, indent=2), encoding="utf-8")
@@ -129,13 +143,31 @@ class SettingsView(ctk.CTkFrame):
         if self.settings.get("auto_return_primary"):
             self.ret_sw.select()
 
-        r5 = ctk.CTkFrame(c2, fg_color="transparent")
-        r5.pack(fill="x", padx=16, pady=(4, 12))
-        ctk.CTkLabel(r5, text="Автоматический фоновый мониторинг здоровья", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-        self.mon_sw = ctk.CTkSwitch(r5, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
-        self.mon_sw.pack(side="right")
-        if self.settings.get("auto_monitoring"):
-            self.mon_sw.select()
+        # Same-account model fallback switch
+        r_same = ctk.CTkFrame(c2, fg_color="transparent")
+        r_same.pack(fill="x", padx=16, pady=4)
+        ctk.CTkLabel(r_same, text="Приоритет смены модели на том же аккаунте (Fallback внутри аккаунта)", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
+        self.same_acc_sw = ctk.CTkSwitch(r_same, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
+        self.same_acc_sw.pack(side="right")
+        if self.settings.get("prefer_same_account_model_fallback", True):
+            self.same_acc_sw.select()
+
+        # Quota background refresh interval
+        r_refr = ctk.CTkFrame(c2, fg_color="transparent")
+        r_refr.pack(fill="x", padx=16, pady=(4, 12))
+        ctk.CTkLabel(r_refr, text="Фоновое автообновление квот провайдеров", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
+
+        self.refr_menu = ctk.CTkOptionMenu(
+            r_refr,
+            values=["Выкл", "1 мин", "5 мин", "10 мин", "30 мин"],
+            width=100,
+            height=28,
+            fg_color=Theme.SURFACE_MUTED,
+            button_color=Theme.ACCENT,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.refr_menu.set(str(self.settings.get("quota_refresh_interval_label", "5 мин")))
+        self.refr_menu.pack(side="right")
 
         # ── 3. Updates & Release Channel ──
         c_upd = HubCard(scroll, border_color=Theme.BORDER, fg_color=Theme.SURFACE)

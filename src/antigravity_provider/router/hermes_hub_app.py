@@ -161,6 +161,13 @@ class HermesHubApp(ctk.CTk):
 
         self._build_layout()
         self._show_view("team")
+
+        try:
+            from antigravity_provider.router.quota_collector import AccountQuotaService
+            AccountQuotaService.get().start_background_scheduler()
+        except Exception:
+            pass
+
         self.after(50, self._refresh_data)
 
     def _build_layout(self):
@@ -515,6 +522,11 @@ class HermesHubApp(ctk.CTk):
     def _on_close(self):
         """Graceful shutdown coordinator without leaving orphan processes."""
         self._shutting_down = True
+        try:
+            from antigravity_provider.router.quota_collector import AccountQuotaService
+            AccountQuotaService.get().stop_background_scheduler()
+        except Exception:
+            pass
         try:
             if self._resize_timer_id:
                 self.after_cancel(self._resize_timer_id)

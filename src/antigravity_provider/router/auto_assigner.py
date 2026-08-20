@@ -42,10 +42,16 @@ HUMAN_ROLE_LABELS = {
 DEFAULT_SLOT_ROLES = {
     "codex-orch": ("Главный оркестратор", "orchestrator", "primary"),
     "ag-orch-fallback": ("Резервный оркестратор", "orchestrator", "fallback"),
+    "claude-orch": ("Оркестратор (Claude)", "orchestrator", "fallback"),
+    "grok-orch": ("Оркестратор (Grok)", "orchestrator", "fallback"),
     "codex-worker-1": ("Кодер 1", "coder", "primary"),
+    "claude-worker-1": ("Кодер (Claude)", "coder", "primary"),
     "ag-w1": ("Кодер 2", "coder", "fallback"),
+    "grok-worker-1": ("Кодер (Grok)", "coder", "fallback"),
     "codex-worker-2": ("Ревьюер", "reviewer", "primary"),
+    "claude-worker-2": ("Ревьюер (Claude)", "reviewer", "primary"),
     "ag-w2": ("Исследователь", "researcher", "primary"),
+    "grok-worker-2": ("Исследователь (Grok)", "researcher", "primary"),
     "ag-w3": ("Быстрый агент", "general", "primary"),
     "ag-w4": ("Универсальный субагент", "general", "primary"),
     "opengo-1": ("Кодер (OpenCode)", "coder", "fallback_2"),
@@ -140,6 +146,8 @@ class AutoAssigner:
             ],
             "openai-codex": ["codex-orch", "codex-worker-1", "codex-worker-2"],
             "opencode-go": ["opengo-1", "opengo-2", "opengo-3"],
+            "claude": ["claude-orch", "claude-worker-1", "claude-worker-2"],
+            "grok": ["grok-orch", "grok-worker-1", "grok-worker-2"],
         }
 
         candidates = list(provider_slots.get(provider, []))
@@ -299,18 +307,39 @@ class AutoAssigner:
             elif pcfg.enabled:
                 team["summary"]["needs_auth"] += 1
 
-            is_main = (pid == main_ag and pcfg.provider == "antigravity") or (pid == main_codex and pcfg.provider == "openai-codex")
-            identity = status.get("email_masked") or status.get("account_id_masked") or status.get("error") or "Не авторизован"
+            prov_labels = {
+                "antigravity": "Google Antigravity",
+                "openai-codex": "OpenAI Codex",
+                "codex": "OpenAI Codex",
+                "opencode-go": "OpenCode Go",
+                "opencode": "OpenCode Go",
+                "claude": "Claude",
+                "anthropic": "Claude",
+                "grok": "Grok",
+                "xai": "Grok",
+            }
+            provider_label = prov_labels.get(pcfg.provider.lower(), pcfg.provider)
+
+            # Get identity & quota
+            from antigravity_provider.router.quota_collector import AccountQuotaService
+            ident = AccountQuotaService.get().get_identity(pcfg.provider, pid)
+            snap = AccountQuotaService.get().get_snapshot(pcfg.provider, pid)
+
+            primary_model = pcfg.preferred_models[0] if pcfg.preferred_models else "default"
+            relevant_bucket = snap.get_bucket_for_model(primary_model) if snap else None
 
             card = {
                 "profile_id": pid,
                 "display_name": display_name,
                 "provider": pcfg.provider,
-                "provider_label": "Google Antigravity" if pcfg.provider == "antigravity" else ("OpenAI Codex" if pcfg.provider == "openai-codex" else "OpenCode Go"),
+                "provider_label": provider_label,
                 "logical_role": log_role,
                 "tier": tier,
                 "is_main": is_main,
-                "identity": identity,
+                "identity": ident.primary_identifier() if is_auth else "Не авторизован",
+                "plan": ident.plan.display_name if is_auth else "Тариф: неизвестен",
+                "quota_str": relevant_bucket.formatted_remaining() if relevant_bucket else "Квота: доступна",
+                "quota_bucket": relevant_bucket,
                 "authenticated": is_auth,
                 "enabled": pcfg.enabled,
                 "preferred_models": pcfg.preferred_models,

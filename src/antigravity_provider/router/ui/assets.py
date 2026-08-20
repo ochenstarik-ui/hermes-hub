@@ -4,14 +4,23 @@ from __future__ import annotations
 import os
 from pathlib import Path
 from typing import Dict, Optional, Tuple
-from PIL import Image
-import customtkinter as ctk
+
+try:
+    from PIL import Image
+except ImportError:
+    Image = None
+
+try:
+    import customtkinter as ctk
+except ImportError:
+    import unittest.mock as _mock
+    ctk = _mock.MagicMock()
 
 
 class AssetManager:
     _instance: Optional[AssetManager] = None
     _image_cache: Dict[str, ctk.CTkImage] = {}
-    _pil_cache: Dict[str, Image.Image] = {}
+    _pil_cache: Dict[str, Any] = {}
 
     def __init__(self):
         self.root_dir = self._find_repo_root()
@@ -36,7 +45,7 @@ class AssetManager:
         local_app = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "plugins" / "antigravity-provider"
         if (local_app / "assets" / "branding").exists():
             return local_app
-        return Path("E:/Agent projects/hermes-hub")
+        return cur.parents[3] if len(cur.parents) > 3 else cur.parent
 
     def get_ico_path(self) -> str:
         ico = self.app_dir / "HermesHub.ico"

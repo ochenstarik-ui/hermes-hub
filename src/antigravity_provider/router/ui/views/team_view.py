@@ -138,11 +138,19 @@ class AgentCardWidget(HubCard):
             self.prov_lbl.configure(text="OpenAI Codex", text_color=Theme.PROVIDER_CODEX)
         elif "opencode" in prov:
             self.prov_lbl.configure(text="OpenCode Go", text_color=Theme.PROVIDER_OPENCODE)
+        elif "claude" in prov or "anthropic" in prov:
+            self.prov_lbl.configure(text="Claude", text_color="#d97706")
+        elif "grok" in prov or "xai" in prov:
+            self.prov_lbl.configure(text="Grok", text_color="#3b82f6")
         else:
             self.prov_lbl.configure(text=a.provider_display_name, text_color=Theme.TEXT_MUTED)
 
-        # Identity
-        self.identity_lbl.configure(text=a.account_identity)
+        # Identity & Model-Specific Quota
+        from antigravity_provider.router.quota_collector import AccountQuotaService
+        snap = AccountQuotaService.get().get_snapshot(a.provider, a.assigned_profile_id or "")
+        bucket = snap.get_bucket_for_model(a.model) if snap else None
+        quota_tail = f" • {bucket.formatted_remaining()}" if bucket else ""
+        self.identity_lbl.configure(text=f"{a.account_identity}{quota_tail}")
 
         # Pills
         self.pill1_lbl.configure(text=a.role_id)

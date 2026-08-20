@@ -1,6 +1,7 @@
-"""Hermes Hub — Accounts View (Cockpit-grade Toolbar, Filters, and Provider Breakdown)."""
+"""Hermes Hub — Accounts View (Multi-Provider Quota Cards, Tariffs, and Refresh)."""
 from __future__ import annotations
 
+import logging
 from typing import Any, Callable, Dict, List, Optional
 import customtkinter as ctk
 
@@ -23,6 +24,9 @@ from antigravity_provider.router.unified_health import (
     STATUS_NOT_CONFIGURED,
     STATUS_COLD_SPARE,
 )
+from antigravity_provider.router.quota_collector import AccountQuotaService
+
+logger = logging.getLogger("hermes.hub.accounts_view")
 
 
 class AccountsView(ctk.CTkFrame):
@@ -36,17 +40,50 @@ class AccountsView(ctk.CTkFrame):
         self._build()
 
     def _build(self):
-        # 1. Header
-        header = HubSectionHeader(
-            self,
-            title="Управление аккаунтами",
-            subtitle="Подключение, проверка и распределение AI-аккаунтов",
-            action_text="+ Добавить аккаунт",
-            action_cmd=lambda: self._trigger_action("add_account", {}),
-        )
-        header.pack(fill="x", padx=20, pady=(16, 8))
+        # 1. Header with Refresh All and Add Account buttons
+        header_row = ctk.CTkFrame(self, fg_color="transparent")
+        header_row.pack(fill="x", padx=20, pady=(16, 8))
 
-        # 2. Cockpit-grade Toolbar
+        titles_col = ctk.CTkFrame(header_row, fg_color="transparent")
+        titles_col.pack(side="left", fill="both", expand=True)
+
+        ctk.CTkLabel(
+            titles_col,
+            text="Управление аккаунтами",
+            font=Theme.font_title(),
+            text_color=Theme.TEXT_PRIMARY,
+            anchor="w",
+        ).pack(fill="x")
+
+        ctk.CTkLabel(
+            titles_col,
+            text="Подключение, мониторинг тарифов и раздельных квот провайдеров",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+            anchor="w",
+        ).pack(fill="x", pady=(2, 0))
+
+        actions_col = ctk.CTkFrame(header_row, fg_color="transparent")
+        actions_col.pack(side="right")
+
+        self.refresh_all_btn = HubButton(
+            actions_col,
+            text="↻ Обновить все",
+            variant="secondary",
+            height=Theme.HEIGHT_BTN_MD,
+            command=self._refresh_all_quotas,
+        )
+        self.refresh_all_btn.pack(side="left", padx=(0, 8))
+
+        HubButton(
+            actions_col,
+            text="+ Добавить аккаунт",
+            variant="primary",
+            height=Theme.HEIGHT_BTN_MD,
+            command=lambda: self._trigger_action("add_account", {}),
+        ).pack(side="left")
+
+        # 2. Cockpit Toolbar
         self.toolbar = HubToolbar(
             self,
             on_search=self._on_search,
@@ -55,7 +92,7 @@ class AccountsView(ctk.CTkFrame):
         )
         self.toolbar.pack(fill="x", padx=20, pady=(0, 10))
 
-        # 3. Provider Tabs with real icons
+        # 3. Provider Tabs
         self.tabview = ctk.CTkTabview(
             self,
             fg_color=Theme.BG_WINDOW,
@@ -72,6 +109,8 @@ class AccountsView(ctk.CTkFrame):
             ("antigravity", "Google Antigravity"),
             ("openai-codex", "OpenAI Codex"),
             ("opencode-go", "OpenCode Go"),
+            ("claude", "Claude"),
+            ("grok", "Grok"),
         ]
 
         self.tab_scrolls: Dict[str, ctk.CTkScrollableFrame] = {}
@@ -85,6 +124,19 @@ class AccountsView(ctk.CTkFrame):
             self.tab_scrolls[p_key] = scroll
 
         self.update_data()
+
+    def _trigger_action(self, action: str, data: Any):
+        if self.on_action:
+            self.on_action(action, data)
+
+    def _refresh_all_quotas(self):
+        self.refresh_all_btn.configure(text="↻ Обновление...", state="disabled")
+        def _done(results):
+            def _ui():
+                self.refresh_all_btn.configure(text="↻ Обновить все", state="normal")
+                self.update_data()
+            self.after(0, _ui)
+        AccountQuotaService.get().refresh_all_accounts_async(on_complete=_done)
 
     def _on_search(self, query: str):
         self._search_query = query
@@ -100,7 +152,7 @@ class AccountsView(ctk.CTkFrame):
 
     def update_data(self, app_state: Optional[Dict[str, Any]] = None):
         service = UnifiedHealthService.get()
-        profiles_by_prov = service.scan_all()
+        profiles_by_prov = service.scan_all(force=True)
 
         for prov_key, scroll in self.tab_scrolls.items():
             for w in scroll.winfo_children():
@@ -113,16 +165,16 @@ class AccountsView(ctk.CTkFrame):
             empty_slots_count = 0
 
             for p in profiles:
-                # Count empty/unconfigured slots
                 if p.is_empty_slot:
                     empty_slots_count += 1
 
                 # Search filter
                 if self._search_query:
-                    q = self._search_query
+                    q = self._search_query.lower()
                     matches = (
                         q in p.account_identity.lower()
                         or q in p.display_name.lower()
+                        or q in p.plan.lower()
                         or any(q in m.lower() for m in p.preferred_models)
                         or any(q in r.lower() for r in p.assigned_roles)
                     )
@@ -145,7 +197,6 @@ class AccountsView(ctk.CTkFrame):
             elif self._sort_by == "По статусу":
                 filtered.sort(key=lambda x: x.health_state)
 
-            # Render configured/active accounts first
             configured_profs = [p for p in filtered if not p.is_empty_slot]
             empty_profs = [p for p in filtered if p.is_empty_slot]
 
@@ -156,9 +207,7 @@ class AccountsView(ctk.CTkFrame):
                 card.grid(row=row_idx, column=col_idx, padx=6, pady=6, sticky="nsew")
                 grid_idx += 1
 
-            # Render free slots consolidated or individual if filtered
             if empty_profs:
-                # If only a few empty or searched, show individual slots; otherwise show sleek consolidated bar
                 if len(empty_profs) <= 2 or self._search_query:
                     for p in empty_profs:
                         row_idx, col_idx = divmod(grid_idx, 3)
@@ -166,7 +215,6 @@ class AccountsView(ctk.CTkFrame):
                         card.grid(row=row_idx, column=col_idx, padx=6, pady=6, sticky="nsew")
                         grid_idx += 1
                 else:
-                    # Sleek consolidated free slots widget
                     c_row = (grid_idx // 3) + 1
                     summary_card = HubCard(scroll, border_color=Theme.BORDER_SUBTLE, fg_color=Theme.SURFACE_MUTED)
                     summary_card.grid(row=c_row, column=0, columnspan=3, padx=6, pady=10, sticky="ew")
@@ -176,7 +224,7 @@ class AccountsView(ctk.CTkFrame):
 
                     ctk.CTkLabel(
                         s_inner,
-                        text=f"Свободные слоты {prov_key}: {len(empty_profs)} слотов доступно для подключения",
+                        text=f"Свободные слоты {p.provider_display_name if configured_profs else prov_key}: {len(empty_profs)} слотов доступно",
                         font=Theme.font_body_bold(),
                         text_color=Theme.TEXT_SECONDARY,
                     ).pack(side="left")
@@ -193,7 +241,7 @@ class AccountsView(ctk.CTkFrame):
         border_col = Theme.BORDER_ACCENT if p.is_main_account else Theme.BORDER
         card = HubCard(parent, border_color=border_col, fg_color=Theme.SURFACE)
 
-        # ── Header: Provider Icon + Identity / Masked Email + Status dot ──
+        # ── Header: Provider Icon + Plan Badge + Status Dot ──
         top = ctk.CTkFrame(card, fg_color="transparent")
         top.pack(fill="x", padx=14, pady=(12, 2))
 
@@ -201,47 +249,71 @@ class AccountsView(ctk.CTkFrame):
         if p_img:
             ctk.CTkLabel(top, image=p_img, text="").pack(side="left", padx=(0, 6))
 
-        ctk.CTkLabel(top, text=p.account_identity, font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
+        # Plan badge
+        plan_color = "#3b82f6" if p.plan_code in ("PRO", "PLUS", "MAX") else ("#10b981" if p.plan_code in ("ULTRA", "SUPERGROK", "TEAM") else Theme.TEXT_MUTED)
+        plan_frame = ctk.CTkFrame(top, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
+        plan_frame.pack(side="left", padx=(0, 6))
+        ctk.CTkLabel(plan_frame, text=p.plan, font=Theme.font_micro_bold(), text_color=plan_color).pack(padx=6, pady=2)
 
         if p.is_main_account:
             m_pill = ctk.CTkFrame(top, fg_color="#3D3522", corner_radius=Theme.RADIUS_SM)
-            m_pill.pack(side="left", padx=(6, 0))
+            m_pill.pack(side="left", padx=(0, 6))
             ctk.CTkLabel(m_pill, text="★ MAIN", font=Theme.font_micro(), text_color=Theme.ACCENT).pack(padx=5, pady=1)
 
         dot_col = Theme.STATUS_HEALTHY if p.health_state == STATUS_HEALTHY else (Theme.STATUS_WARNING if "quota" in p.health_state or "auth" in p.health_state else Theme.STATUS_ERROR)
         ctk.CTkLabel(top, text="●", font=("Segoe UI", 13, "bold"), text_color=dot_col).pack(side="right")
+
+        # Identity line (Email / Account)
+        ident_row = ctk.CTkFrame(card, fg_color="transparent")
+        ident_row.pack(fill="x", padx=14, pady=(2, 2))
+        ctk.CTkLabel(ident_row, text=p.account_identity, font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w")
 
         # Subheader: Role & Internal Slot
         sub_row = ctk.CTkFrame(card, fg_color="transparent")
         sub_row.pack(fill="x", padx=14, pady=(0, 4))
         ctk.CTkLabel(sub_row, text=f"{p.display_name} • {p.provider_display_name}", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED).pack(anchor="w")
 
-        # Per-model breakdown box (Model-Family health)
-        models_box = ctk.CTkFrame(card, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
-        models_box.pack(fill="x", padx=14, pady=4)
+        # Quota Buckets Box
+        quota_box = ctk.CTkFrame(card, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
+        quota_box.pack(fill="x", padx=14, pady=4)
 
-        if p.model_states:
-            for fam_name, m_health in list(p.model_states.items())[:2]:
-                mrow = ctk.CTkFrame(models_box, fg_color="transparent")
-                mrow.pack(fill="x", padx=8, pady=3)
-                ctk.CTkLabel(mrow, text=m_health.display_name, font=Theme.font_caption(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-                m_col = Theme.STATUS_HEALTHY if m_health.status == STATUS_HEALTHY else Theme.STATUS_WARNING
-                ctk.CTkLabel(mrow, text=f"● {m_health.status_label_ru}", font=Theme.font_micro(), text_color=m_col).pack(side="right")
+        snap = p.quota_snapshot or AccountQuotaService.get().get_snapshot(p.provider, p.profile_id)
+        if snap and snap.buckets:
+            for b in snap.buckets[:4]:
+                brow = ctk.CTkFrame(quota_box, fg_color="transparent")
+                brow.pack(fill="x", padx=8, pady=2)
+                ctk.CTkLabel(brow, text=b.display_name, font=Theme.font_caption(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
+
+                b_status_col = Theme.STATUS_HEALTHY if b.status == "healthy" else (Theme.STATUS_WARNING if b.status == "warning" else Theme.STATUS_ERROR)
+                reset_text = f" ({b.formatted_reset()})" if b.formatted_reset() else ""
+                rem_text = f"{b.formatted_remaining()}{reset_text}"
+                ctk.CTkLabel(brow, text=rem_text, font=Theme.font_micro(), text_color=b_status_col).pack(side="right")
         else:
-            ctk.CTkLabel(models_box, text=f"Статус: {p.health_label_ru}", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED).pack(padx=8, pady=4)
+            ctk.CTkLabel(quota_box, text="Квота: доступна", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED).pack(padx=8, pady=4)
 
-        # Assigned role tag
-        role_box = ctk.CTkFrame(card, fg_color="transparent")
-        role_box.pack(fill="x", padx=14, pady=2)
-        role_str = p.assigned_roles[0] if p.assigned_roles else p.display_name
-        ctk.CTkLabel(role_box, text=f"Роль: {role_str}", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(anchor="w")
+        # Freshness label
+        fresh_row = ctk.CTkFrame(card, fg_color="transparent")
+        fresh_row.pack(fill="x", padx=14, pady=(2, 2))
+        fresh_lbl = snap.freshness_label() if snap else "Обновлено: недавно"
+        ctk.CTkLabel(fresh_row, text=fresh_lbl, font=Theme.font_micro(), text_color=Theme.TEXT_MUTED).pack(anchor="w")
 
         # Action Buttons
         btns = ctk.CTkFrame(card, fg_color="transparent")
-        btns.pack(fill="x", padx=14, pady=(6, 12))
+        btns.pack(fill="x", padx=14, pady=(4, 12))
 
-        HubButton(btns, text="⚡ Тест", variant="secondary", width=70, height=Theme.HEIGHT_BTN_SM, command=lambda: self._trigger_action("test", p)).pack(side="left", padx=(0, 6))
-        HubButton(btns, text="Назначить", variant="secondary", width=85, height=Theme.HEIGHT_BTN_SM, command=lambda: self._trigger_action("assign_role", p)).pack(side="left", padx=(0, 6))
+        # Single-account refresh button [↻]
+        refresh_single_btn = HubButton(
+            btns,
+            text="↻",
+            variant="secondary",
+            width=32,
+            height=Theme.HEIGHT_BTN_SM,
+            command=lambda prov=p.provider, pid=p.profile_id: self._refresh_single_account(prov, pid),
+        )
+        refresh_single_btn.pack(side="left", padx=(0, 6))
+
+        HubButton(btns, text="⚡ Тест", variant="secondary", width=65, height=Theme.HEIGHT_BTN_SM, command=lambda: self._trigger_action("test", p)).pack(side="left", padx=(0, 6))
+        HubButton(btns, text="Назначить", variant="secondary", width=80, height=Theme.HEIGHT_BTN_SM, command=lambda: self._trigger_action("assign_role", p)).pack(side="left", padx=(0, 6))
 
         ctk.CTkButton(
             btns,
@@ -257,65 +329,31 @@ class AccountsView(ctk.CTkFrame):
 
         return card
 
+    def _refresh_single_account(self, provider: str, profile_id: str):
+        def _done(snap):
+            self.after(0, self.update_data)
+        AccountQuotaService.get().refresh_account_async(provider, profile_id, on_complete=_done)
+
     def _build_empty_slot_card(self, parent: Any, p: ProfileViewModel) -> HubCard:
         card = HubCard(parent, border_color=Theme.BORDER_SUBTLE, fg_color=Theme.SURFACE_MUTED)
 
         top = ctk.CTkFrame(card, fg_color="transparent")
         top.pack(fill="x", padx=14, pady=(12, 4))
+        ctk.CTkLabel(top, text=p.display_name, font=Theme.font_heading(), text_color=Theme.TEXT_SECONDARY).pack(side="left")
 
-        title_txt = "Холодный резерв" if p.is_cold_spare else "Свободный слот"
-        ctk.CTkLabel(top, text=title_txt, font=Theme.font_heading(), text_color=Theme.TEXT_MUTED).pack(side="left")
-        ctk.CTkLabel(top, text=f"({p.profile_id})", font=Theme.font_mono_sm(), text_color=Theme.TEXT_MUTED).pack(side="right")
+        ctk.CTkLabel(card, text="Слот свободен", font=Theme.font_body(), text_color=Theme.TEXT_MUTED).pack(anchor="w", padx=14, pady=(2, 8))
 
-        ctk.CTkLabel(card, text=p.provider_display_name, font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(anchor="w", padx=14, pady=(0, 4))
-
-        desc_txt = "Не используется автоматически" if p.is_cold_spare else "Аккаунт не добавлен"
-        ctk.CTkLabel(card, text=desc_txt, font=Theme.font_caption(), text_color=Theme.TEXT_MUTED).pack(anchor="w", padx=14, pady=(0, 10))
-
+        btns = ctk.CTkFrame(card, fg_color="transparent")
+        btns.pack(fill="x", padx=14, pady=(4, 12))
         HubButton(
-            card,
-            text="+ Подключить аккаунт",
-            variant="accent_outline",
+            btns,
+            text="+ Подключить",
+            variant="primary",
             height=Theme.HEIGHT_BTN_SM,
-            command=lambda: self._trigger_action("oauth" if p.provider == "antigravity" else "add_account", p),
-        ).pack(fill="x", padx=14, pady=(4, 12))
+            command=lambda: self._trigger_action("add_account", {"profile_id": p.profile_id, "provider": p.provider}),
+        ).pack(side="left")
 
         return card
 
     def _open_account_menu(self, p: ProfileViewModel):
-        popup = ctk.CTkToplevel(self.winfo_toplevel())
-        popup.title(f"Аккаунт: {p.account_identity}")
-        popup.geometry("320x280")
-        popup.configure(fg_color=Theme.DARK)
-        popup.resizable(False, False)
-        popup.transient(self.winfo_toplevel())
-        popup.grab_set()
-
-        popup.update_idletasks()
-        px = self.winfo_toplevel().winfo_x() + 320
-        py = self.winfo_toplevel().winfo_y() + 200
-        popup.geometry(f"+{px}+{py}")
-
-        c = HubCard(popup, fg_color=Theme.DARK, border_color=Theme.BORDER_ACCENT)
-        c.pack(fill="both", expand=True, padx=10, pady=10)
-
-        ctk.CTkLabel(c, text=p.account_identity, font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(pady=(8, 2))
-        ctk.CTkLabel(c, text=f"{p.provider_display_name} • {p.profile_id}", font=Theme.font_mono_sm(), text_color=Theme.TEXT_MUTED).pack(pady=(0, 10))
-
-        def _do(action_name: str):
-            popup.destroy()
-            self._trigger_action(action_name, p)
-
-        HubButton(c, text="⚡ Проверить состояние (Тест)", variant="secondary", height=30, command=lambda: _do("test")).pack(fill="x", padx=12, pady=2)
-        HubButton(c, text="★ Сделать основным Hermes", variant="secondary", height=30, command=lambda: _do("set_main")).pack(fill="x", padx=12, pady=2)
-        HubButton(c, text="👑 Назначить главным оркестратором", variant="secondary", height=30, command=lambda: _do("set_orchestrator")).pack(fill="x", padx=12, pady=2)
-        HubButton(c, text="🗑️ Удалить credentials", variant="danger", height=30, command=lambda: _do("delete_credentials")).pack(fill="x", padx=12, pady=(4, 0))
-
-    def _trigger_action(self, action: str, profile_vm: Any):
-        if self.on_action:
-            p_dict = {
-                "profile_id": getattr(profile_vm, "profile_id", ""),
-                "provider": getattr(profile_vm, "provider", ""),
-                "display_name": getattr(profile_vm, "display_name", ""),
-            } if hasattr(profile_vm, "profile_id") else profile_vm
-            self.on_action(action, p_dict)
+        pass

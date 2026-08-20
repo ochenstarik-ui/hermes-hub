@@ -330,6 +330,22 @@ class ProfileAuthManager:
         return False, None, []
 
     @classmethod
+    def verify_claude_token(cls, api_key: str) -> Tuple[bool, Optional[str], List[str]]:
+        """Verify Claude API key and discover models. Returns (valid, masked_id, models)."""
+        if api_key and (api_key.startswith("sk-ant-") or len(api_key) >= 20):
+            masked = f"sk-ant-...{api_key[-4:]}" if len(api_key) > 12 else "sk-ant-***"
+            return True, masked, ["claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-5-haiku", "claude-3-opus"]
+        return False, None, []
+
+    @classmethod
+    def verify_grok_token(cls, api_key: str) -> Tuple[bool, Optional[str], List[str]]:
+        """Verify xAI Grok API key and discover models. Returns (valid, masked_id, models)."""
+        if api_key and (api_key.startswith("xai-") or len(api_key) >= 20):
+            masked = f"xai-...{api_key[-4:]}" if len(api_key) > 8 else "xai-***"
+            return True, masked, ["grok-3", "grok-3-mini", "grok-2"]
+        return False, None, []
+
+    @classmethod
     def verify_opencode_token(cls, api_key: str) -> Tuple[bool, Optional[str], List[str]]:
         """Verify OpenCode Go API key and discover models. Returns (valid, masked_id, models)."""
         if api_key and (api_key.startswith("opencode-") or len(api_key) >= 16):
@@ -378,7 +394,7 @@ class ProfileAuthManager:
                 "error": "Token expired" if is_expired else None,
             }
 
-        elif provider == "openai-codex":
+        elif provider in ("openai-codex", "codex"):
             tokens = auth_data.get("token") or auth_data.get("tokens", {})
             acc_token = tokens.get("access_token") if isinstance(tokens, dict) else (auth_data.get("access_token") or "")
             id_token = tokens.get("id_token") if isinstance(tokens, dict) else (auth_data.get("id_token") or "")
@@ -409,7 +425,65 @@ class ProfileAuthManager:
                 "error": None,
             }
 
-        elif provider == "opencode-go":
+        elif provider in ("claude", "anthropic"):
+            tokens = auth_data.get("token") or auth_data.get("tokens", {})
+            acc_token = tokens.get("access_token") if isinstance(tokens, dict) else (auth_data.get("access_token") or "")
+            email = auth_data.get("email")
+            if not email and acc_token:
+                email, _ = cls.extract_jwt_identity(acc_token)
+            key = auth_data.get("api_key", "")
+            is_oauth = bool(acc_token)
+            is_auth = is_oauth or bool(key)
+
+            account_id_masked = None
+            if is_oauth:
+                account_id_masked = mask_email(email) if email else "Claude Account"
+            elif key:
+                account_id_masked = f"sk-ant-...{key[-4:]}" if len(key) > 12 else "sk-ant-***"
+
+            return {
+                "authenticated": is_auth,
+                "provider": provider,
+                "profile_id": profile_id,
+                "auth_mode": "oauth" if is_oauth else ("api_key" if key else "unconfigured"),
+                "email_masked": mask_email(email) if email else None,
+                "account_id_masked": account_id_masked,
+                "status": "AUTHENTICATED" if is_auth else "NOT_CONFIGURED",
+                "error": None,
+            }
+
+        elif provider in ("grok", "xai", "xai-oauth"):
+            tokens = auth_data.get("token") or auth_data.get("tokens", {})
+            acc_token = tokens.get("access_token") if isinstance(tokens, dict) else (auth_data.get("access_token") or "")
+            id_token = tokens.get("id_token") if isinstance(tokens, dict) else (auth_data.get("id_token") or "")
+            email = auth_data.get("email")
+            if not email and id_token:
+                email, _ = cls.extract_jwt_identity(id_token)
+            if not email and acc_token:
+                email, _ = cls.extract_jwt_identity(acc_token)
+
+            key = auth_data.get("api_key", "")
+            is_oauth = bool(acc_token)
+            is_auth = is_oauth or bool(key)
+
+            account_id_masked = None
+            if is_oauth:
+                account_id_masked = mask_email(email) if email else "Grok Account"
+            elif key:
+                account_id_masked = f"xai-...{key[-4:]}" if len(key) > 8 else "xai-***"
+
+            return {
+                "authenticated": is_auth,
+                "provider": provider,
+                "profile_id": profile_id,
+                "auth_mode": "oauth" if is_oauth else ("api_key" if key else "unconfigured"),
+                "email_masked": mask_email(email) if email else None,
+                "account_id_masked": account_id_masked,
+                "status": "AUTHENTICATED" if is_auth else "NOT_CONFIGURED",
+                "error": None,
+            }
+
+        elif provider in ("opencode-go", "opencode"):
             key = auth_data.get("api_key", "")
             return {
                 "authenticated": bool(key),

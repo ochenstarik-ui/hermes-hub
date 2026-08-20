@@ -6,6 +6,8 @@ from .base_adapter import BaseProviderAdapter
 from .antigravity_adapter import AntigravityAdapter
 from .codex_adapter import CodexAdapter
 from .opencode_adapter import OpenCodeGoAdapter
+from .claude_adapter import ClaudeAdapter
+from .grok_adapter import GrokAdapter
 
 _ADAPTERS: dict[str, BaseProviderAdapter] = {
     "antigravity": AntigravityAdapter(),
@@ -15,12 +17,17 @@ _ADAPTERS: dict[str, BaseProviderAdapter] = {
     "opencode-go": OpenCodeGoAdapter(),
     "opencode-zen": OpenCodeGoAdapter(),
     "opencode": OpenCodeGoAdapter(),
+    "claude": ClaudeAdapter(),
+    "anthropic": ClaudeAdapter(),
+    "grok": GrokAdapter(),
+    "xai": GrokAdapter(),
+    "xai-oauth": GrokAdapter(),
 }
 
 
-def get_adapter(provider_name: str) -> BaseProviderAdapter:
-    normalized = provider_name.lower().strip()
-    if normalized in _ADAPTERS:
-        return _ADAPTERS[normalized]
-    # Fall back to Antigravity adapter as default
-    return _ADAPTERS["antigravity"]
+def get_adapter(provider: str) -> BaseProviderAdapter:
+    """Return the provider adapter for the given provider key."""
+    norm = provider.strip().lower()
+    if norm in _ADAPTERS:
+        return _ADAPTERS[norm]
+    raise ValueError(f"Unknown provider '{provider}'. Supported: {list(_ADAPTERS.keys())}")

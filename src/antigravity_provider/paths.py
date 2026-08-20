@@ -106,6 +106,10 @@ def get_profile_dir(profile_id: str, provider: Optional[str] = None) -> Path:
             folder_prefix = "codex_profiles"
         elif p_lower.startswith("opengo-") or "opencode" in p_lower:
             folder_prefix = "opengo_profiles"
+        elif p_lower.startswith("claude-") or "claude" in p_lower or "anthropic" in p_lower:
+            folder_prefix = "claude_profiles"
+        elif p_lower.startswith("grok-") or "grok" in p_lower or "xai" in p_lower:
+            folder_prefix = "grok_profiles"
         else:
             folder_prefix = f"{p_lower}_profiles"
     else:
@@ -117,6 +121,10 @@ def get_profile_dir(profile_id: str, provider: Optional[str] = None) -> Path:
             folder_prefix = "codex_profiles"
         elif "opencode" in prov_lower or "opengo" in prov_lower:
             folder_prefix = "opengo_profiles"
+        elif "claude" in prov_lower or "anthropic" in prov_lower:
+            folder_prefix = "claude_profiles"
+        elif "grok" in prov_lower or "xai" in prov_lower:
+            folder_prefix = "grok_profiles"
         else:
             folder_prefix = f"{prov_lower}_profiles"
 

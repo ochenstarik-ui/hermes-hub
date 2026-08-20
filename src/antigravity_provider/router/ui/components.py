@@ -1,9 +1,11 @@
-"""Hermes Hub — Reusable Design System Component Library (v3)."""
-from __future__ import annotations
-
 import tkinter as tk
 from typing import Any, Callable, Dict, List, Optional, Tuple
-import customtkinter as ctk
+
+try:
+    import customtkinter as ctk
+except ImportError:
+    import unittest.mock as _mock
+    ctk = _mock.MagicMock()
 
 from antigravity_provider.router.ui.theme import Theme
 from antigravity_provider.router.ui.assets import AssetManager

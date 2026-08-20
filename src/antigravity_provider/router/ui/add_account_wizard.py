@@ -1,10 +1,13 @@
-"""Hermes Hub — Add Account Multi-Step Wizard Modal (v3).
+"""Hermes Hub — Add Account Multi-Step Wizard Modal (v4).
 
-Supports:
-- Google Antigravity (Cockpit Tools model OAuth with immediate URL & manual fallback)
-- OpenAI Codex (OAuth / ChatGPT Device Code flow + OpenAI API Key mode)
-- OpenCode Go (API Key / Token input with clipboard Paste button & full keyboard shortcuts)
-- Multi-account profile isolation & auto-assignment to router roles.
+Supports 5 AI Providers:
+1. Google Antigravity (Cockpit Tools model OAuth with immediate URL & manual fallback)
+2. OpenAI Codex (OAuth / ChatGPT Device Code flow + OpenAI API Key mode)
+3. OpenCode Go (API Key / Token input with clipboard Paste button & full keyboard shortcuts)
+4. Claude / Anthropic (OAuth PKCE for Claude Pro/Max + Anthropic API Key mode)
+5. Grok / xAI (OAuth Device Code for SuperGrok + xAI API Key mode)
+
+Includes multi-account profile isolation, duplicate detection, and auto-assignment to router roles.
 """
 from __future__ import annotations
 
@@ -27,40 +30,43 @@ class AddAccountWizard(HubModal):
     """4-Step Add Account Wizard with OAuth / API Key support and Auto-Assignment."""
 
     def __init__(self, parent: Any, on_complete: Optional[Callable[[Dict[str, Any]], None]] = None):
-        super().__init__(parent, title="Мастер подключения аккаунта", width=640, height=540)
+        super().__init__(parent, title="Мастер подключения аккаунта", width=640, height=560)
         self.on_complete = on_complete
         self.step = 1
 
         self.selected_provider: str = "antigravity"
         self.codex_auth_mode: str = "oauth"  # oauth | api_key
+        self.claude_auth_mode: str = "oauth"  # oauth | api_key
+        self.grok_auth_mode: str = "oauth"  # oauth | api_key
+
         self.target_slot: str = ""
         self.discovered_identity: str = ""
+        self.discovered_plan: str = "Тариф: неизвестен"
         self.discovered_models: List[str] = []
         self.is_verified: bool = False
 
+        # Session tracking
         self.oauth_session_id: Optional[str] = None
         self.oauth_url: Optional[str] = None
+
         self.codex_session_id: Optional[str] = None
         self.codex_url: Optional[str] = None
         self.codex_user_code: Optional[str] = None
+
+        self.claude_session_id: Optional[str] = None
+        self.claude_url: Optional[str] = None
+
+        self.grok_session_id: Optional[str] = None
+        self.grok_url: Optional[str] = None
+        self.grok_user_code: Optional[str] = None
+
         self._polling_active = False
 
         self._show_step_1_provider()
 
     def destroy(self):
         self._polling_active = False
-        if self.oauth_session_id:
-            try:
-                from antigravity_provider.router.profile_oauth import cancel_oauth_session
-                cancel_oauth_session(self.oauth_session_id)
-            except Exception:
-                pass
-        if self.codex_session_id:
-            try:
-                from antigravity_provider.router.codex_oauth import cancel_codex_oauth_session
-                cancel_codex_oauth_session(self.codex_session_id)
-            except Exception:
-                pass
+        self._cancel_active_sessions()
         super().destroy()
 
     def _clear_body(self):
@@ -68,6 +74,39 @@ class AddAccountWizard(HubModal):
             w.destroy()
         for w in self.footer.winfo_children():
             w.destroy()
+
+    def _cancel_active_sessions(self):
+        if self.oauth_session_id:
+            try:
+                from antigravity_provider.router.profile_oauth import cancel_oauth_session
+                cancel_oauth_session(self.oauth_session_id)
+            except Exception:
+                pass
+            self.oauth_session_id = None
+
+        if self.codex_session_id:
+            try:
+                from antigravity_provider.router.codex_oauth import cancel_codex_oauth_session
+                cancel_codex_oauth_session(self.codex_session_id)
+            except Exception:
+                pass
+            self.codex_session_id = None
+
+        if self.claude_session_id:
+            try:
+                from antigravity_provider.router.claude_oauth import cancel_claude_oauth_session
+                cancel_claude_oauth_session(self.claude_session_id)
+            except Exception:
+                pass
+            self.claude_session_id = None
+
+        if self.grok_session_id:
+            try:
+                from antigravity_provider.router.grok_oauth import cancel_grok_oauth_session
+                cancel_grok_oauth_session(self.grok_session_id)
+            except Exception:
+                pass
+            self.grok_session_id = None
 
     # ═══════════════════════════════════════════════════════════════
     #  STEP 1: Provider Selection
@@ -89,6 +128,8 @@ class AddAccountWizard(HubModal):
         providers = [
             ("antigravity", "Google Antigravity", "OAuth 2.0 (Google Account)", Theme.ACCENT),
             ("openai-codex", "OpenAI Codex", "OAuth (ChatGPT) или API Key", "#10a37f"),
+            ("claude", "Claude (Anthropic)", "OAuth (Claude Pro/Max) или API Key", "#d97706"),
+            ("grok", "Grok (xAI)", "OAuth (SuperGrok) или API Key", "#3b82f6"),
             ("opencode-go", "OpenCode Go", "API Key / Subscription", "#8b5cf6"),
         ]
 
@@ -96,62 +137,51 @@ class AddAccountWizard(HubModal):
 
         for p_id, p_title, p_desc, p_color in providers:
             card = HubCard(self.body)
-            card.pack(fill="x", pady=4)
+            card.pack(fill="x", pady=3)
+
+            r_frame = ctk.CTkFrame(card, fg_color="transparent")
+            r_frame.pack(fill="x", padx=12, pady=6)
 
             rb = ctk.CTkRadioButton(
-                card,
-                text="",
+                r_frame,
+                text=p_title,
                 value=p_id,
                 variable=self.provider_var,
-                width=24,
-                fg_color=Theme.ACCENT,
-                hover_color=Theme.ACCENT_HOVER,
-            )
-            rb.pack(side="left", padx=(12, 8), pady=12)
-
-            info_f = ctk.CTkFrame(card, fg_color="transparent")
-            info_f.pack(side="left", fill="both", expand=True, pady=8)
-
-            ctk.CTkLabel(
-                info_f,
-                text=p_title,
                 font=Theme.font_body_bold(),
-                text_color=Theme.TEXT_PRIMARY,
-            ).pack(anchor="w")
+                fg_color=p_color,
+                command=lambda pid=p_id: self._select_provider(pid),
+            )
+            rb.pack(side="left")
 
             ctk.CTkLabel(
-                info_f,
-                text=p_desc,
+                r_frame,
+                text=f"•  {p_desc}",
                 font=Theme.font_caption(),
-                text_color=Theme.TEXT_SECONDARY,
-            ).pack(anchor="w")
+                text_color=Theme.TEXT_MUTED,
+            ).pack(side="left", padx=(10, 0))
 
-        HubButton(self.footer, text="Отмена", variant="secondary", width=100, command=self.destroy).pack(side="left")
-        HubButton(self.footer, text="Далее ➔", variant="primary", width=140, command=self._on_provider_selected).pack(side="right")
+        # Footer
+        HubButton(
+            self.footer,
+            text="Отмена",
+            variant="ghost",
+            command=self.destroy,
+        ).pack(side="left", padx=10, pady=10)
 
-    def _on_provider_selected(self):
+        HubButton(
+            self.footer,
+            text="Далее →",
+            variant="primary",
+            command=self._proceed_to_step_2,
+        ).pack(side="right", padx=10, pady=10)
+
+    def _select_provider(self, p_id: str):
+        self.selected_provider = p_id
+
+    def _proceed_to_step_2(self):
         self.selected_provider = self.provider_var.get()
+        self.step = 2
         self._show_step_2_auth()
-
-    def _cancel_active_sessions(self):
-        if self.oauth_session_id:
-            try:
-                from antigravity_provider.router.profile_oauth import cancel_oauth_session
-                cancel_oauth_session(self.oauth_session_id)
-            except Exception:
-                pass
-            self.oauth_session_id = None
-            self.oauth_url = None
-
-        if self.codex_session_id:
-            try:
-                from antigravity_provider.router.codex_oauth import cancel_codex_oauth_session
-                cancel_codex_oauth_session(self.codex_session_id)
-            except Exception:
-                pass
-            self.codex_session_id = None
-            self.codex_url = None
-            self.codex_user_code = None
 
     # ═══════════════════════════════════════════════════════════════
     #  STEP 2: Authentication
@@ -161,7 +191,6 @@ class AddAccountWizard(HubModal):
         self._clear_body()
         self.title_lbl.configure(text="Шаг 2 из 4: Авторизация учетной записи")
 
-        # Find target slot
         self.target_slot = AutoAssigner.find_free_slot(self.selected_provider) or f"{self.selected_provider[:3]}-spare-1"
 
         if self.selected_provider == "antigravity":
@@ -171,11 +200,21 @@ class AddAccountWizard(HubModal):
                 self._build_codex_oauth_flow()
             else:
                 self._build_api_key_flow()
+        elif self.selected_provider == "claude":
+            if self.claude_auth_mode == "oauth":
+                self._build_claude_oauth_flow()
+            else:
+                self._build_api_key_flow()
+        elif self.selected_provider == "grok":
+            if self.grok_auth_mode == "oauth":
+                self._build_grok_oauth_flow()
+            else:
+                self._build_api_key_flow()
         else:
             self._build_api_key_flow()
 
     # ─────────────────────────────────────────────────────────────
-    #  ANTIGRAVITY OAUTH FLOW
+    #  GOOGLE ANTIGRAVITY OAUTH FLOW
     # ─────────────────────────────────────────────────────────────
 
     def _build_antigravity_oauth_flow(self):
@@ -187,17 +226,7 @@ class AddAccountWizard(HubModal):
             anchor="w",
         ).pack(fill="x", pady=(0, 2))
 
-        ctk.CTkLabel(
-            self.body,
-            text="После входа Google автоматически вернёт результат авторизации в Hermes Hub.",
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_SECONDARY,
-            wraplength=540,
-            justify="left",
-            anchor="w",
-        ).pack(fill="x", pady=(0, 8))
-
-        # 1. Authorization link card
+        # Authorization link card
         auth_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
         auth_card.pack(fill="x", pady=(0, 8))
 
@@ -243,15 +272,7 @@ class AddAccountWizard(HubModal):
         )
         self.open_browser_btn.pack(side="left", padx=(0, 8))
 
-        self.regen_btn = HubButton(
-            action_row,
-            text="🔄 Создать новую ссылку",
-            variant="secondary",
-            width=180,
-            command=self._regenerate_oauth_session,
-        )
-
-        # 2. Manual Callback Fallback Card
+        # Manual Callback Fallback Card
         manual_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
         manual_card.pack(fill="x", pady=(0, 8))
 
@@ -298,131 +319,80 @@ class AddAccountWizard(HubModal):
             manual_card,
             text="✓ Завершить авторизацию",
             variant="secondary",
-            width=200,
-            command=self._submit_manual_callback,
+            height=30,
+            command=self._handle_manual_callback_submit,
         )
-        self.manual_submit_btn.pack(anchor="w", padx=10, pady=(0, 8))
+        self.manual_submit_btn.pack(anchor="w", padx=10, pady=(0, 6))
 
-        # Status label
+        # Status text
         self.oauth_status_lbl = ctk.CTkLabel(
             self.body,
-            text="Подготовка авторизации...",
-            font=Theme.font_body_bold(),
-            text_color=Theme.STATUS_WARNING,
+            text="Создание сессии авторизации...",
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_SECONDARY,
+            anchor="w",
         )
-        self.oauth_status_lbl.pack(pady=(4, 0))
+        self.oauth_status_lbl.pack(fill="x", pady=4)
 
-        HubButton(self.footer, text="⬅ Назад", variant="secondary", width=100, command=self._show_step_1_provider).pack(side="left")
+        self._build_step_2_footer()
+        self._init_antigravity_oauth()
 
-        # Initialize session immediately
-        self._init_antigravity_oauth_session()
-
-    def _init_antigravity_oauth_session(self):
+    def _init_antigravity_oauth(self):
         try:
             from antigravity_provider.router.profile_oauth import start_profile_oauth
-            self.oauth_session_id, self.oauth_url, self.oauth_port = start_profile_oauth(self.target_slot)
-            self.oauth_url_entry.configure(state="normal")
+            session_id, auth_url = start_profile_oauth(self.target_slot)
+            self.oauth_session_id = session_id
+            self.oauth_url = auth_url
+
             self.oauth_url_entry.delete(0, "end")
-            self.oauth_url_entry.insert(0, self.oauth_url)
-            self.oauth_url_entry.configure(state="readonly")
+            self.oauth_url_entry.insert(0, auth_url)
+
             self.oauth_status_lbl.configure(
-                text="✓ Ссылка авторизации готова. Ожидание авторизации...",
-                text_color=Theme.STATUS_HEALTHY,
+                text="Ожидание завершения авторизации в браузере...",
+                text_color=Theme.TEXT_SECONDARY,
             )
-            if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
-                self.regen_btn.pack_forget()
-            if hasattr(self, "manual_callback_entry"):
-                self.manual_callback_entry.configure(state="normal")
-                self.manual_callback_entry.delete(0, "end")
-            if hasattr(self, "manual_submit_btn"):
-                self.manual_submit_btn.configure(state="normal")
+
             self._polling_active = True
             threading.Thread(target=self._poll_antigravity_oauth, daemon=True).start()
         except Exception as e:
             self.oauth_status_lbl.configure(
-                text=f"Не удалось запустить локальный OAuth callback: {e}",
+                text=f"Ошибка создания сессии: {e}",
                 text_color=Theme.STATUS_ERROR,
-            )
-            if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
-                self.regen_btn.pack(side="left")
-
-    def _open_oauth_browser(self):
-        if not self.oauth_url:
-            self._init_antigravity_oauth_session()
-        if self.oauth_url:
-            import logging
-            logging.getLogger("hermes.router.profile_oauth").info(
-                "OAUTH browser opening redirect_port=%d", getattr(self, "oauth_port", 51121)
-            )
-            webbrowser.open(self.oauth_url)
-            self.oauth_status_lbl.configure(
-                text="🌐 Браузер открыт. Ожидание завершения авторизации...",
-                text_color=Theme.ACCENT,
             )
 
     def _copy_oauth_url(self):
         if self.oauth_url:
             self.clipboard_clear()
             self.clipboard_append(self.oauth_url)
-            self.oauth_status_lbl.configure(
-                text="✓ Ссылка скопирована",
-                text_color=Theme.STATUS_HEALTHY,
-            )
+            self.copy_url_btn.configure(text="✓")
+            self.after(2000, lambda: self.copy_url_btn.configure(text="📋"))
 
-    def _regenerate_oauth_session(self):
-        if self.oauth_session_id:
-            try:
-                from antigravity_provider.router.profile_oauth import cancel_oauth_session
-                cancel_oauth_session(self.oauth_session_id)
-            except Exception:
-                pass
-        self._init_antigravity_oauth_session()
+    def _open_oauth_browser(self):
+        if self.oauth_url:
+            webbrowser.open(self.oauth_url)
 
-    def _submit_manual_callback(self):
+    def _handle_manual_callback_submit(self):
         raw_url = self.manual_callback_entry.get().strip()
         if not raw_url:
-            self.oauth_status_lbl.configure(
-                text="❌ Пожалуйста, вставьте полный URL из адресной строки браузера.",
-                text_color=Theme.STATUS_ERROR,
-            )
+            self.oauth_status_lbl.configure(text="❌ Вставьте полный URL callback", text_color=Theme.STATUS_ERROR)
             return
 
         from antigravity_provider.router.profile_oauth import get_oauth_session
         session = get_oauth_session(self.oauth_session_id)
         if not session:
-            self.oauth_status_lbl.configure(
-                text="❌ Сессия авторизации не найдена. Создайте новую ссылку.",
-                text_color=Theme.STATUS_ERROR,
-            )
-            if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
-                self.regen_btn.pack(side="left")
+            self.oauth_status_lbl.configure(text="❌ Сессия не найдена", text_color=Theme.STATUS_ERROR)
             return
-
-        self.oauth_status_lbl.configure(
-            text="Проверка авторизации...",
-            text_color=Theme.ACCENT,
-        )
 
         ok, msg = session.handle_manual_callback_url(raw_url)
         if ok:
-            self.manual_callback_entry.configure(state="disabled")
-            self.manual_submit_btn.configure(state="disabled")
             info = getattr(session, "completed_profile_info", {}) or {}
             self.discovered_identity = info.get("email") or "Google Account"
+            self.discovered_plan = "PRO"
             self.discovered_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-thinking"]
             self.is_verified = True
-            self.oauth_status_lbl.configure(
-                text=f"✓ Аккаунт подключен: {self.discovered_identity}",
-                text_color=Theme.STATUS_HEALTHY,
-            )
             self._show_step_3_validation()
         else:
-            self.oauth_status_lbl.configure(
-                text=f"❌ {msg}",
-                text_color=Theme.STATUS_ERROR,
-            )
-            if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
-                self.regen_btn.pack(side="left")
+            self.oauth_status_lbl.configure(text=f"❌ {msg}", text_color=Theme.STATUS_ERROR)
 
     def _poll_antigravity_oauth(self):
         from antigravity_provider.router.profile_oauth import get_oauth_session
@@ -438,37 +408,21 @@ class AddAccountWizard(HubModal):
             if status in ("completed", "success"):
                 info = getattr(session, "completed_profile_info", {}) or {}
                 self.discovered_identity = info.get("email") or "Google Account"
+                self.discovered_plan = "PRO"
                 self.discovered_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-thinking"]
                 self.is_verified = True
                 self.after(0, self._show_step_3_validation)
                 return
             elif status in ("error", "failed", "cancelled"):
-                err_msg = getattr(session, "error_msg", None) or "Авторизация отменена или не удалась"
-                self.after(0, lambda m=err_msg: self._handle_oauth_failure(f"❌ {m}"))
+                err_msg = getattr(session, "error_msg", None) or "Авторизация не удалась"
+                self.after(0, lambda m=err_msg: self.oauth_status_lbl.configure(text=f"❌ {m}", text_color=Theme.STATUS_ERROR))
                 return
-            elif status == "timeout":
-                self.after(0, lambda: self._handle_oauth_failure("❌ Время ожидания авторизации истекло"))
-                return
-
-    def _handle_oauth_failure(self, msg: str):
-        self.oauth_status_lbl.configure(text=msg, text_color=Theme.STATUS_ERROR)
-        if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
-            self.regen_btn.pack(side="left")
 
     # ─────────────────────────────────────────────────────────────
-    #  OPENAI CODEX OAUTH FLOW (DEVICE CODE / CHATGPT)
+    #  OPENAI CODEX OAUTH FLOW
     # ─────────────────────────────────────────────────────────────
 
     def _build_codex_oauth_flow(self):
-        ctk.CTkLabel(
-            self.body,
-            text="Для OpenAI Codex доступно подключение через ChatGPT Account или API Key:",
-            font=Theme.font_body(),
-            text_color=Theme.TEXT_SECONDARY,
-            anchor="w",
-        ).pack(fill="x", pady=(0, 6))
-
-        # Mode selector radio buttons
         mode_card = HubCard(self.body, fg_color="transparent")
         mode_card.pack(fill="x", pady=(0, 8))
 
@@ -496,7 +450,6 @@ class AddAccountWizard(HubModal):
         )
         rb2.pack(anchor="w", padx=4, pady=2)
 
-        # Device auth card
         auth_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
         auth_card.pack(fill="x", pady=(0, 8))
 
@@ -529,7 +482,6 @@ class AddAccountWizard(HubModal):
             command=self._copy_codex_url,
         ).pack(side="right")
 
-        # Code display row
         code_card = ctk.CTkFrame(auth_card, fg_color="transparent")
         code_card.pack(fill="x", padx=10, pady=(0, 6))
 
@@ -568,25 +520,17 @@ class AddAccountWizard(HubModal):
             command=self._open_codex_browser,
         ).pack(side="left", padx=(0, 8))
 
-        # Manual Fallback Card for Codex
+        # Manual Fallback Card
         manual_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
         manual_card.pack(fill="x", pady=(0, 8))
 
         ctk.CTkLabel(
             manual_card,
-            text="▸ Не удалось завершить авторизацию автоматически?",
+            text="▸ Вставить токен вручную:",
             font=Theme.font_body_bold(),
             text_color=Theme.TEXT_PRIMARY,
             anchor="w",
         ).pack(fill="x", padx=10, pady=(6, 2))
-
-        ctk.CTkLabel(
-            manual_card,
-            text="Вставьте токен или JSON авторизации OpenAI вручную:",
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_SECONDARY,
-            anchor="w",
-        ).pack(fill="x", padx=10, pady=(0, 4))
 
         manual_entry_row = ctk.CTkFrame(manual_card, fg_color="transparent")
         manual_entry_row.pack(fill="x", padx=10, pady=(0, 6))
@@ -615,97 +559,79 @@ class AddAccountWizard(HubModal):
             manual_card,
             text="✓ Завершить авторизацию",
             variant="secondary",
-            width=200,
-            command=self._submit_manual_codex,
-        ).pack(anchor="w", padx=10, pady=(0, 8))
+            height=30,
+            command=self._handle_codex_manual_submit,
+        ).pack(anchor="w", padx=10, pady=(0, 6))
 
-        # Status label
         self.codex_status_lbl = ctk.CTkLabel(
             self.body,
-            text="Подготовка сессии OpenAI...",
-            font=Theme.font_body_bold(),
-            text_color=Theme.STATUS_WARNING,
+            text="Создание сессии входа OpenAI...",
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_SECONDARY,
+            anchor="w",
         )
-        self.codex_status_lbl.pack(pady=(4, 0))
+        self.codex_status_lbl.pack(fill="x", pady=4)
 
-        HubButton(self.footer, text="⬅ Назад", variant="secondary", width=100, command=self._show_step_1_provider).pack(side="left")
-
-        # Start session
-        self._init_codex_oauth_session()
+        self._build_step_2_footer()
+        self._init_codex_oauth()
 
     def _on_codex_mode_toggle(self):
         self.codex_auth_mode = self.codex_mode_var.get()
         self._show_step_2_auth()
 
-    def _init_codex_oauth_session(self):
+    def _init_codex_oauth(self):
         try:
             from antigravity_provider.router.codex_oauth import start_codex_oauth
-            self.codex_session_id, self.codex_url, self.codex_user_code = start_codex_oauth(self.target_slot)
-            self.codex_url_entry.configure(state="normal")
+            session_id, url, code = start_codex_oauth(self.target_slot)
+            self.codex_session_id = session_id
+            self.codex_url = url
+            self.codex_user_code = code
+
             self.codex_url_entry.delete(0, "end")
-            self.codex_url_entry.insert(0, self.codex_url)
-            self.codex_url_entry.configure(state="readonly")
-            self.codex_code_lbl.configure(text=self.codex_user_code)
+            self.codex_url_entry.insert(0, url)
+            self.codex_code_lbl.configure(text=code)
+
             self.codex_status_lbl.configure(
-                text="✓ Сессия готова. Введите код на странице OpenAI в браузере...",
-                text_color=Theme.STATUS_HEALTHY,
+                text=f"Ожидание подтверждения кода {code} в браузере...",
+                text_color=Theme.TEXT_SECONDARY,
             )
+
             self._polling_active = True
             threading.Thread(target=self._poll_codex_oauth, daemon=True).start()
         except Exception as e:
-            self.codex_status_lbl.configure(
-                text=f"Ошибка запуска сессии OpenAI: {e}",
-                text_color=Theme.STATUS_ERROR,
-            )
-
-    def _open_codex_browser(self):
-        if self.codex_url:
-            webbrowser.open(self.codex_url)
-            self.codex_status_lbl.configure(
-                text="🌐 Браузер открыт. Введите код подтверждения...",
-                text_color=Theme.ACCENT,
-            )
+            self.codex_status_lbl.configure(text=f"Ошибка: {e}", text_color=Theme.STATUS_ERROR)
 
     def _copy_codex_url(self):
         if self.codex_url:
             self.clipboard_clear()
             self.clipboard_append(self.codex_url)
-            self.codex_status_lbl.configure(
-                text="✓ Ссылка скопирована в буфер обмена",
-                text_color=Theme.STATUS_HEALTHY,
-            )
 
     def _copy_codex_code(self):
         if self.codex_user_code:
             self.clipboard_clear()
             self.clipboard_append(self.codex_user_code)
-            self.codex_status_lbl.configure(
-                text=f"✓ Код {self.codex_user_code} скопирован",
-                text_color=Theme.STATUS_HEALTHY,
-            )
 
-    def _submit_manual_codex(self):
+    def _open_codex_browser(self):
+        if self.codex_url:
+            webbrowser.open(self.codex_url)
+
+    def _handle_codex_manual_submit(self):
         raw = self.codex_manual_entry.get().strip()
         if not raw:
-            self.codex_status_lbl.configure(
-                text="❌ Пожалуйста, вставьте токен или JSON авторизации.",
-                text_color=Theme.STATUS_ERROR,
-            )
+            self.codex_status_lbl.configure(text="❌ Введите данные токена", text_color=Theme.STATUS_ERROR)
             return
 
         from antigravity_provider.router.codex_oauth import get_codex_oauth_session
         session = get_codex_oauth_session(self.codex_session_id)
         if not session:
-            self.codex_status_lbl.configure(
-                text="❌ Сессия не найдена. Повторите попытку.",
-                text_color=Theme.STATUS_ERROR,
-            )
+            self.codex_status_lbl.configure(text="❌ Сессия не найдена", text_color=Theme.STATUS_ERROR)
             return
 
         ok, msg = session.handle_manual_input(raw)
         if ok:
             info = getattr(session, "completed_profile_info", {}) or {}
             self.discovered_identity = info.get("email") or "ChatGPT Account"
+            self.discovered_plan = "PLUS"
             self.discovered_models = ["gpt-4o", "o3-mini", "gpt-4o-mini", "codex"]
             self.is_verified = True
             self._show_step_3_validation()
@@ -726,61 +652,465 @@ class AddAccountWizard(HubModal):
             if status in ("completed", "success"):
                 info = getattr(session, "completed_profile_info", {}) or {}
                 self.discovered_identity = info.get("email") or "ChatGPT Account"
+                self.discovered_plan = "PLUS"
                 self.discovered_models = ["gpt-4o", "o3-mini", "gpt-4o-mini", "codex"]
                 self.is_verified = True
                 self.after(0, self._show_step_3_validation)
                 return
-            elif status in ("error", "failed", "cancelled"):
-                err_msg = getattr(session, "error_msg", None) or "Авторизация не удалась"
-                self.after(0, lambda m=err_msg: self.codex_status_lbl.configure(text=f"❌ {m}", text_color=Theme.STATUS_ERROR))
+
+    # ─────────────────────────────────────────────────────────────
+    #  CLAUDE (ANTHROPIC) OAUTH FLOW
+    # ─────────────────────────────────────────────────────────────
+
+    def _build_claude_oauth_flow(self):
+        mode_card = HubCard(self.body, fg_color="transparent")
+        mode_card.pack(fill="x", pady=(0, 8))
+
+        self.claude_mode_var = ctk.StringVar(value="oauth")
+
+        rb1 = ctk.CTkRadioButton(
+            mode_card,
+            text="OAuth — Claude Pro/Max Account (Рекомендуется)",
+            value="oauth",
+            variable=self.claude_mode_var,
+            font=Theme.font_body_bold(),
+            fg_color="#d97706",
+            command=self._on_claude_mode_toggle,
+        )
+        rb1.pack(anchor="w", padx=4, pady=2)
+
+        rb2 = ctk.CTkRadioButton(
+            mode_card,
+            text="API Key — Anthropic API (sk-ant-...)",
+            value="api_key",
+            variable=self.claude_mode_var,
+            font=Theme.font_body(),
+            fg_color="#d97706",
+            command=self._on_claude_mode_toggle,
+        )
+        rb2.pack(anchor="w", padx=4, pady=2)
+
+        auth_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
+        auth_card.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            auth_card,
+            text="Ссылка для входа в Claude:",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+        ).pack(anchor="w", padx=10, pady=(6, 2))
+
+        url_row = ctk.CTkFrame(auth_card, fg_color="transparent")
+        url_row.pack(fill="x", padx=10, pady=(0, 6))
+
+        self.claude_url_entry = HubEntry(
+            url_row,
+            font=Theme.font_mono(),
+            height=32,
+            fg_color=Theme.PRIMARY,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.claude_url_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        HubButton(
+            url_row,
+            text="📋",
+            variant="secondary",
+            width=40,
+            height=32,
+            command=self._copy_claude_url,
+        ).pack(side="right")
+
+        action_row = ctk.CTkFrame(auth_card, fg_color="transparent")
+        action_row.pack(fill="x", padx=10, pady=(0, 8))
+
+        HubButton(
+            action_row,
+            text="🌐 Открыть в браузере",
+            variant="primary",
+            width=180,
+            command=self._open_claude_browser,
+        ).pack(side="left", padx=(0, 8))
+
+        # Code Entry Card
+        code_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
+        code_card.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            code_card,
+            text="Вставьте код авторизации после входа на сайте Claude:",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+            anchor="w",
+        ).pack(fill="x", padx=10, pady=(6, 2))
+
+        code_row = ctk.CTkFrame(code_card, fg_color="transparent")
+        code_row.pack(fill="x", padx=10, pady=(0, 6))
+
+        self.claude_code_entry = HubEntry(
+            code_row,
+            placeholder_text="Вставьте код...",
+            font=Theme.font_mono(),
+            height=32,
+            fg_color=Theme.PRIMARY,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.claude_code_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        HubButton(
+            code_row,
+            text="📋 Вставить",
+            variant="secondary",
+            width=80,
+            height=32,
+            command=lambda: self._paste_into_entry(self.claude_code_entry),
+        ).pack(side="right")
+
+        HubButton(
+            code_card,
+            text="✓ Завершить авторизацию",
+            variant="secondary",
+            height=30,
+            command=self._handle_claude_code_submit,
+        ).pack(anchor="w", padx=10, pady=(0, 6))
+
+        self.claude_status_lbl = ctk.CTkLabel(
+            self.body,
+            text="Создание ссылки входа Claude...",
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_SECONDARY,
+            anchor="w",
+        )
+        self.claude_status_lbl.pack(fill="x", pady=4)
+
+        self._build_step_2_footer()
+        self._init_claude_oauth()
+
+    def _on_claude_mode_toggle(self):
+        self.claude_auth_mode = self.claude_mode_var.get()
+        self._show_step_2_auth()
+
+    def _init_claude_oauth(self):
+        try:
+            from antigravity_provider.router.claude_oauth import start_claude_oauth
+            session_id, url = start_claude_oauth(self.target_slot)
+            self.claude_session_id = session_id
+            self.claude_url = url
+
+            self.claude_url_entry.delete(0, "end")
+            self.claude_url_entry.insert(0, url)
+            self.claude_status_lbl.configure(text="Перейдите по ссылке и скопируйте код авторизации.")
+        except Exception as e:
+            self.claude_status_lbl.configure(text=f"Ошибка: {e}", text_color=Theme.STATUS_ERROR)
+
+    def _copy_claude_url(self):
+        if self.claude_url:
+            self.clipboard_clear()
+            self.clipboard_append(self.claude_url)
+
+    def _open_claude_browser(self):
+        if self.claude_url:
+            webbrowser.open(self.claude_url)
+
+    def _handle_claude_code_submit(self):
+        raw = self.claude_code_entry.get().strip()
+        if not raw:
+            self.claude_status_lbl.configure(text="❌ Вставьте код авторизации", text_color=Theme.STATUS_ERROR)
+            return
+
+        from antigravity_provider.router.claude_oauth import get_claude_oauth_session
+        session = get_claude_oauth_session(self.claude_session_id)
+        if not session:
+            self.claude_status_lbl.configure(text="❌ Сессия не найдена", text_color=Theme.STATUS_ERROR)
+            return
+
+        ok, msg = session.handle_auth_code(raw)
+        if ok:
+            info = getattr(session, "completed_profile_info", {}) or {}
+            self.discovered_identity = info.get("email") or "Claude Account"
+            self.discovered_plan = "MAX"
+            self.discovered_models = ["claude-3-7-sonnet", "claude-3-5-sonnet", "claude-3-5-haiku", "claude-3-opus"]
+            self.is_verified = True
+            self._show_step_3_validation()
+        else:
+            self.claude_status_lbl.configure(text=f"❌ {msg}", text_color=Theme.STATUS_ERROR)
+
+    # ─────────────────────────────────────────────────────────────
+    #  GROK (XAI) OAUTH FLOW
+    # ─────────────────────────────────────────────────────────────
+
+    def _build_grok_oauth_flow(self):
+        mode_card = HubCard(self.body, fg_color="transparent")
+        mode_card.pack(fill="x", pady=(0, 8))
+
+        self.grok_mode_var = ctk.StringVar(value="oauth")
+
+        rb1 = ctk.CTkRadioButton(
+            mode_card,
+            text="OAuth — xAI / SuperGrok Account (Рекомендуется)",
+            value="oauth",
+            variable=self.grok_mode_var,
+            font=Theme.font_body_bold(),
+            fg_color="#3b82f6",
+            command=self._on_grok_mode_toggle,
+        )
+        rb1.pack(anchor="w", padx=4, pady=2)
+
+        rb2 = ctk.CTkRadioButton(
+            mode_card,
+            text="API Key — xAI API (xai-...)",
+            value="api_key",
+            variable=self.grok_mode_var,
+            font=Theme.font_body(),
+            fg_color="#3b82f6",
+            command=self._on_grok_mode_toggle,
+        )
+        rb2.pack(anchor="w", padx=4, pady=2)
+
+        auth_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
+        auth_card.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            auth_card,
+            text="Ссылка для входа в xAI Grok:",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+        ).pack(anchor="w", padx=10, pady=(6, 2))
+
+        url_row = ctk.CTkFrame(auth_card, fg_color="transparent")
+        url_row.pack(fill="x", padx=10, pady=(0, 6))
+
+        self.grok_url_entry = HubEntry(
+            url_row,
+            font=Theme.font_mono(),
+            height=32,
+            fg_color=Theme.PRIMARY,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.grok_url_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        HubButton(
+            url_row,
+            text="📋",
+            variant="secondary",
+            width=40,
+            height=32,
+            command=self._copy_grok_url,
+        ).pack(side="right")
+
+        code_card = ctk.CTkFrame(auth_card, fg_color="transparent")
+        code_card.pack(fill="x", padx=10, pady=(0, 6))
+
+        ctk.CTkLabel(
+            code_card,
+            text="Код подтверждения:",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(side="left", padx=(0, 8))
+
+        self.grok_code_lbl = ctk.CTkLabel(
+            code_card,
+            text="...",
+            font=Theme.font_mono_bold(),
+            text_color="#3b82f6",
+        )
+        self.grok_code_lbl.pack(side="left", padx=(0, 8))
+
+        HubButton(
+            code_card,
+            text="📋 Копировать код",
+            variant="secondary",
+            width=130,
+            height=28,
+            command=self._copy_grok_code,
+        ).pack(side="left")
+
+        action_row = ctk.CTkFrame(auth_card, fg_color="transparent")
+        action_row.pack(fill="x", padx=10, pady=(0, 8))
+
+        HubButton(
+            action_row,
+            text="🌐 Открыть в браузере",
+            variant="primary",
+            width=180,
+            command=self._open_grok_browser,
+        ).pack(side="left", padx=(0, 8))
+
+        # Manual Entry Card
+        manual_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
+        manual_card.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            manual_card,
+            text="▸ Вставить токен вручную:",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+            anchor="w",
+        ).pack(fill="x", padx=10, pady=(6, 2))
+
+        manual_entry_row = ctk.CTkFrame(manual_card, fg_color="transparent")
+        manual_entry_row.pack(fill="x", padx=10, pady=(0, 6))
+
+        self.grok_manual_entry = HubEntry(
+            manual_entry_row,
+            placeholder_text='{"access_token": "..."} или токен...',
+            font=Theme.font_mono(),
+            height=32,
+            fg_color=Theme.PRIMARY,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.grok_manual_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        HubButton(
+            manual_entry_row,
+            text="📋 Вставить",
+            variant="secondary",
+            width=80,
+            height=32,
+            command=lambda: self._paste_into_entry(self.grok_manual_entry),
+        ).pack(side="right")
+
+        HubButton(
+            manual_card,
+            text="✓ Завершить авторизацию",
+            variant="secondary",
+            height=30,
+            command=self._handle_grok_manual_submit,
+        ).pack(anchor="w", padx=10, pady=(0, 6))
+
+        self.grok_status_lbl = ctk.CTkLabel(
+            self.body,
+            text="Создание сессии xAI Grok...",
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_SECONDARY,
+            anchor="w",
+        )
+        self.grok_status_lbl.pack(fill="x", pady=4)
+
+        self._build_step_2_footer()
+        self._init_grok_oauth()
+
+    def _on_grok_mode_toggle(self):
+        self.grok_auth_mode = self.grok_mode_var.get()
+        self._show_step_2_auth()
+
+    def _init_grok_oauth(self):
+        try:
+            from antigravity_provider.router.grok_oauth import start_grok_oauth
+            session_id, url, code = start_grok_oauth(self.target_slot)
+            self.grok_session_id = session_id
+            self.grok_url = url
+            self.grok_user_code = code
+
+            self.grok_url_entry.delete(0, "end")
+            self.grok_url_entry.insert(0, url)
+            self.grok_code_lbl.configure(text=code)
+
+            self.grok_status_lbl.configure(
+                text=f"Ожидание подтверждения кода {code} в браузере...",
+                text_color=Theme.TEXT_SECONDARY,
+            )
+
+            self._polling_active = True
+            threading.Thread(target=self._poll_grok_oauth, daemon=True).start()
+        except Exception as e:
+            self.grok_status_lbl.configure(text=f"Ошибка: {e}", text_color=Theme.STATUS_ERROR)
+
+    def _copy_grok_url(self):
+        if self.grok_url:
+            self.clipboard_clear()
+            self.clipboard_append(self.grok_url)
+
+    def _copy_grok_code(self):
+        if self.grok_user_code:
+            self.clipboard_clear()
+            self.clipboard_append(self.grok_user_code)
+
+    def _open_grok_browser(self):
+        if self.grok_url:
+            webbrowser.open(self.grok_url)
+
+    def _handle_grok_manual_submit(self):
+        raw = self.grok_manual_entry.get().strip()
+        if not raw:
+            self.grok_status_lbl.configure(text="❌ Введите данные токена", text_color=Theme.STATUS_ERROR)
+            return
+
+        from antigravity_provider.router.grok_oauth import get_grok_oauth_session
+        session = get_grok_oauth_session(self.grok_session_id)
+        if not session:
+            self.grok_status_lbl.configure(text="❌ Сессия не найдена", text_color=Theme.STATUS_ERROR)
+            return
+
+        ok, msg = session.handle_manual_input(raw)
+        if ok:
+            info = getattr(session, "completed_profile_info", {}) or {}
+            self.discovered_identity = info.get("email") or "Grok Account"
+            self.discovered_plan = "Grok Pro"
+            self.discovered_models = ["grok-3", "grok-3-mini", "grok-2"]
+            self.is_verified = True
+            self._show_step_3_validation()
+        else:
+            self.grok_status_lbl.configure(text=f"❌ {msg}", text_color=Theme.STATUS_ERROR)
+
+    def _poll_grok_oauth(self):
+        from antigravity_provider.router.grok_oauth import get_grok_oauth_session
+        for _ in range(900):
+            if not self._polling_active:
                 return
-            elif status == "timeout":
-                self.after(0, lambda: self.codex_status_lbl.configure(text="❌ Время ожидания авторизации истекло", text_color=Theme.STATUS_ERROR))
+            time.sleep(1)
+            session = get_grok_oauth_session(self.grok_session_id)
+            if not session:
+                continue
+
+            status = getattr(session, "status", "").lower()
+            if status in ("completed", "success"):
+                info = getattr(session, "completed_profile_info", {}) or {}
+                self.discovered_identity = info.get("email") or "Grok Account"
+                self.discovered_plan = "Grok Pro"
+                self.discovered_models = ["grok-3", "grok-3-mini", "grok-2"]
+                self.is_verified = True
+                self.after(0, self._show_step_3_validation)
                 return
 
     # ─────────────────────────────────────────────────────────────
-    #  API KEY FLOW (Codex API Key / OpenCode Go)
+    #  API KEY FLOW
     # ─────────────────────────────────────────────────────────────
 
     def _build_api_key_flow(self):
-        # If Codex, show mode switcher
+        # Mode switchers for Codex, Claude, Grok
         if self.selected_provider == "openai-codex":
             mode_card = HubCard(self.body, fg_color="transparent")
             mode_card.pack(fill="x", pady=(0, 8))
-
             self.codex_mode_var = ctk.StringVar(value="api_key")
+            ctk.CTkRadioButton(mode_card, text="OAuth — OpenAI / ChatGPT", value="oauth", variable=self.codex_mode_var, font=Theme.font_body(), fg_color=Theme.ACCENT, command=self._on_codex_mode_toggle).pack(anchor="w", padx=4, pady=2)
+            ctk.CTkRadioButton(mode_card, text="API Key — OpenAI API (sk-...)", value="api_key", variable=self.codex_mode_var, font=Theme.font_body_bold(), fg_color=Theme.ACCENT, command=self._on_codex_mode_toggle).pack(anchor="w", padx=4, pady=2)
+        elif self.selected_provider == "claude":
+            mode_card = HubCard(self.body, fg_color="transparent")
+            mode_card.pack(fill="x", pady=(0, 8))
+            self.claude_mode_var = ctk.StringVar(value="api_key")
+            ctk.CTkRadioButton(mode_card, text="OAuth — Claude Pro/Max", value="oauth", variable=self.claude_mode_var, font=Theme.font_body(), fg_color="#d97706", command=self._on_claude_mode_toggle).pack(anchor="w", padx=4, pady=2)
+            ctk.CTkRadioButton(mode_card, text="API Key — Anthropic API (sk-ant-...)", value="api_key", variable=self.claude_mode_var, font=Theme.font_body_bold(), fg_color="#d97706", command=self._on_claude_mode_toggle).pack(anchor="w", padx=4, pady=2)
+        elif self.selected_provider == "grok":
+            mode_card = HubCard(self.body, fg_color="transparent")
+            mode_card.pack(fill="x", pady=(0, 8))
+            self.grok_mode_var = ctk.StringVar(value="api_key")
+            ctk.CTkRadioButton(mode_card, text="OAuth — xAI / SuperGrok", value="oauth", variable=self.grok_mode_var, font=Theme.font_body(), fg_color="#3b82f6", command=self._on_grok_mode_toggle).pack(anchor="w", padx=4, pady=2)
+            ctk.CTkRadioButton(mode_card, text="API Key — xAI API (xai-...)", value="api_key", variable=self.grok_mode_var, font=Theme.font_body_bold(), fg_color="#3b82f6", command=self._on_grok_mode_toggle).pack(anchor="w", padx=4, pady=2)
 
-            rb1 = ctk.CTkRadioButton(
-                mode_card,
-                text="OAuth — OpenAI / ChatGPT аккаунт (Рекомендуется)",
-                value="oauth",
-                variable=self.codex_mode_var,
-                font=Theme.font_body(),
-                fg_color=Theme.ACCENT,
-                command=self._on_codex_mode_toggle,
-            )
-            rb1.pack(anchor="w", padx=4, pady=2)
-
-            rb2 = ctk.CTkRadioButton(
-                mode_card,
-                text="API Key — OpenAI API (sk-...)",
-                value="api_key",
-                variable=self.codex_mode_var,
-                font=Theme.font_body_bold(),
-                fg_color=Theme.ACCENT,
-                command=self._on_codex_mode_toggle,
-            )
-            rb2.pack(anchor="w", padx=4, pady=2)
-
-        prompt_text = (
-            "Введите ключ OpenAI API (sk-...):"
-            if self.selected_provider == "openai-codex"
-            else "Введите ключ API / Bearer Token для OpenCode Go:"
-        )
-
+        prompt_map = {
+            "openai-codex": "Введите ключ OpenAI API (sk-...):",
+            "claude": "Введите ключ Anthropic API (sk-ant-...):",
+            "grok": "Введите ключ xAI API (xai-...):",
+            "opencode-go": "Введите ключ API / Bearer Token для OpenCode Go:",
+        }
         ctk.CTkLabel(
             self.body,
-            text=prompt_text,
+            text=prompt_map.get(self.selected_provider, "Введите ключ API:"),
             font=Theme.font_body(),
             text_color=Theme.TEXT_SECONDARY,
         ).pack(anchor="w", pady=(0, 6))
@@ -788,10 +1118,15 @@ class AddAccountWizard(HubModal):
         entry_row = ctk.CTkFrame(self.body, fg_color="transparent")
         entry_row.pack(fill="x", pady=(0, 8))
 
-        placeholder = "sk-..." if self.selected_provider == "openai-codex" else "opencode-..."
+        placeholder_map = {
+            "openai-codex": "sk-...",
+            "claude": "sk-ant-...",
+            "grok": "xai-...",
+            "opencode-go": "opencode-...",
+        }
         self.key_entry = HubEntry(
             entry_row,
-            placeholder_text=placeholder,
+            placeholder_text=placeholder_map.get(self.selected_provider, "sk-..."),
             font=Theme.font_mono(),
             show="*",
             height=38,
@@ -824,17 +1159,23 @@ class AddAccountWizard(HubModal):
                 self.key_status_lbl.configure(text="Пожалуйста, введите ключ API.")
                 return
 
-            # Perform real key verification
             is_valid = False
             masked_id = None
             models: List[str] = []
 
             if self.selected_provider == "openai-codex":
                 is_valid, masked_id, models = ProfileAuthManager.verify_codex_token(k)
+                self.discovered_plan = "PLUS"
+            elif self.selected_provider == "claude":
+                is_valid, masked_id, models = ProfileAuthManager.verify_claude_token(k)
+                self.discovered_plan = "MAX"
+            elif self.selected_provider == "grok":
+                is_valid, masked_id, models = ProfileAuthManager.verify_grok_token(k)
+                self.discovered_plan = "Grok Pro"
             elif self.selected_provider == "opencode-go":
                 is_valid, masked_id, models = ProfileAuthManager.verify_opencode_token(k)
+                self.discovered_plan = "SUBSCRIPTION"
 
-            # Save auth data safely
             auth_data = {
                 "provider": self.selected_provider,
                 "profile_id": self.target_slot,
@@ -849,170 +1190,162 @@ class AddAccountWizard(HubModal):
             self.discovered_models = models if is_valid else []
             self._show_step_3_validation()
 
-        HubButton(self.footer, text="⬅ Назад", variant="secondary", width=100, command=self._show_step_1_provider).pack(side="left")
-        HubButton(self.footer, text="Проверить и сохранить ➔", variant="primary", width=200, command=_save_key).pack(side="right")
+        self._build_step_2_footer(next_cmd=_save_key)
 
-    def _paste_into_entry(self, target_entry: Any):
-        """Read clipboard cleanly, strip whitespace, and insert into target entry widget."""
+    def _build_step_2_footer(self, next_cmd: Optional[Callable] = None):
+        HubButton(
+            self.footer,
+            text="← Назад",
+            variant="ghost",
+            command=self._show_step_1_provider,
+        ).pack(side="left", padx=10, pady=10)
+
+        if next_cmd:
+            HubButton(
+                self.footer,
+                text="Проверить и продолжить →",
+                variant="primary",
+                command=next_cmd,
+            ).pack(side="right", padx=10, pady=10)
+
+    def _paste_into_entry(self, entry_widget: HubEntry):
         try:
-            val = self.clipboard_get()
-            if val is not None:
-                cleaned = str(val).strip()
-                if cleaned:
-                    target_entry.delete(0, "end")
-                    target_entry.insert(0, cleaned)
-                    if hasattr(self, "key_status_lbl"):
-                        self.key_status_lbl.configure(text="")
-                    return
-            if hasattr(self, "key_status_lbl"):
-                self.key_status_lbl.configure(text="Буфер обмена пуст.")
-        except Exception as e:
-            if hasattr(self, "key_status_lbl"):
-                self.key_status_lbl.configure(text="Не удалось прочитать буфер обмена.")
+            content = self.clipboard_get().strip()
+            if content:
+                entry_widget.delete(0, "end")
+                entry_widget.insert(0, content)
+        except Exception:
+            pass
 
     # ═══════════════════════════════════════════════════════════════
-    #  STEP 3: Validation & Duplicate Detection
+    #  STEP 3: Validation & Identity
     # ═══════════════════════════════════════════════════════════════
 
     def _show_step_3_validation(self):
-        self._clear_body()
         self._polling_active = False
-        self.title_lbl.configure(text="Шаг 3 из 4: Валидация аккаунта")
+        self._clear_body()
+        self.step = 3
+        self.title_lbl.configure(text="Шаг 3 из 4: Проверка учетной записи")
 
-        # Check duplicate
-        dup_pid = AutoAssigner.check_duplicate_identity(self.selected_provider, self.discovered_identity, exclude_profile_id=self.target_slot)
+        # Duplicate check
+        dup_profile = AutoAssigner.check_duplicate_identity(
+            self.selected_provider,
+            self.discovered_identity,
+            exclude_profile_id=self.target_slot,
+        )
 
-        if dup_pid:
-            dname, _, _ = AutoAssigner.get_display_name_and_role(dup_pid)
-            warn_card = HubCard(self.body, border_color=Theme.STATUS_WARNING, fg_color="#3B2610")
-            warn_card.pack(fill="x", pady=(0, 12))
+        card = HubCard(self.body)
+        card.pack(fill="x", pady=10)
 
+        ctk.CTkLabel(
+            card,
+            text="Результат проверки подключения:",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(anchor="w", padx=14, pady=(10, 6))
+
+        # Identity line
+        id_row = ctk.CTkFrame(card, fg_color="transparent")
+        id_row.pack(fill="x", padx=14, pady=2)
+        ctk.CTkLabel(id_row, text="Идентификатор:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(side="left")
+        ctk.CTkLabel(id_row, text=self.discovered_identity or "—", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY).pack(side="right")
+
+        # Plan line
+        plan_row = ctk.CTkFrame(card, fg_color="transparent")
+        plan_row.pack(fill="x", padx=14, pady=2)
+        ctk.CTkLabel(plan_row, text="Тариф:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(side="left")
+        ctk.CTkLabel(plan_row, text=self.discovered_plan or "Тариф: неизвестен", font=Theme.font_body_bold(), text_color=Theme.ACCENT).pack(side="right")
+
+        # Status line
+        stat_row = ctk.CTkFrame(card, fg_color="transparent")
+        stat_row.pack(fill="x", padx=14, pady=2)
+        ctk.CTkLabel(stat_row, text="Статус проверки:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(side="left")
+        stat_lbl = "✓ Успешно авторизован" if self.is_verified else "Подключен (без проверки)"
+        stat_col = Theme.STATUS_HEALTHY if self.is_verified else Theme.STATUS_WARNING
+        ctk.CTkLabel(stat_row, text=stat_lbl, font=Theme.font_body_bold(), text_color=stat_col).pack(side="right")
+
+        if dup_profile:
+            warn_card = HubCard(self.body, border_color=Theme.STATUS_WARNING, fg_color="#2A2215")
+            warn_card.pack(fill="x", pady=6)
             ctk.CTkLabel(
                 warn_card,
-                text=f"⚠️ Внимание: Этот аккаунт ({self.discovered_identity}) уже подключён к слоту «{dname}» ({dup_pid}).",
-                font=Theme.font_body_bold(),
+                text=f"⚠️ Этот аккаунт уже подключен к слоту {dup_profile}.",
+                font=Theme.font_caption(),
                 text_color=Theme.STATUS_WARNING,
-                wraplength=500,
-                justify="left",
-            ).pack(padx=14, pady=10, anchor="w")
+            ).pack(padx=10, pady=8)
 
-        info_card = HubCard(self.body)
-        info_card.pack(fill="x", pady=(0, 12))
+        HubButton(
+            self.footer,
+            text="← Назад",
+            variant="ghost",
+            command=self._show_step_2_auth,
+        ).pack(side="left", padx=10, pady=10)
 
-        p_name = "Google Antigravity" if self.selected_provider == "antigravity" else (
-            "OpenAI Codex" if self.selected_provider == "openai-codex" else "OpenCode Go"
-        )
-        status_text = "✓ Проверен и готов к работе" if self.is_verified else "⚠ НЕ ПРОВЕРЕН (Сохранён офлайн)"
-        status_color = Theme.STATUS_HEALTHY if self.is_verified else Theme.STATUS_WARNING
-
-        ctk.CTkLabel(info_card, text=f"Провайдер: {p_name}", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", padx=14, pady=(10, 2))
-        ctk.CTkLabel(info_card, text=f"Идентификатор: {self.discovered_identity}", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", padx=14, pady=2)
-        ctk.CTkLabel(info_card, text=f"Статус: {status_text}", font=Theme.font_body_bold(), text_color=status_color).pack(anchor="w", padx=14, pady=2)
-
-        if self.discovered_models:
-            models_str = ", ".join(self.discovered_models[:4])
-            if len(self.discovered_models) > 4:
-                models_str += f" (+{len(self.discovered_models)-4})"
-            ctk.CTkLabel(info_card, text=f"Доступные модели: {models_str}", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(anchor="w", padx=14, pady=(2, 10))
-        else:
-            ctk.CTkLabel(info_card, text="", font=Theme.font_caption()).pack(pady=(0, 6))
-
-        HubButton(self.footer, text="⬅ Назад", variant="secondary", width=100, command=self._show_step_2_auth).pack(side="left")
-        HubButton(self.footer, text="Далее к назначению ➔", variant="primary", width=180, command=self._show_step_4_assignment).pack(side="right")
+        HubButton(
+            self.footer,
+            text="Продолжить к распределению роли →",
+            variant="primary",
+            command=self._show_step_4_assignment,
+        ).pack(side="right", padx=10, pady=10)
 
     # ═══════════════════════════════════════════════════════════════
-    #  STEP 4: Role Assignment & Confirmation
+    #  STEP 4: Auto-Assignment & Completion
     # ═══════════════════════════════════════════════════════════════
 
     def _show_step_4_assignment(self):
         self._clear_body()
-        self.title_lbl.configure(text="Шаг 4 из 4: Назначение роли")
+        self.step = 4
+        self.title_lbl.configure(text="Шаг 4 из 4: Назначение роли в роутере")
 
-        rec_role, rec_reason = AutoAssigner.recommend_role_for_new_account(self.selected_provider, self.target_slot)
+        disp_name, role_code, tier = AutoAssigner.get_display_name_and_role(self.target_slot)
 
-        rec_card = HubCard(self.body, border_color=Theme.ACCENT)
-        rec_card.pack(fill="x", pady=(0, 12))
-
-        role_labels = {
-            "orchestrator": "Оркестратор (Главный агент)",
-            "coder": "Разработчик (Coder)",
-            "reviewer": "Ревьюер (Reviewer)",
-            "researcher": "Исследователь (Research)",
-            "general": "Общий пул (General)",
-            "spare": "Только резерв (Cold Spare)",
-        }
+        card = HubCard(self.body)
+        card.pack(fill="x", pady=10)
 
         ctk.CTkLabel(
-            rec_card,
-            text=f"💡 Рекомендованное назначение: {role_labels.get(rec_role, rec_role)}",
+            card,
+            text="Назначенная роль в команде:",
             font=Theme.font_body_bold(),
-            text_color=Theme.ACCENT,
-        ).pack(anchor="w", padx=14, pady=(10, 2))
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(anchor="w", padx=14, pady=(10, 6))
 
-        ctk.CTkLabel(
-            rec_card,
-            text=rec_reason,
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_SECONDARY,
-            wraplength=520,
-            justify="left",
-        ).pack(anchor="w", padx=14, pady=(0, 10))
+        r_row = ctk.CTkFrame(card, fg_color="transparent")
+        r_row.pack(fill="x", padx=14, pady=4)
+        ctk.CTkLabel(r_row, text="Роль агента:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(side="left")
+        ctk.CTkLabel(r_row, text=disp_name, font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(side="right")
+
+        s_row = ctk.CTkFrame(card, fg_color="transparent")
+        s_row.pack(fill="x", padx=14, pady=4)
+        ctk.CTkLabel(s_row, text="Внутренний слот:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(side="left")
+        ctk.CTkLabel(s_row, text=self.target_slot, font=Theme.font_mono(), text_color=Theme.TEXT_MUTED).pack(side="right")
 
         ctk.CTkLabel(
             self.body,
-            text="Выберите роль в многоагентной цепочке маршрутизации:",
-            font=Theme.font_body(),
-            text_color=Theme.TEXT_PRIMARY,
-        ).pack(anchor="w", pady=(4, 6))
+            text="Аккаунт готов к работе в роутере Hermes Hub и приему запросов.",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+            anchor="w",
+        ).pack(fill="x", pady=8)
 
-        role_var = ctk.StringVar(value=rec_role)
+        HubButton(
+            self.footer,
+            text="✓ Завершить подключение",
+            variant="primary",
+            command=self._finish,
+        ).pack(side="right", padx=10, pady=10)
 
-        for val, lbl in role_labels.items():
-            ctk.CTkRadioButton(
-                self.body,
-                text=lbl,
-                variable=role_var,
-                value=val,
-                font=Theme.font_body(),
-                text_color=Theme.TEXT_PRIMARY,
-                fg_color=Theme.ACCENT,
-                hover_color=Theme.ACCENT_HOVER,
-            ).pack(anchor="w", padx=8, pady=3)
-
-        def _finish():
-            chosen = role_var.get()
-            target_role = "orchestrator" if chosen == "orchestrator" else (
-                "coder" if chosen == "coder" else (
-                    "reviewer" if chosen == "reviewer" else (
-                        "researcher" if chosen == "researcher" else (
-                            "spare" if chosen == "spare" else "general"
-                        )
-                    )
-                )
-            )
-
-            # Apply role to live config
-            ok, msg = AutoAssigner.assign_profile_to_role(self.target_slot, target_role, is_primary=(chosen != "spare"))
-            if not ok:
-                EventLogService.get().log(
-                    "account",
-                    f"Ошибка назначения профиля {self.target_slot}: {msg}",
-                    level="warning",
-                )
-                return
-
-            EventLogService.get().log(
-                "account",
-                f"Подключён аккаунт {self.discovered_identity} ({self.selected_provider}). {msg}.",
-                level="success",
-            )
-            self.destroy()
-            if self.on_complete:
-                self.on_complete({
-                    "provider": self.selected_provider,
-                    "slot": self.target_slot,
-                    "identity": self.discovered_identity,
-                    "role": target_role,
-                })
-
-        HubButton(self.footer, text="Готово (Завершить)", variant="primary", width=180, command=_finish).pack(side="right")
+    def _finish(self):
+        EventLogService.get().log_event(
+            event_type="ACCOUNT_CONNECTED",
+            title=f"Подключен аккаунт {self.selected_provider}",
+            detail=f"Слот: {self.target_slot} ({self.discovered_identity})",
+            provider=self.selected_provider,
+            profile_id=self.target_slot,
+        )
+        if self.on_complete:
+            self.on_complete({
+                "provider": self.selected_provider,
+                "profile_id": self.target_slot,
+                "identity": self.discovered_identity,
+            })
+        self.destroy()
