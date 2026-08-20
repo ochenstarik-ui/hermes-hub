@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import secrets
 import threading
 import time
@@ -73,6 +74,8 @@ class GrokOAuthSession:
         self._stop_polling = threading.Event()
         self.poll_thread: Optional[threading.Thread] = None
 
+        self.is_dev_mode = False
+
     def start(self, start_poll: bool = True) -> Tuple[str, str]:
         logger.info("Grok OAuth session starting for profile=%s", self.profile_id)
         try:
@@ -88,19 +91,38 @@ class GrokOAuthSession:
             self.verification_url = resp.get("verification_uri_complete") or resp.get("verification_uri") or f"{XAI_OAUTH_ISSUER}/device"
             self.interval = max(1, int(resp.get("interval", 5)))
             self.expires_in = int(resp.get("expires_in", 600))
+            if not self.user_code or not self.device_code:
+                raise RuntimeError("Сервер xAI не вернул user_code или device_code")
+
+            self.status = "pending"
+            if start_poll:
+                self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+                self.poll_thread.start()
+
+            _ACTIVE_GROK_SESSIONS[self.session_id] = self
+            return self.verification_url, self.user_code or ""
+
         except Exception as e:
-            logger.warning("Could not reach xAI deviceauth endpoint directly: %s. Using local session.", e)
-            self.user_code = f"GRK-{secrets.token_hex(3).upper()}"
-            self.device_code = secrets.token_urlsafe(16)
-            self.interval = 3
+            if os.environ.get("HERMES_HUB_DEV_MODE") == "1":
+                logger.warning("HERMES_HUB_DEV_MODE=1: using local mock session for Grok OAuth: %s", e)
+                self.is_dev_mode = True
+                self.user_code = f"GRK-{secrets.token_hex(3).upper()}"
+                self.device_code = secrets.token_urlsafe(16)
+                self.interval = 3
+                self.status = "pending"
+                if start_poll:
+                    self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+                    self.poll_thread.start()
 
-        self.status = "pending"
-        if start_poll:
-            self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
-            self.poll_thread.start()
-
-        _ACTIVE_GROK_SESSIONS[self.session_id] = self
-        return self.verification_url, self.user_code or ""
+                _ACTIVE_GROK_SESSIONS[self.session_id] = self
+                return self.verification_url, self.user_code
+            else:
+                logger.error("Could not reach xAI deviceauth endpoint: %s", e)
+                self.status = "failed"
+                self.error_msg = f"Не удалось подключиться к серверу авторизации xAI: {e}"
+                self.poll_thread = None
+                _ACTIVE_GROK_SESSIONS[self.session_id] = self
+                return "", ""
 
     def _poll_loop(self) -> None:
         deadline = time.time() + self.expires_in

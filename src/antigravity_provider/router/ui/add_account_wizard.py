@@ -581,20 +581,32 @@ class AddAccountWizard(HubModal):
 
     def _init_codex_oauth(self):
         try:
-            from antigravity_provider.router.codex_oauth import start_codex_oauth
+            from antigravity_provider.router.codex_oauth import start_codex_oauth, get_codex_oauth_session
             session_id, url, code = start_codex_oauth(self.target_slot)
             self.codex_session_id = session_id
             self.codex_url = url
             self.codex_user_code = code
 
+            session = get_codex_oauth_session(session_id)
+            if not code or (session and session.status == "failed"):
+                err_msg = getattr(session, "error_msg", None) or "Не удалось получить код авторизации"
+                self.codex_status_lbl.configure(text=f"❌ {err_msg}", text_color=Theme.STATUS_ERROR)
+                return
+
             self.codex_url_entry.delete(0, "end")
             self.codex_url_entry.insert(0, url)
             self.codex_code_lbl.configure(text=code)
 
-            self.codex_status_lbl.configure(
-                text=f"Ожидание подтверждения кода {code} в браузере...",
-                text_color=Theme.TEXT_SECONDARY,
-            )
+            if getattr(session, "is_dev_mode", False):
+                self.codex_status_lbl.configure(
+                    text=f"⚠️ ТЕСТОВЫЙ РЕЖИМ (HERMES_HUB_DEV_MODE): Код {code}",
+                    text_color=Theme.STATUS_WARNING,
+                )
+            else:
+                self.codex_status_lbl.configure(
+                    text=f"Ожидание подтверждения кода {code} в браузере...",
+                    text_color=Theme.TEXT_SECONDARY,
+                )
 
             self._polling_active = True
             threading.Thread(target=self._poll_codex_oauth, daemon=True).start()
@@ -1000,20 +1012,32 @@ class AddAccountWizard(HubModal):
 
     def _init_grok_oauth(self):
         try:
-            from antigravity_provider.router.grok_oauth import start_grok_oauth
+            from antigravity_provider.router.grok_oauth import start_grok_oauth, get_grok_oauth_session
             session_id, url, code = start_grok_oauth(self.target_slot)
             self.grok_session_id = session_id
             self.grok_url = url
             self.grok_user_code = code
 
+            session = get_grok_oauth_session(session_id)
+            if not code or (session and session.status == "failed"):
+                err_msg = getattr(session, "error_msg", None) or "Не удалось получить код авторизации"
+                self.grok_status_lbl.configure(text=f"❌ {err_msg}", text_color=Theme.STATUS_ERROR)
+                return
+
             self.grok_url_entry.delete(0, "end")
             self.grok_url_entry.insert(0, url)
             self.grok_code_lbl.configure(text=code)
 
-            self.grok_status_lbl.configure(
-                text=f"Ожидание подтверждения кода {code} в браузере...",
-                text_color=Theme.TEXT_SECONDARY,
-            )
+            if getattr(session, "is_dev_mode", False):
+                self.grok_status_lbl.configure(
+                    text=f"⚠️ ТЕСТОВЫЙ РЕЖИМ (HERMES_HUB_DEV_MODE): Код {code}",
+                    text_color=Theme.STATUS_WARNING,
+                )
+            else:
+                self.grok_status_lbl.configure(
+                    text=f"Ожидание подтверждения кода {code} в браузере...",
+                    text_color=Theme.TEXT_SECONDARY,
+                )
 
             self._polling_active = True
             threading.Thread(target=self._poll_grok_oauth, daemon=True).start()

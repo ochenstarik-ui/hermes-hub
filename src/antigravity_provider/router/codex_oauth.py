@@ -86,6 +86,7 @@ class CodexOAuthSession:
         self.created_at = time.time()
         self.completed_profile_info: Optional[dict] = None
 
+        self.is_dev_mode = False
         self._completion_lock = threading.Lock()
         self._is_completed = False
         self._stop_polling = threading.Event()
@@ -104,21 +105,39 @@ class CodexOAuthSession:
             self.user_code = resp.get("user_code")
             self.device_auth_id = resp.get("device_auth_id")
             self.interval = max(1, int(resp.get("interval", 5)))
+            if not self.user_code or not self.device_auth_id:
+                raise RuntimeError("Сервер OpenAI не вернул user_code или device_auth_id")
+
+            self.status = "pending"
+            logger.info("Codex OAuth session initialized (verification_url=%s)", self.verification_url)
+
+            self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+            self.poll_thread.start()
+
+            _ACTIVE_CODEX_SESSIONS[self.session_id] = self
+            return self.verification_url, self.user_code or ""
+
         except Exception as e:
-            # If offline or simulated/mocked environment, provide fallback mock session code
-            logger.warning("Could not reach OpenAI deviceauth endpoint directly: %s. Using local session.", e)
-            self.user_code = f"CDX-{secrets.token_hex(3).upper()}"
-            self.device_auth_id = secrets.token_urlsafe(16)
-            self.interval = 3
+            if os.environ.get("HERMES_HUB_DEV_MODE") == "1":
+                logger.warning("HERMES_HUB_DEV_MODE=1: using local mock session for Codex OAuth: %s", e)
+                self.is_dev_mode = True
+                self.user_code = f"CDX-{secrets.token_hex(3).upper()}"
+                self.device_auth_id = secrets.token_urlsafe(16)
+                self.interval = 3
+                self.status = "pending"
 
-        self.status = "pending"
-        logger.info("Codex OAuth session initialized (verification_url=%s)", self.verification_url)
+                self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
+                self.poll_thread.start()
 
-        self.poll_thread = threading.Thread(target=self._poll_loop, daemon=True)
-        self.poll_thread.start()
-
-        _ACTIVE_CODEX_SESSIONS[self.session_id] = self
-        return self.verification_url, self.user_code or ""
+                _ACTIVE_CODEX_SESSIONS[self.session_id] = self
+                return self.verification_url, self.user_code
+            else:
+                logger.error("Could not reach OpenAI deviceauth endpoint: %s", e)
+                self.status = "failed"
+                self.error_msg = f"Не удалось подключиться к серверу авторизации OpenAI: {e}"
+                self.poll_thread = None
+                _ACTIVE_CODEX_SESSIONS[self.session_id] = self
+                return "", ""
 
     def _poll_loop(self) -> None:
         """Poll OpenAI for user authorization approval."""

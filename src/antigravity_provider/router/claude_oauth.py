@@ -14,6 +14,7 @@ import base64
 import hashlib
 import json
 import logging
+import os
 import secrets
 import threading
 import time
@@ -136,8 +137,8 @@ class ClaudeOAuthSession:
                     continue
 
             if result is None:
-                # If network exchange failed, allow token fallback
-                if len(code) > 20:
+                # If network exchange failed, only allow direct token finalization if key starts with sk-ant- or in DEV_MODE
+                if code.startswith("sk-ant-") or os.environ.get("HERMES_HUB_DEV_MODE") == "1":
                     return self._finalize_with_tokens(code), "Авторизация успешно завершена"
                 err_msg = f"Ошибка обмена кода Claude: {last_error}"
                 self.status = "failed"

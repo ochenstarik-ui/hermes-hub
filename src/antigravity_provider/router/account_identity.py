@@ -187,7 +187,7 @@ class QuotaBucket:
             return f"Осталось {self.remaining_percent:.0f}%"
         if self.used_percent is not None:
             return f"Использовано {self.used_percent:.0f}%"
-        return "Квота: доступна"
+        return "Доступна"
 
     def formatted_reset(self) -> Optional[str]:
         """User-facing reset time string."""
@@ -221,8 +221,13 @@ class QuotaSnapshot:
     buckets: List[QuotaBucket] = field(default_factory=list)
     fetched_at: datetime = field(default_factory=_utc_now)
     stale_after_seconds: int = 300
-    source: str = "api"
+    source: str = "baseline"
     unavailable_reason: Optional[str] = None
+
+    @property
+    def is_estimated(self) -> bool:
+        """True if values are baseline or locally estimated rather than measured by live server API."""
+        return self.source in ("baseline", "estimated", "unconfigured", "local_heuristic")
 
     def is_stale(self) -> bool:
         delta = _utc_now() - self.fetched_at

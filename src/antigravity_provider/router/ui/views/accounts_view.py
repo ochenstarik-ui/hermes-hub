@@ -169,21 +169,25 @@ class AccountCardWidget(HubCard):
         for child in self.quota_box.winfo_children():
             child.destroy()
 
+        is_estimated = getattr(snap, "is_estimated", True) if snap else True
         if snap and getattr(snap, "buckets", None):
             for b in snap.buckets[:4]:
                 brow = ctk.CTkFrame(self.quota_box, fg_color="transparent")
                 brow.pack(fill="x", padx=8, pady=2)
-                ctk.CTkLabel(brow, text=b.display_name, font=Theme.font_caption(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
+                disp_name = f"{b.display_name} (оценка)" if is_estimated else b.display_name
+                ctk.CTkLabel(brow, text=disp_name, font=Theme.font_caption(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
 
                 b_status_col = Theme.STATUS_HEALTHY if b.status == "healthy" else (Theme.STATUS_WARNING if b.status == "warning" else Theme.STATUS_ERROR)
                 reset_text = f" ({b.formatted_reset()})" if b.formatted_reset() else ""
                 rem_text = f"{b.formatted_remaining()}{reset_text}"
                 ctk.CTkLabel(brow, text=rem_text, font=Theme.font_micro(), text_color=b_status_col).pack(side="right")
         else:
-            ctk.CTkLabel(self.quota_box, text="Квота: доступна", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED).pack(padx=8, pady=4)
+            ctk.CTkLabel(self.quota_box, text="Квота: доступна (оценка)", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED).pack(padx=8, pady=4)
 
         # Freshness label
         fresh_lbl_text = snap.freshness_label() if (snap and hasattr(snap, "freshness_label")) else "Обновлено: недавно"
+        if is_estimated:
+            fresh_lbl_text += " • оценка"
         self.fresh_lbl.configure(text=fresh_lbl_text)
 
 

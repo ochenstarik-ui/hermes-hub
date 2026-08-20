@@ -288,20 +288,19 @@ class AccountQuotaService:
     # ─────────────────────────────────────────────────────────────
 
     def _collect_antigravity_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
-        """Collect separate Claude (5h, Weekly) and Gemini (5h, Weekly) quotas for Google Antigravity."""
-        # Baseline healthy quotas or extracted from companion API
+        """Collect separate Claude (5h, Weekly) and Gemini (5h, Weekly) quota pools for Google Antigravity."""
         now = _utc_now()
-        claude_reset_5h = now + timedelta(hours=4, minutes=58)
-        gemini_reset_5h = now + timedelta(hours=4, minutes=55)
-        weekly_reset = now + timedelta(days=6, hours=18)
+        claude_reset_5h = now + timedelta(hours=5)
+        gemini_reset_5h = now + timedelta(hours=5)
+        weekly_reset = now + timedelta(days=7)
 
-        # Build separate buckets
+        # Build separate capacity buckets
         b_claude_5h = QuotaBucket(
             id="antigravity.claude.5h",
             display_name="Claude 5h",
             model_family="claude",
-            used_percent=0.0,
-            remaining_percent=100.0,
+            used_percent=None,
+            remaining_percent=None,
             period="5h",
             reset_at=claude_reset_5h,
             status="healthy",
@@ -310,8 +309,8 @@ class AccountQuotaService:
             id="antigravity.claude.weekly",
             display_name="Claude Weekly",
             model_family="claude",
-            used_percent=12.0,
-            remaining_percent=88.0,
+            used_percent=None,
+            remaining_percent=None,
             period="7d",
             reset_at=weekly_reset,
             status="healthy",
@@ -320,8 +319,8 @@ class AccountQuotaService:
             id="antigravity.gemini.5h",
             display_name="Gemini 5h",
             model_family="gemini",
-            used_percent=9.0,
-            remaining_percent=91.0,
+            used_percent=None,
+            remaining_percent=None,
             period="5h",
             reset_at=gemini_reset_5h,
             status="healthy",
@@ -330,8 +329,8 @@ class AccountQuotaService:
             id="antigravity.gemini.weekly",
             display_name="Gemini Weekly",
             model_family="gemini",
-            used_percent=1.0,
-            remaining_percent=99.0,
+            used_percent=None,
+            remaining_percent=None,
             period="7d",
             reset_at=weekly_reset,
             status="healthy",
@@ -342,7 +341,7 @@ class AccountQuotaService:
             provider="antigravity",
             buckets=[b_claude_5h, b_claude_weekly, b_gemini_5h, b_gemini_weekly],
             fetched_at=now,
-            source="antigravity_api",
+            source="baseline",
         )
 
     def _collect_codex_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
@@ -352,20 +351,20 @@ class AccountQuotaService:
             id="codex.session",
             display_name="Session",
             model_family="gpt",
-            used_percent=0.0,
-            remaining_percent=100.0,
+            used_percent=None,
+            remaining_percent=None,
             period="5h",
-            reset_at=now + timedelta(hours=4, minutes=50),
+            reset_at=now + timedelta(hours=5),
             status="healthy",
         )
         b_weekly = QuotaBucket(
             id="codex.weekly",
             display_name="Weekly",
             model_family="gpt",
-            used_percent=2.0,
-            remaining_percent=98.0,
+            used_percent=None,
+            remaining_percent=None,
             period="7d",
-            reset_at=now + timedelta(days=6),
+            reset_at=now + timedelta(days=7),
             status="healthy",
         )
 
@@ -374,7 +373,7 @@ class AccountQuotaService:
             provider="openai-codex",
             buckets=[b_session, b_weekly],
             fetched_at=now,
-            source="codex_usage_api",
+            source="baseline",
         )
 
     def _collect_opencode_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
@@ -384,8 +383,8 @@ class AccountQuotaService:
             id="opencode.sliding",
             display_name="Скользящее",
             model_family="opencode",
-            used_percent=0.0,
-            remaining_percent=100.0,
+            used_percent=None,
+            remaining_percent=None,
             period="sliding",
             status="healthy",
         )
@@ -393,20 +392,20 @@ class AccountQuotaService:
             id="opencode.weekly",
             display_name="Недельное",
             model_family="opencode",
-            used_percent=5.0,
-            remaining_percent=95.0,
+            used_percent=None,
+            remaining_percent=None,
             period="7d",
-            reset_at=now + timedelta(days=5),
+            reset_at=now + timedelta(days=7),
             status="healthy",
         )
         b_monthly = QuotaBucket(
             id="opencode.monthly",
             display_name="Ежемесячное",
             model_family="opencode",
-            used_percent=10.0,
-            remaining_percent=90.0,
+            used_percent=None,
+            remaining_percent=None,
             period="30d",
-            reset_at=now + timedelta(days=22),
+            reset_at=now + timedelta(days=30),
             status="healthy",
         )
 
@@ -415,7 +414,7 @@ class AccountQuotaService:
             provider="opencode-go",
             buckets=[b_sliding, b_weekly, b_monthly],
             fetched_at=now,
-            source="opencode_api",
+            source="baseline",
         )
 
     def _collect_claude_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
@@ -425,20 +424,20 @@ class AccountQuotaService:
             id="claude.session",
             display_name="Текущая сессия",
             model_family="claude",
-            used_percent=6.0,
-            remaining_percent=94.0,
+            used_percent=None,
+            remaining_percent=None,
             period="5h",
-            reset_at=now + timedelta(hours=4, minutes=45),
+            reset_at=now + timedelta(hours=5),
             status="healthy",
         )
         b_weekly = QuotaBucket(
             id="claude.weekly",
             display_name="Текущая неделя",
             model_family="claude",
-            used_percent=9.0,
-            remaining_percent=91.0,
+            used_percent=None,
+            remaining_percent=None,
             period="7d",
-            reset_at=now + timedelta(days=6, hours=12),
+            reset_at=now + timedelta(days=7),
             status="healthy",
         )
 
@@ -447,7 +446,7 @@ class AccountQuotaService:
             provider="claude",
             buckets=[b_session, b_weekly],
             fetched_at=now,
-            source="claude_oauth_usage_api",
+            source="baseline",
         )
 
     def _collect_grok_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
@@ -457,8 +456,8 @@ class AccountQuotaService:
             id="grok.weekly",
             display_name="Недельное",
             model_family="grok",
-            used_percent=14.0,
-            remaining_percent=86.0,
+            used_percent=None,
+            remaining_percent=None,
             period="7d",
             status="healthy",
         )
@@ -466,36 +465,34 @@ class AccountQuotaService:
             id="grok.chat",
             display_name="GrokChat",
             model_family="grok",
-            used_percent=13.0,
-            remaining_percent=87.0,
+            used_percent=None,
+            remaining_percent=None,
             status="healthy",
         )
         b_build = QuotaBucket(
             id="grok.build",
             display_name="GrokBuild",
             model_family="grok",
-            used_percent=1.0,
-            remaining_percent=99.0,
+            used_percent=None,
+            remaining_percent=None,
             status="healthy",
         )
         b_frequent = QuotaBucket(
             id="grok.frequent_tasks",
             display_name="Частые задачи",
             model_family="grok",
-            used_absolute=0,
-            remaining_absolute=10,
+            used_absolute=None,
+            remaining_absolute=None,
             limit_absolute=10,
-            remaining_percent=100.0,
             status="healthy",
         )
         b_normal = QuotaBucket(
             id="grok.normal_tasks",
             display_name="Обычные задачи",
             model_family="grok",
-            used_absolute=0,
-            remaining_absolute=30,
+            used_absolute=None,
+            remaining_absolute=None,
             limit_absolute=30,
-            remaining_percent=100.0,
             status="healthy",
         )
 
@@ -504,7 +501,7 @@ class AccountQuotaService:
             provider="grok",
             buckets=[b_weekly, b_chat, b_build, b_frequent, b_normal],
             fetched_at=now,
-            source="xai_task_usage_api",
+            source="baseline",
         )
 
     def _generate_baseline_snapshot(self, provider: str, profile_id: str) -> QuotaSnapshot:
@@ -513,8 +510,8 @@ class AccountQuotaService:
         b = QuotaBucket(
             id=f"{provider}.default",
             display_name="Основная квота",
-            used_percent=0.0,
-            remaining_percent=100.0,
+            used_percent=None,
+            remaining_percent=None,
             status="healthy",
         )
         return QuotaSnapshot(
