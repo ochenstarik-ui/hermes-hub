@@ -112,15 +112,13 @@ tests/test_ui_*.py
 
 ---
 
----
-
 ## P0-bis. Найдено при прогоне с установленными UI-зависимостями
 
 Обнаружено 2026-08-21 при проверке PHASE 1 Codex. Эти дефекты **не видны в обычном прогоне**: без `customtkinter` соответствующие тесты пропускаются, поэтому suite зелёный, а код не исполняется.
 
 ### 1. Подмена `sys.path` заставляет тесты грузить УСТАНОВЛЕННУЮ копию плагина
 
-`hermes_hub_app.py:41` при импорте делает `sys.path.insert(0, ...)` для `%LOCALAPPDATA%\hermes\pluginsntigravity-provider\src`. Как только любой тест импортирует этот модуль, путь установленной копии оказывается **впереди** репозитория, и последующие импорты `antigravity_provider.*` резолвятся в развёрнутую — то есть более старую — версию.
+`hermes_hub_app.py:41` при импорте делает `sys.path.insert(0, ...)` для `%LOCALAPPDATA%/hermes/plugins/antigravity-provider/src`. Как только любой тест импортирует этот модуль, путь установленной копии оказывается **впереди** репозитория, и последующие импорты `antigravity_provider.*` резолвятся в развёрнутую — то есть более старую — версию.
 
 Проявление: `tests/test_p0_release_gate.py::test_p0_5_b1_non_router_error_fallback` и `::test_n2_error_formatter_deduplication` падают с `ImportError: format_antigravity_error` **только в полном прогоне**, а по отдельности проходят. Проверено: функция есть в `src/antigravity_provider/runtime.py` и отсутствует в установленной копии.
 
