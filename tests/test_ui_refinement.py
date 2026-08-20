@@ -29,6 +29,9 @@ def test_test_action_non_existent_profile():
 
 def test_set_main_profile_action():
     """Verify that do_set_main updates the default profile."""
+    # Ensure profile has saved auth
+    ProfileAuthManager.save_profile_auth("antigravity", "ag-w1", {"tokens": {"access_token": "valid"}})
+    
     # Test setting main profile
     ok, msg = do_set_main("antigravity", "ag-w1")
     assert ok is True

@@ -527,13 +527,69 @@ class HermesHubApp(ctk.CTk):
         os._exit(0)
 
 
-# ═══════════════════════════════════════════════════════════════
-#  Entry Point
-# ═══════════════════════════════════════════════════════════════
+def check_single_instance() -> bool:
+    """Ensure only one Hermes Hub instance runs. If already running, activate existing window and return False."""
+    if sys.platform != "win32":
+        return True
+    try:
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+
+        mutex_name = "Global\\HermesHubSingleInstanceMutex"
+        mutex = kernel32.CreateMutexW(None, True, mutex_name)
+        last_err = kernel32.GetLastError()
+
+        # ERROR_ALREADY_EXISTS = 183
+        if last_err == 183:
+            hwnd = user32.FindWindowW(None, "Hermes Hub")
+            if hwnd:
+                user32.ShowWindow(hwnd, 9)  # SW_RESTORE
+                user32.SetForegroundWindow(hwnd)
+            return False
+        return True
+    except Exception:
+        return True
+
 
 def launch_hub():
-    app = HermesHubApp()
-    app.mainloop()
+    from antigravity_provider import paths
+    from antigravity_provider.version import __version__
+
+    # Startup logging
+    log_file = paths.get_startup_log_file()
+    try:
+        with open(log_file, "a", encoding="utf-8") as f:
+            f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Starting Hermes Hub v{__version__} (PID {os.getpid()})\n")
+    except Exception:
+        pass
+
+    if not check_single_instance():
+        try:
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Another instance is already running. Focused existing window and exiting.\n")
+        except Exception:
+            pass
+        sys.exit(0)
+
+    try:
+        app = HermesHubApp()
+        app.mainloop()
+    except Exception as exc:
+        try:
+            import traceback
+            tb = traceback.format_exc()
+            with open(log_file, "a", encoding="utf-8") as f:
+                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] FATAL CRASH:\n{tb}\n")
+            if sys.platform == "win32":
+                ctypes.windll.user32.MessageBoxW(
+                    0,
+                    f"Произошла критическая ошибка при запуске Hermes Hub:\n\n{exc}\n\nПодробности записаны в: {log_file}",
+                    "Hermes Hub — Ошибка запуска",
+                    0x10,  # MB_ICONERROR
+                )
+        except Exception:
+            pass
+        sys.exit(1)
 
 
 if __name__ == "__main__":

@@ -208,14 +208,15 @@ class EventLogService:
 
     def _append_to_file(self, event: HubEvent):
         try:
-            local_app = os.environ.get("LOCALAPPDATA", "")
-            log_dir = Path(local_app) / "hermes" / "logs"
-            log_dir.mkdir(parents=True, exist_ok=True)
-            log_file = log_dir / "hermes-hub.log"
+            from antigravity_provider import paths
+            from antigravity_provider.sanitizer import sanitize_text
+            log_file = paths.get_log_file()
+            clean_msg = sanitize_text(event.message)
+            clean_details = sanitize_text(event.details) if event.details else None
             with open(log_file, "a", encoding="utf-8") as f:
-                f.write(f"[{event.timestamp}] [{event.category.upper()}] [{event.level.upper()}] {event.message}\n")
-                if event.details:
-                    f.write(f"    Details: {event.details}\n")
+                f.write(f"[{event.timestamp}] [{event.category.upper()}] [{event.level.upper()}] {clean_msg}\n")
+                if clean_details:
+                    f.write(f"    Details: {clean_details}\n")
         except Exception:
             pass
 

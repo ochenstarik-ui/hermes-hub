@@ -48,7 +48,7 @@ def test_profile_view_model_mapping():
         assert p.provider in ("antigravity", "openai-codex", "opencode-go")
         assert p.health_state in (
             "healthy", "quota_low", "quota_exhausted", "cooldown", "rate_limited",
-            "auth_required", "auth_expired", "disabled", "cold_spare", "unhealthy", "not_tested"
+            "auth_required", "auth_expired", "disabled", "cold_spare", "unhealthy", "not_tested", "not_configured"
         )
 
 

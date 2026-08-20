@@ -1,0 +1,70 @@
+name: Release Pipeline
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  build-and-release:
+    name: Build Release Package & Manifest
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies & dev tools
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Run Release Gate Check
+        run: |
+          python scripts/release_gate.py
+
+      - name: Build Update Package & Manifest
+        shell: pwsh
+        run: |
+          $ver = "${{ github.ref_name }}".TrimStart("v")
+          $distDir = "dist"
+          New-Item -ItemType Directory -Force -Path $distDir
+          
+          # Create zip archive of the app
+          $zipName = "hermes-hub-$ver.zip"
+          $zipPath = "$distDir/$zipName"
+          Compress-Archive -Path src, assets, config, launcher, pyproject.toml, README.md -DestinationPath $zipPath -Force
+          
+          # Calculate SHA256
+          $hash = (Get-FileHash -Path $zipPath -Algorithm SHA256).Hash.ToLower()
+          
+          # Generate Update Manifest
+          $manifest = @{
+              version = $ver
+              channel = "stable"
+              minimum_hermes_version = "0.20.0"
+              published_at = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssZ")
+              package_url = "https://github.com/ochenstarik-ui/hermes-hub/releases/download/${{ github.ref_name }}/$zipName"
+              sha256 = $hash
+              release_notes_url = "https://github.com/ochenstarik-ui/hermes-hub/releases/tag/${{ github.ref_name }}"
+          }
+          
+          $manifest | ConvertTo-Json -Depth 5 | Out-File -FilePath "$distDir/update_manifest.json" -Encoding utf8
+          Write-Host "Generated update_manifest.json with SHA256: $hash"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/hermes-hub-*.zip
+            dist/update_manifest.json
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

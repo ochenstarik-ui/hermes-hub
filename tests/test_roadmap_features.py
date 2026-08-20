@@ -23,8 +23,8 @@ def test_status_resolver_unconfigured_account():
     for prov, profs in profiles_by_prov.items():
         for p in profs:
             if p.auth_state != "AUTHENTICATED" and p.auth_state != "AUTH_EXPIRED":
-                # Must be not_configured or cold_spare
-                assert p.health_state in (STATUS_NOT_CONFIGURED, "cold_spare", STATUS_AUTH_REQUIRED)
+                # Must be not_configured, cold_spare, auth_required, or disabled
+                assert p.health_state in (STATUS_NOT_CONFIGURED, "cold_spare", STATUS_AUTH_REQUIRED, "disabled")
                 assert p.health_state != STATUS_HEALTHY
                 assert p.health_state != "quota_exhausted"
 

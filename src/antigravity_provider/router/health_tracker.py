@@ -1,13 +1,22 @@
-"""Health state and quota tracking per profile and model family."""
+"""Health state and quota tracking per profile and model family.
+
+Features:
+- Atomic file write + temporary file replace for router_state.json.
+- Thread-safe in-memory cache and automatic cooldown expiration.
+- Model family vs profile-level status tracking.
+"""
 from __future__ import annotations
 
 import json
 import os
+import tempfile
 import threading
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+from antigravity_provider import paths
 
 HEALTHY = "healthy"
 IN_USE = "in-use"
@@ -55,16 +64,11 @@ def extract_model_family(model_name: Optional[str]) -> str:
 
 
 class HealthTracker:
-    """Thread-safe health tracker for router profiles and model families."""
+    """Thread-safe health tracker for router profiles and model families with atomic disk persistence."""
 
     def __init__(self, state_file: Optional[Path] = None):
         if state_file is None:
-            hermes_home = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
-            if os.name == "nt" and "HERMES_HOME" not in os.environ:
-                local_app = os.environ.get("LOCALAPPDATA", "")
-                if local_app and (Path(local_app) / "hermes").exists():
-                    hermes_home = Path(local_app) / "hermes"
-            state_file = hermes_home / "router_state.json"
+            state_file = paths.get_router_state_path()
 
         self.state_file = state_file
         self._lock = threading.RLock()
@@ -101,6 +105,7 @@ class HealthTracker:
             pass
 
     def _save_state(self) -> None:
+        """Atomically persist health state to disk using temporary file + atomic rename."""
         try:
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             data: dict[str, Any] = {"profiles": {}}
@@ -124,7 +129,20 @@ class HealthTracker:
                         "simulated": frecord.simulated,
                     }
                 data["profiles"][pid] = pdict
-            self.state_file.write_text(json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+
+            serialized = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
+            
+            # Atomic file replace
+            tmp_fd, tmp_path = tempfile.mkstemp(
+                dir=str(self.state_file.parent),
+                prefix="router_state_",
+                suffix=".tmp",
+            )
+            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                f.write(serialized)
+            
+            # Atomic replace (works on Windows & POSIX in Python 3.3+)
+            os.replace(tmp_path, str(self.state_file))
         except Exception:
             pass
 
@@ -142,10 +160,6 @@ class HealthTracker:
 
             if record.overall_state == DISABLED:
                 return False
-
-            # Check overall reset_at expiration
-            if record.overall_state in (QUOTA_EXHAUSTED, RATE_LIMITED, COOLDOWN):
-                pass  # Family check will evaluate expiration
 
             family = extract_model_family(model_name)
             if family in record.families:
@@ -192,6 +206,7 @@ class HealthTracker:
             frec.reset_at = None
             frec.success_count += 1
             frec.simulated = False
+
             self._save_state()
 
     def mark_quota_exhausted(
@@ -205,9 +220,8 @@ class HealthTracker:
         with self._lock:
             record = self.get_or_create(profile_id)
             now = time.time()
-            reset_at = now + duration
             record.last_used = now
-            record.last_error = reason or "Quota exhausted"
+            record.last_error = reason
             record.simulated = simulated
 
             family = extract_model_family(model_name)
@@ -215,14 +229,28 @@ class HealthTracker:
                 record.families[family] = FamilyHealthRecord(family=family)
             frec = record.families[family]
             frec.state = QUOTA_EXHAUSTED
-            frec.reset_at = reset_at
-            frec.reason = reason or "Quota exhausted"
+            frec.reset_at = now + duration
+            frec.reason = reason
+            frec.last_error = reason
             frec.error_count += 1
             frec.simulated = simulated
 
-            # If default/primary family exhausted, reflect in overall state
-            record.overall_state = QUOTA_EXHAUSTED
             self._save_state()
+
+    def simulate_quota(
+        self,
+        profile_id: str,
+        duration: int = 1800,
+        model_family: Optional[str] = None,
+    ) -> None:
+        """Simulate quota exhaustion on a profile for testing."""
+        self.mark_quota_exhausted(
+            profile_id=profile_id,
+            model_name=model_family,
+            duration=duration,
+            reason="Simulated Quota Exhaustion",
+            simulated=True,
+        )
 
     def mark_rate_limited(
         self,
@@ -234,93 +262,55 @@ class HealthTracker:
         with self._lock:
             record = self.get_or_create(profile_id)
             now = time.time()
-            reset_at = now + duration
             record.last_used = now
-            record.last_error = reason or "Rate limited"
+            record.last_error = reason
 
             family = extract_model_family(model_name)
             if family not in record.families:
                 record.families[family] = FamilyHealthRecord(family=family)
             frec = record.families[family]
             frec.state = RATE_LIMITED
-            frec.reset_at = reset_at
-            frec.reason = reason or "Rate limited (HTTP 429)"
+            frec.reset_at = now + duration
+            frec.reason = reason
+            frec.last_error = reason
             frec.error_count += 1
 
-            record.overall_state = RATE_LIMITED
             self._save_state()
 
     def mark_auth_required(self, profile_id: str, reason: Optional[str] = None) -> None:
         with self._lock:
             record = self.get_or_create(profile_id)
             record.overall_state = AUTH_REQUIRED
-            record.last_error = reason or "Authentication required"
+            record.last_error = reason
             self._save_state()
 
-    def simulate_quota(
-        self,
-        profile_id: str,
-        model_family: Optional[str] = None,
-        duration: int = 600,
-    ) -> None:
-        """Simulate quota exhaustion for testing without consuming real quota."""
-        self.mark_quota_exhausted(
-            profile_id=profile_id,
-            model_name=model_family,
-            duration=duration,
-            reason="[SIMULATED] Mock quota exhaustion",
-            simulated=True,
-        )
-
-    def clear_cooldown(self, profile_id: Optional[str] = None) -> None:
-        """Clear all cooldowns, rate limits, and simulated quota states."""
+    def clear_cooldown(self, profile_id: Optional[str] = None, model_name: Optional[str] = None) -> None:
         with self._lock:
-            if profile_id:
-                if profile_id in self._profiles:
-                    precord = self._profiles[profile_id]
-                    precord.overall_state = HEALTHY
-                    precord.simulated = False
-                    for frec in precord.families.values():
+            if profile_id is None:
+                for rec in self._profiles.values():
+                    rec.overall_state = HEALTHY
+                    rec.simulated = False
+                    for frec in rec.families.values():
                         frec.state = HEALTHY
                         frec.reset_at = None
                         frec.simulated = False
+                self._save_state()
+                return
+
+            if profile_id not in self._profiles:
+                return
+            record = self._profiles[profile_id]
+            record.overall_state = HEALTHY
+            record.simulated = False
+            if model_name:
+                family = extract_model_family(model_name)
+                if family in record.families:
+                    record.families[family].state = HEALTHY
+                    record.families[family].reset_at = None
+                    record.families[family].simulated = False
             else:
-                for precord in self._profiles.values():
-                    precord.overall_state = HEALTHY
-                    precord.simulated = False
-                    for frec in precord.families.values():
-                        frec.state = HEALTHY
-                        frec.reset_at = None
-                        frec.simulated = False
+                for frec in record.families.values():
+                    frec.state = HEALTHY
+                    frec.reset_at = None
+                    frec.simulated = False
             self._save_state()
-
-    def get_status_summary(self) -> list[dict[str, Any]]:
-        """Return structured summary for all tracked profiles."""
-        with self._lock:
-            summary = []
-            now = time.time()
-            for pid, prec in sorted(self._profiles.items()):
-                families_list = []
-                for fname, frec in sorted(prec.families.items()):
-                    remaining = ""
-                    if frec.reset_at and frec.reset_at > now:
-                        rem_sec = int(frec.reset_at - now)
-                        mins = rem_sec // 60
-                        secs = rem_sec % 60
-                        remaining = f"{mins}m{secs}s"
-                    families_list.append({
-                        "family": fname,
-                        "state": frec.state,
-                        "reset_in": remaining,
-                        "simulated": frec.simulated,
-                    })
-
-                summary.append({
-                    "profile_id": pid,
-                    "overall_state": prec.overall_state,
-                    "active_leases": prec.active_leases,
-                    "last_error": prec.last_error,
-                    "simulated": prec.simulated,
-                    "families": families_list,
-                })
-            return summary

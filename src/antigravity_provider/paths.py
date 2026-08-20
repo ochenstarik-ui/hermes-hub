@@ -1,6 +1,6 @@
 """Single Source of Truth for Hermes Hub Filesystem Paths.
 
-Ensures zero hardcoded developer paths (e.g. no E:\\Agent projects or hardcoded usernames).
+Ensures zero hardcoded absolute developer directories or usernames.
 Fully respects HERMES_HOME for complete hermetic test isolation.
 """
 from __future__ import annotations

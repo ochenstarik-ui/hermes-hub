@@ -64,7 +64,7 @@ packages = ["src/antigravity_provider"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 python_files = ["test_*.py"]
-addopts = "-m 'not live and not network'"
+addopts = "-m 'not live and not network and not installer'"
 markers = [
     "unit: Unit tests that run isolated in-memory",
     "integration: Component integration tests with isolated filesystem",

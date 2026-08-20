@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    name: Clean Windows Runner Test
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .[dev]
+
+      - name: Code Quality (ruff)
+        run: |
+          ruff check .
+
+      - name: Run Hermetic Offline Pytest Suite
+        run: |
+          pytest -v
+
+      - name: Run Automated Release Gate
+        run: |
+          python scripts/release_gate.py

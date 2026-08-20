@@ -1,13 +1,17 @@
-"""Hermes Hub — Settings View (Интерактивные параметры и настройки)."""
+"""Hermes Hub — Settings View (Интерактивные параметры, настройки и обновления)."""
 from __future__ import annotations
 
 import json
 import os
 import subprocess
+import threading
 from pathlib import Path
 from typing import Any, Dict, Optional
 import customtkinter as ctk
 
+from antigravity_provider import paths
+from antigravity_provider.version import __version__, CHANNEL
+from antigravity_provider.updater import UpdateManager, UpdateCheckResult
 from antigravity_provider.router.ui.theme import Theme
 from antigravity_provider.router.ui.components import (
     HubButton,
@@ -19,7 +23,7 @@ from antigravity_provider.router.ui.components import (
 class SettingsView(ctk.CTkFrame):
     def __init__(self, master: Any, **kwargs):
         super().__init__(master=master, fg_color="transparent", **kwargs)
-        self.settings_file = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "hub_settings.json"
+        self.settings_file = paths.get_hermes_home() / "hub_settings.json"
         self._load_settings()
         self._build()
 
@@ -33,6 +37,7 @@ class SettingsView(ctk.CTkFrame):
             "auto_return_primary": True,
             "auto_monitoring": True,
             "monitoring_interval_min": "5",
+            "auto_check_updates": True,
         }
         if self.settings_file.exists():
             try:
@@ -52,7 +57,7 @@ class SettingsView(ctk.CTkFrame):
         header = HubSectionHeader(
             self,
             title="Настройки Hermes Hub",
-            subtitle="Конфигурация параметров маршрутизации, восстановления и мониторинга",
+            subtitle="Конфигурация параметров маршрутизации, восстановления, мониторинга и обновлений",
             action_text="💾 Сохранить",
             action_cmd=self._save_settings,
         )
@@ -100,10 +105,10 @@ class SettingsView(ctk.CTkFrame):
         fo_menu.set(str(self.settings.get("failover_attempts", "3")))
         fo_menu.pack(side="right")
 
-        # ── 2. Recovery & Quota Management ──
+        # ── 2. Recovery & Monitoring ──
         c2 = HubCard(scroll, border_color=Theme.BORDER, fg_color=Theme.SURFACE)
         c2.pack(fill="x", pady=6)
-        ctk.CTkLabel(c2, text="Восстановление и Квоты", font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", padx=16, pady=(12, 6))
+        ctk.CTkLabel(c2, text="Восстановление и Мониторинг", font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", padx=16, pady=(12, 6))
 
         r4 = ctk.CTkFrame(c2, fg_color="transparent")
         r4.pack(fill="x", padx=16, pady=4)
@@ -121,24 +126,59 @@ class SettingsView(ctk.CTkFrame):
         if self.settings.get("auto_monitoring"):
             mon_sw.select()
 
-        # ── 3. Advanced / Дополнительно (Collapsible) ──
+        # ── 3. Updates & Release Channel ──
+        c_upd = HubCard(scroll, border_color=Theme.BORDER, fg_color=Theme.SURFACE)
+        c_upd.pack(fill="x", pady=6)
+        ctk.CTkLabel(c_upd, text="Обновления и Релизы", font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", padx=16, pady=(12, 6))
+
+        u_row = ctk.CTkFrame(c_upd, fg_color="transparent")
+        u_row.pack(fill="x", padx=16, pady=4)
+        ctk.CTkLabel(
+            u_row,
+            text=f"Текущая версия: v{__version__}  •  Канал: {CHANNEL.capitalize()}",
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(side="left")
+
+        self.upd_status_lbl = ctk.CTkLabel(
+            c_upd,
+            text="Проверка обновлений не выполнялась",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_MUTED,
+        )
+        self.upd_status_lbl.pack(anchor="w", padx=16, pady=(0, 8))
+
+        btns_upd = ctk.CTkFrame(c_upd, fg_color="transparent")
+        btns_upd.pack(fill="x", padx=16, pady=(0, 12))
+
+        self.check_upd_btn = HubButton(
+            btns_upd,
+            text="🔄 Проверить обновления",
+            variant="secondary",
+            width=200,
+            height=Theme.HEIGHT_BTN_SM,
+            command=self._check_updates_click,
+        )
+        self.check_upd_btn.pack(side="left")
+
+        # ── 4. Advanced / Paths ──
         c3 = HubCard(scroll, border_color=Theme.BORDER, fg_color=Theme.DARK)
         c3.pack(fill="x", pady=6)
 
         ctk.CTkLabel(c3, text="Дополнительно (Инструменты и Пути)", font=Theme.font_heading(), text_color=Theme.TEXT_ACCENT).pack(anchor="w", padx=16, pady=(12, 6))
 
-        hermes_home = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes"
+        hermes_home = paths.get_hermes_home()
 
         btns_row = ctk.CTkFrame(c3, fg_color="transparent")
         btns_row.pack(fill="x", padx=16, pady=6)
 
         HubButton(btns_row, text="📁 Открыть папку данных", variant="secondary", width=180, command=lambda: self._open_folder(hermes_home)).pack(side="left", padx=(0, 8))
-        HubButton(btns_row, text="📜 Открыть журнал логов", variant="secondary", width=180, command=lambda: self._open_folder(hermes_home / "logs")).pack(side="left")
+        HubButton(btns_row, text="📜 Открыть журнал логов", variant="secondary", width=180, command=lambda: self._open_folder(paths.get_logs_dir())).pack(side="left")
 
         paths_info = [
-            ("Профили роутера:", str(hermes_home / "router_profiles.yaml")),
-            ("Учетные данные:", str(hermes_home / "auth.json")),
-            ("Файл логов:", str(hermes_home / "logs" / "hermes-hub.log")),
+            ("Профили роутера:", str(paths.get_router_profiles_path())),
+            ("Состояние роутера:", str(paths.get_router_state_path())),
+            ("Файл логов:", str(paths.get_log_file())),
         ]
         for label, pstr in paths_info:
             p_row = ctk.CTkFrame(c3, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
@@ -147,6 +187,29 @@ class SettingsView(ctk.CTkFrame):
             ctk.CTkLabel(p_row, text=pstr, font=Theme.font_mono_sm(), text_color=Theme.TEXT_MUTED).pack(side="right", padx=8)
 
         ctk.CTkLabel(c3, text="", font=Theme.font_micro()).pack(pady=4)
+
+    def _check_updates_click(self):
+        self.upd_status_lbl.configure(text="Проверка наличия обновлений на GitHub...")
+        self.check_upd_btn.configure(state="disabled")
+
+        def _worker():
+            mgr = UpdateManager()
+            res = mgr.check_for_updates()
+            self.after(0, lambda: self._on_update_result(res))
+
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _on_update_result(self, res: UpdateCheckResult):
+        self.check_upd_btn.configure(state="normal")
+        if res.error:
+            self.upd_status_lbl.configure(text=f"Ошибка проверки: {res.error}", text_color=Theme.STATUS_WARNING)
+        elif res.update_available and res.manifest:
+            self.upd_status_lbl.configure(
+                text=f"★ Доступна новая версия Hermes Hub v{res.manifest.version}!",
+                text_color=Theme.STATUS_HEALTHY,
+            )
+        else:
+            self.upd_status_lbl.configure(text=f"✓ Установлена актуальная версия (v{__version__})", text_color=Theme.STATUS_HEALTHY)
 
     def _open_folder(self, path: Path):
         try:
