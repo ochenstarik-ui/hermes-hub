@@ -335,7 +335,8 @@ class AutoAssigner:
                 "provider_label": provider_label,
                 "logical_role": log_role,
                 "tier": tier,
-                "is_main": is_main,
+                "is_main": (pid == main_ag and pcfg.provider == "antigravity")
+                or (pid == main_codex and pcfg.provider == "openai-codex"),
                 "identity": ident.primary_identifier() if is_auth else "Не авторизован",
                 "plan": ident.plan.display_name if is_auth else "Тариф: неизвестен",
                 "quota_str": relevant_bucket.formatted_remaining() if relevant_bucket else "Квота: доступна",

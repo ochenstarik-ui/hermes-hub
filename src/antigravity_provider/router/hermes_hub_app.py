@@ -47,7 +47,7 @@ from antigravity_provider.router.adapters import get_adapter
 
 from antigravity_provider.router.ui.theme import Theme
 from antigravity_provider.router.ui.assets import AssetManager
-from antigravity_provider.router.ui.components import HubButton
+from antigravity_provider.router.ui.components import HubButton, HubModal
 from antigravity_provider.router.ui.add_account_wizard import AddAccountWizard
 
 from antigravity_provider.router.unified_health import (
@@ -370,7 +370,7 @@ class HermesHubApp(ctk.CTk):
             except Exception as e:
                 if not self._shutting_down:
                     try:
-                        self.after(0, lambda: self._on_data_error(str(e)))
+                        self.after(0, lambda err=str(e): self._on_data_error(err))
                     except Exception:
                         pass
 
@@ -522,9 +522,9 @@ class HermesHubApp(ctk.CTk):
                 if not self._shutting_down:
                     try:
                         if on_error:
-                            self.after(0, lambda: on_error(str(e)))
+                            self.after(0, lambda err=str(e): on_error(err))
                         else:
-                            self.after(0, lambda: self._show_toast(f"❌ Ошибка: {e}"))
+                            self.after(0, lambda err=str(e): self._show_toast(f"❌ Ошибка: {err}"))
                     except Exception:
                         pass
 

@@ -72,3 +72,19 @@ markers = [
     "installer: Tests verifying installer and packaging",
     "live: End-to-end tests requiring real user credentials",
 ]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+extend-exclude = ["legacy", ".venv"]
+
+[tool.ruff.lint]
+# Bug-catching rules only, so CI gives a real signal today.
+#   E9  - syntax / IO errors        F63 - comparison & assert mistakes
+#   F7  - misplaced statements      F82 - undefined names
+#   F811 - redefinition of an in-use name
+# Style and modernization rules (UP, I, BLE, S, SIM, RUF) are intentionally
+# left off: the codebase currently has ~1200 such findings, and enabling them
+# wholesale would keep CI red instead of catching defects. Burn them down in
+# a dedicated pass, then extend this list.
+select = ["E9", "F63", "F7", "F82", "F811"]
