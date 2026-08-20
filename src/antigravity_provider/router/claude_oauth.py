@@ -177,6 +177,7 @@ class ClaudeOAuthSession:
         }
         self._is_completed = True
         self.status = "completed"
+
         return True
 
     def cancel(self) -> None:

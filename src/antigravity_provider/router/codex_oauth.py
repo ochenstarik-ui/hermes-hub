@@ -241,6 +241,7 @@ class CodexOAuthSession:
         self._is_completed = True
         self.status = "completed"
         self._stop_polling.set()
+
         return True
 
     def handle_manual_input(self, raw_input: str) -> Tuple[bool, str]:

@@ -260,6 +260,7 @@ class ProfileOAuthSession:
                 self._is_completed = True
                 self.status = "completed"
                 logger.info("OAuth session completed successfully for profile=%s", self.profile_id)
+
                 return True, "Авторизация успешно завершена"
 
             except Exception as e:

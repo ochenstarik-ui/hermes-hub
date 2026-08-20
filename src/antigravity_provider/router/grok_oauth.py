@@ -225,6 +225,7 @@ class GrokOAuthSession:
             self._is_completed = True
             self.status = "completed"
             self._stop_polling.set()
+
             return True
 
     def cancel(self) -> None:

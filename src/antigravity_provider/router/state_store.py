@@ -188,7 +188,17 @@ class HubStateStore:
             timestamp=time.time(),
             profiles_by_provider={},
             all_profiles={},
-            readiness=SystemReadiness(state="limited", title_ru="Инициализация", description_ru="", accounts_connected_count=0, total_accounts=0, roles_ready_count=0, total_roles=0, providers_ready_count=0, total_providers=0),
+            readiness=SystemReadiness(
+                state="LIMITED",
+                title_ru="Инициализация",
+                summary_ru="Состояние ещё не загружено",
+                accounts_connected_count=0,
+                total_accounts=0,
+                roles_ready_count=0,
+                total_roles=0,
+                providers_ready_count=0,
+                total_providers=0,
+            ),
             agents=[],
             providers=[],
             routing={},
@@ -229,15 +239,16 @@ class HubStateStore:
         self,
         profile_id: str,
         profile: Optional[ProfileViewModel] = None,
+        provider: Optional[str] = None,
     ) -> None:
         """Update one account and publish a profile-keyed event without a global scan."""
         self.account_updates_total += 1
         if profile is None:
-            cached = UnifiedHealthService.get().get_cached_profiles()
-            profile = next(
-                (item for items in cached.values() for item in items if item.profile_id == profile_id),
-                None,
-            )
+            current = self._current_snapshot or self._build_empty_snapshot()
+            current_profile = current.get_profile(profile_id)
+            provider = provider or (current_profile.provider if current_profile else "")
+            if provider:
+                profile = UnifiedHealthService.get().refresh_profile(provider, profile_id)
         if profile is None:
             logger.warning("Cannot apply account delta for unknown profile %s", profile_id)
             return
@@ -253,7 +264,23 @@ class HubStateStore:
             },
         )
 
-    def apply_delta_account_added(self, profile: ProfileViewModel) -> None:
+    def apply_delta_account_added(
+        self,
+        profile: ProfileViewModel | str,
+        profile_id: Optional[str] = None,
+    ) -> None:
+        if isinstance(profile, str):
+            provider = profile
+            if profile_id is None:
+                raise ValueError("profile_id is required when provider is passed")
+            refreshed = UnifiedHealthService.get().refresh_profile(provider, profile_id)
+            if refreshed is None:
+                EventBus.get().publish(
+                    EVENT_ACCOUNT_ADDED,
+                    {"provider": provider, "profile_id": profile_id},
+                )
+                return
+            profile = refreshed
         snapshot = self._apply_profile_delta(profile)
         EventBus.get().publish(
             EVENT_ACCOUNT_ADDED,
@@ -343,6 +370,7 @@ class HubStateStore:
             {
                 "provider": provider,
                 "profile_id": profile_id,
+                "snapshot": quota_snap,
                 "quota_snapshot": quota_snap,
                 "generation": updated.generation,
                 "seq": updated.seq,

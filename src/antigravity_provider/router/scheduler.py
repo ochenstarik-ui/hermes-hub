@@ -276,7 +276,8 @@ class HermesRefreshScheduler:
                         )
 
             # Rebuild unified snapshot
-            HubStateStore.get().refresh(force_scan=True, seq=seq)
+            store = HubStateStore.get()
+            store.refresh(force_scan=True, seq=store.next_seq())
 
             with self._lock:
                 task.last_success_at = time.time()
@@ -312,7 +313,7 @@ class HermesRefreshScheduler:
                 quota_service = AccountQuotaService.get()
                 quota_snapshot = quota_service.fetch_account_quota(provider, profile_id, force=True)
                 HubStateStore.get().apply_delta_quota_updated(provider, profile_id, quota_snapshot)
-                HubStateStore.get().apply_delta_account_updated(profile_id)
+                HubStateStore.get().apply_delta_account_updated(profile_id, None, provider)
             finally:
                 with self._lock:
                     self._in_flight_refreshes.pop(key, None)
@@ -321,6 +322,38 @@ class HermesRefreshScheduler:
                     on_complete()
 
         threading.Thread(target=_worker, name=f"SingleRefresh-{profile_id}", daemon=True).start()
+
+    def trigger_refresh_provider(self, provider: str, on_complete: Optional[Callable] = None) -> None:
+        """Trigger an instant non-blocking refresh for all accounts of a specific provider."""
+        key = f"provider:{provider}"
+        with self._lock:
+            if key in self._in_flight_refreshes:
+                self.tasks_deduplicated_total += 1
+                logger.info("Deduplicating in-flight refresh for %s", key)
+                return
+
+            event = threading.Event()
+            self._in_flight_refreshes[key] = event
+
+        def _worker():
+            try:
+                uh_service = UnifiedHealthService.get()
+                quota_service = AccountQuotaService.get()
+                profs = uh_service.get_cached_profiles().get(provider, [])
+                for p in profs:
+                    if p.auth_state == "AUTHENTICATED":
+                        quota_snapshot = quota_service.fetch_account_quota(provider, p.profile_id, force=True)
+                        HubStateStore.get().apply_delta_quota_updated(provider, p.profile_id, quota_snapshot)
+                store = HubStateStore.get()
+                store.refresh(force_scan=True, seq=store.next_seq())
+            finally:
+                with self._lock:
+                    self._in_flight_refreshes.pop(key, None)
+                    event.set()
+                if on_complete:
+                    on_complete()
+
+        threading.Thread(target=_worker, name=f"ProviderRefresh-{provider}", daemon=True).start()
 
     def trigger_refresh_all(self, on_complete: Optional[Callable] = None) -> None:
         """Trigger non-blocking refresh of all configured profiles across all providers."""

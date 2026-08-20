@@ -117,3 +117,17 @@ def test_gui_test_modules_guard_optional_ui_dependency() -> None:
         + ", ".join(offenders)
         + " — add pytest.importorskip('customtkinter') above the import"
     )
+
+
+@pytest.mark.unit
+def test_antigravity_provider_loads_from_repo() -> None:
+    """Verify that antigravity_provider is loaded from the repository src, not from %LOCALAPPDATA%."""
+    import antigravity_provider
+    import antigravity_provider.runtime
+    
+    pkg_file = Path(antigravity_provider.__file__).resolve()
+    runtime_file = Path(antigravity_provider.runtime.__file__).resolve()
+    
+    assert str(PACKAGE_ROOT.resolve()) in str(pkg_file) or str(PACKAGE_ROOT.resolve()) in str(pkg_file.parent)
+    assert str(PACKAGE_ROOT.resolve()) in str(runtime_file)
+

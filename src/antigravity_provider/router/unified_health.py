@@ -253,10 +253,20 @@ class UnifiedHealthService:
                     cls._instance = cls()
         return cls._instance
 
-    def scan_all(self, force: bool = False) -> Dict[str, List[ProfileViewModel]]:
+    def scan_all(
+        self,
+        force: bool = False,
+        profile_id: Optional[str] = None,
+    ) -> Dict[str, List[ProfileViewModel]]:
         """Query router config, ProfileAuthManager, HealthTracker and build unified presentation models (cached)."""
         with self._lock:
-            if not force and self._cached_profiles and self._last_scan_time and (time.time() - self._last_scan_time < 30):
+            if (
+                profile_id is None
+                and not force
+                and self._cached_profiles
+                and self._last_scan_time
+                and (time.time() - self._last_scan_time < 30)
+            ):
                 # Return cached by provider instantly without disk I/O
                 result: Dict[str, List[ProfileViewModel]] = {"antigravity": [], "openai-codex": [], "opencode-go": []}
                 for p in self._cached_profiles.values():
@@ -282,7 +292,8 @@ class UnifiedHealthService:
 
             now = time.time()
             now_str = time.strftime("%H:%M:%S")
-            self._last_scan_time = now
+            if profile_id is None:
+                self._last_scan_time = now
 
             result: Dict[str, List[ProfileViewModel]] = {
                 "antigravity": [],
@@ -291,6 +302,8 @@ class UnifiedHealthService:
             }
 
             for pid, pcfg in sorted(config.profiles.items()):
+                if profile_id is not None and pid != profile_id:
+                    continue
                 prov = pcfg.provider
                 if prov not in result:
                     result[prov] = []
@@ -448,6 +461,11 @@ class UnifiedHealthService:
                 self._cached_profiles[pid] = vm
 
             return result
+
+    def refresh_profile(self, provider: str, profile_id: str) -> Optional[ProfileViewModel]:
+        """Rebuild exactly one profile ViewModel after an auth or quota change."""
+        profiles = self.scan_all(force=True, profile_id=profile_id).get(provider, [])
+        return next((profile for profile in profiles if profile.profile_id == profile_id), None)
 
     def get_cached_profiles(self) -> Dict[str, List[ProfileViewModel]]:
         """Return currently cached profiles grouped by provider without disk I/O."""
