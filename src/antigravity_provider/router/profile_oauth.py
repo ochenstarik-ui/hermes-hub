@@ -260,6 +260,13 @@ class ProfileOAuthSession:
                 self._is_completed = True
                 self.status = "completed"
                 logger.info("OAuth session completed successfully for profile=%s", self.profile_id)
+
+                try:
+                    from antigravity_provider.router.state_store import HubStateStore
+                    HubStateStore.get().apply_delta_account_added("antigravity", self.profile_id)
+                except Exception:
+                    pass
+
                 return True, "Авторизация успешно завершена"
 
             except Exception as e:

@@ -241,6 +241,13 @@ class CodexOAuthSession:
         self._is_completed = True
         self.status = "completed"
         self._stop_polling.set()
+
+        try:
+            from antigravity_provider.router.state_store import HubStateStore
+            HubStateStore.get().apply_delta_account_added("openai-codex", self.profile_id)
+        except Exception:
+            pass
+
         return True
 
     def handle_manual_input(self, raw_input: str) -> Tuple[bool, str]:

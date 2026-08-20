@@ -177,6 +177,13 @@ class ClaudeOAuthSession:
         }
         self._is_completed = True
         self.status = "completed"
+
+        try:
+            from antigravity_provider.router.state_store import HubStateStore
+            HubStateStore.get().apply_delta_account_added("claude", self.profile_id)
+        except Exception:
+            pass
+
         return True
 
     def cancel(self) -> None:

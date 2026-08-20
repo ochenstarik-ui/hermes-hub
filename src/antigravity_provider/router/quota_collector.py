@@ -220,10 +220,17 @@ class AccountQuotaService:
             )
 
         snap.buckets = updated_buckets
+        snap.source = "runtime_event"
         with self._cache_lock:
             self._snapshots[key] = snap
 
         logger.info("Runtime quota error recorded for %s model=%s (reset in %ds)", key, model, reset_seconds)
+
+        try:
+            from antigravity_provider.router.state_store import HubStateStore
+            HubStateStore.get().apply_delta_quota_updated(provider, profile_id, snap)
+        except Exception:
+            pass
 
     # ─────────────────────────────────────────────────────────────
     #  IDENTITY RESOLUTION
@@ -505,19 +512,95 @@ class AccountQuotaService:
         )
 
     def _generate_baseline_snapshot(self, provider: str, profile_id: str) -> QuotaSnapshot:
-        """Baseline snapshot when offline or unconfigured."""
+        """Baseline snapshot when offline or unconfigured with truthful multi-family buckets."""
         now = _utc_now()
-        b = QuotaBucket(
-            id=f"{provider}.default",
-            display_name="Основная квота",
-            used_percent=None,
-            remaining_percent=None,
-            status="healthy",
-        )
+        buckets: List[QuotaBucket] = []
+
+        if provider == "antigravity":
+            buckets = [
+                QuotaBucket(
+                    id="antigravity.claude.5h",
+                    display_name="Claude 5h",
+                    model_family="claude",
+                    used_percent=None,
+                    remaining_percent=None,
+                    period="5h",
+                    status="healthy",
+                ),
+                QuotaBucket(
+                    id="antigravity.gemini.5h",
+                    display_name="Gemini 5h",
+                    model_family="gemini",
+                    used_percent=None,
+                    remaining_percent=None,
+                    period="5h",
+                    status="healthy",
+                ),
+            ]
+        elif provider in ("openai-codex", "codex"):
+            buckets = [
+                QuotaBucket(
+                    id="codex.primary.weekly",
+                    display_name="Codex Weekly",
+                    model_family="gpt",
+                    used_percent=None,
+                    remaining_percent=None,
+                    period="7d",
+                    status="healthy",
+                ),
+            ]
+        elif provider in ("claude", "anthropic"):
+            buckets = [
+                QuotaBucket(
+                    id="claude.session.5h",
+                    display_name="Claude 5h",
+                    model_family="claude",
+                    used_percent=None,
+                    remaining_percent=None,
+                    period="5h",
+                    status="healthy",
+                ),
+            ]
+        elif provider in ("grok", "xai"):
+            buckets = [
+                QuotaBucket(
+                    id="grok.frequent_tasks",
+                    display_name="Grok 2h",
+                    model_family="grok",
+                    used_percent=None,
+                    remaining_percent=None,
+                    period="2h",
+                    status="healthy",
+                ),
+            ]
+        elif provider in ("opencode-go", "opencode"):
+            buckets = [
+                QuotaBucket(
+                    id="opencode.tasks",
+                    display_name="OpenCode Tasks",
+                    model_family="opencode",
+                    used_percent=None,
+                    remaining_percent=None,
+                    period="30d",
+                    status="healthy",
+                ),
+            ]
+        else:
+            buckets = [
+                QuotaBucket(
+                    id=f"{provider}.default",
+                    display_name="Основная квота",
+                    model_family=None,
+                    used_percent=None,
+                    remaining_percent=None,
+                    status="healthy",
+                ),
+            ]
+
         return QuotaSnapshot(
             account_id=profile_id,
             provider=provider,
-            buckets=[b],
+            buckets=buckets,
             fetched_at=now,
             source="baseline",
         )

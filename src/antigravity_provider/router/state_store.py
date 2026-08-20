@@ -14,6 +14,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from antigravity_provider.router.event_bus import (
     EventBus,
     EVENT_ACCOUNT_UPDATED,
+    EVENT_ACCOUNT_ADDED,
+    EVENT_ACCOUNT_REMOVED,
     EVENT_QUOTA_UPDATED,
     EVENT_ROUTING_UPDATED,
     EVENT_SYSTEM_READINESS_CHANGED,
@@ -204,13 +206,52 @@ class HubStateStore:
                 "generation": snap.generation,
             })
 
+    def apply_delta_account_added(self, provider: str, profile_id: str) -> None:
+        """Apply account added delta, refresh targeted profile, and emit EVENT_ACCOUNT_ADDED."""
+        self.apply_delta_account_updated(profile_id)
+        EventBus.get().publish(EVENT_ACCOUNT_ADDED, {
+            "provider": provider,
+            "profile_id": profile_id,
+        })
+
+    def apply_delta_account_removed(self, provider: str, profile_id: str) -> None:
+        """Apply account removed delta and emit EVENT_ACCOUNT_REMOVED."""
+        with self._lock:
+            uh_service = UnifiedHealthService.get()
+            with uh_service._lock:
+                uh_service._cached_profiles.pop(profile_id, None)
+        self.refresh(force_scan=False)
+        EventBus.get().publish(EVENT_ACCOUNT_REMOVED, {
+            "provider": provider,
+            "profile_id": profile_id,
+        })
+
+    def apply_delta_route_changed(self, role_id: str, active_profile_id: Optional[str] = None) -> None:
+        """Apply routing delta change and emit EVENT_ROUTING_UPDATED."""
+        snap = self.refresh(force_scan=False)
+        pipeline = snap.get_role_pipeline(role_id)
+        EventBus.get().publish(EVENT_ROUTING_UPDATED, {
+            "role_id": role_id,
+            "active_profile_id": active_profile_id,
+            "pipeline": pipeline,
+            "generation": snap.generation,
+        })
+
     def apply_delta_quota_updated(self, provider: str, profile_id: str, quota_snap: Any) -> None:
         """Apply instant runtime quota change (e.g. 429 received during inference)."""
         with self._lock:
             self.quota_updates_total += 1
+            if self._current_snapshot is not None:
+                # Update snapshot in place atomically
+                if hasattr(self._current_snapshot, "quotas") and isinstance(self._current_snapshot.quotas, dict):
+                    self._current_snapshot.quotas[profile_id] = quota_snap
+                prof = self._current_snapshot.get_profile(profile_id)
+                if prof and hasattr(prof, "quota_snapshot"):
+                    prof.quota_snapshot = quota_snap
 
         EventBus.get().publish(EVENT_QUOTA_UPDATED, {
             "provider": provider,
             "profile_id": profile_id,
+            "snapshot": quota_snap,
             "quota_snapshot": quota_snap,
         })
