@@ -22,7 +22,8 @@ wheels/
 
 # Virtual environments
 .env
-.venv
+.env.*
+.venv/
 env/
 venv/
 ENV/
@@ -31,18 +32,29 @@ venv.bak/
 
 # User runtime data & credentials (CRITICAL - NEVER COMMIT)
 auth.json
+**/auth.json
 *.auth.json
+*_oauth.json
 *.key
 *.pem
 *.token
+*.secret
+credentials*
+secrets*
 router_state.json
 router_active_profile.json
-router_profiles.yaml
-*.log
-logs/
 agy_profiles/
 codex_profiles/
 opengo_profiles/
+runtime/
+cache/
+
+# Logs & Dumps
+*.log
+logs/
+*.dump
+*.db
+*.sqlite
 
 # Testing & Coverage
 .pytest_cache/
@@ -58,9 +70,16 @@ htmlcov/
 *.swo
 *~
 .DS_Store
+Thumbs.db
+
+# Backup & scratch files
+*.bak
+*.old
+*.disabled
+*.agybak
+scratch/
 
 # Windows build scratch
 *.obj
 *.pdb
 *.ilk
-scratch/

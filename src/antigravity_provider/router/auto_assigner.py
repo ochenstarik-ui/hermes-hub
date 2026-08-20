@@ -111,13 +111,15 @@ class AutoAssigner:
             "opencode-go": ["opengo-1", "opengo-2", "opengo-3"],
         }
 
-        candidates = provider_slots.get(provider, [])
+        candidates = list(provider_slots.get(provider, []))
 
         # Priority based on requested role
         if requested_role == "orchestrator":
             if provider == "openai-codex" and "codex-orch" in candidates:
+                candidates.remove("codex-orch")
                 candidates.insert(0, "codex-orch")
             elif provider == "antigravity" and "ag-orch-fallback" in candidates:
+                candidates.remove("ag-orch-fallback")
                 candidates.insert(0, "ag-orch-fallback")
 
         # Find first slot without saved auth
@@ -130,6 +132,43 @@ class AutoAssigner:
                 return pid
 
         return candidates[0] if candidates else None
+
+    @staticmethod
+    def recommend_assignment(provider: str) -> Tuple[str, str, str]:
+        """Analyze team health and return (recommended_slot, role_title_ru, reason_ru)."""
+        config = load_router_config()
+
+        # Check role chains for missing primary or missing fallback
+        for rname, rpol in config.roles.items():
+            chain = rpol.preferred_chain
+            if not chain:
+                continue
+
+            # Check primary
+            primary_pid = chain[0]
+            pcfg = config.get_profile(primary_pid)
+            if pcfg and pcfg.provider == provider:
+                status = ProfileAuthManager.get_profile_status(provider, primary_pid)
+                if not status.get("authenticated"):
+                    dname, _, _ = AutoAssigner.get_display_name_and_role(primary_pid)
+                    return primary_pid, dname, f"У ключевой роли '{rname}' сейчас отсутствует основной рабочий аккаунт."
+
+            # Check fallbacks
+            for fb_pid in chain[1:]:
+                fb_cfg = config.get_profile(fb_pid)
+                if fb_cfg and fb_cfg.provider == provider:
+                    status = ProfileAuthManager.get_profile_status(provider, fb_pid)
+                    if not status.get("authenticated"):
+                        dname, _, _ = AutoAssigner.get_display_name_and_role(fb_pid)
+                        return fb_pid, dname, f"У роли '{rname}' отсутствует резервный аккаунт для отказоустойчивости."
+
+        # Fallback to general free slot
+        slot = AutoAssigner.find_free_slot(provider)
+        if slot:
+            dname, _, _ = AutoAssigner.get_display_name_and_role(slot)
+            return slot, dname, "Оптимальный свободный слот для расширения мощности команды."
+
+        return "ag-spare-1", "Резерв", "Дополнительный слот резерва."
 
     @staticmethod
     def build_team_hierarchy() -> Dict[str, Any]:

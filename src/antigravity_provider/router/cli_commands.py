@@ -292,8 +292,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     if args.subcommand in ("hub", "cockpit", "gui"):
-        from antigravity_provider.router.gui_server import run_gui_server
-        run_gui_server(port=args.port, open_browser=not args.no_browser)
+        from antigravity_provider.router.hermes_hub_app import launch_hub
+        launch_hub()
         return 0
     elif args.subcommand == "status":
         return print_router_status()
