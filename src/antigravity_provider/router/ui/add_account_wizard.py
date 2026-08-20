@@ -398,11 +398,18 @@ class AddAccountWizard(HubModal):
             )
 
             # Apply role to live config
-            AutoAssigner.assign_profile_to_role(self.target_slot, target_role, is_primary=(chosen != "spare"))
+            ok, msg = AutoAssigner.assign_profile_to_role(self.target_slot, target_role, is_primary=(chosen != "spare"))
+            if not ok:
+                EventLogService.get().log(
+                    "account",
+                    f"Ошибка назначения профиля {self.target_slot}: {msg}",
+                    level="warning",
+                )
+                return
 
             EventLogService.get().log(
                 "account",
-                f"Подключён аккаунт {self.discovered_identity} ({self.selected_provider}). Назначен на роль: {target_role}.",
+                f"Подключён аккаунт {self.discovered_identity} ({self.selected_provider}). {msg}.",
                 level="success",
             )
             self.destroy()

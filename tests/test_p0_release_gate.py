@@ -245,6 +245,45 @@ def test_p0_7_assign_role_action(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
+def test_n1_spare_assignment_mode(tmp_path, monkeypatch):
+    """N1: Verify that selecting spare mode removes profile from active roles without creating rogue roles."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+
+    config = get_default_router_config()
+    # Put ag-w1 in coder-primary
+    config.roles["coder-primary"].preferred_chain = ["ag-w1", "ag-w2"]
+    save_router_config(config)
+
+    # Assign ag-w1 to spare
+    ok, msg = AutoAssigner.assign_profile_to_role("ag-w1", "spare")
+    assert ok is True
+    assert "резерв" in msg.lower() or "spare" in msg.lower()
+
+    reloaded = load_router_config()
+    assert "ag-w1" not in reloaded.roles["coder-primary"].preferred_chain
+    assert "spare" not in reloaded.roles  # Canonical role set unchanged
+    assert reloaded.profiles["ag-w1"].enabled is True
+
+
+@pytest.mark.unit
+def test_n2_error_formatter_deduplication():
+    """N2: Verify that format_antigravity_error never creates double 'Antigravity error:' prefixes."""
+    from antigravity_provider.runtime import format_antigravity_error
+
+    # Case 1: Raw exception message
+    assert format_antigravity_error("connection refused") == "Antigravity error: connection refused"
+
+    # Case 2: Already prefixed with Antigravity error:
+    assert format_antigravity_error("Antigravity error: quota exceeded") == "Antigravity error: quota exceeded"
+
+    # Case 3: Nested multiple prefixes
+    assert format_antigravity_error("Antigravity error: Antigravity error: agy error: 429") == "Antigravity error: 429"
+
+    # Case 4: Dict error format
+    assert format_antigravity_error({"message": "Antigravity (agy) error: timeout"}) == "Antigravity error: timeout"
+
+
+@pytest.mark.unit
 def test_p0_8_wizard_role_application(tmp_path, monkeypatch):
     """P0-8: Verify Wizard step 4 role assignment is applied directly to configuration."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))

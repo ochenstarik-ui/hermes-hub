@@ -111,20 +111,43 @@ def _namespace(value: Any) -> Any:
     return value
 
 
+def format_antigravity_error(err: Any) -> str:
+    """Format an error message with 'Antigravity error: ' prefix without duplicate prefixes."""
+    msg = err.get("message") if isinstance(err, dict) else str(err or "unknown error")
+    msg = msg.strip()
+
+    prefixes_to_strip = [
+        "Antigravity error:",
+        "Antigravity (agy) error:",
+        "agy error:",
+        "Antigravity error",
+        "agy error",
+    ]
+    changed = True
+    while changed:
+        changed = False
+        for p in prefixes_to_strip:
+            if msg.lower().startswith(p.lower()):
+                msg = msg[len(p):].strip(" :")
+                changed = True
+                break
+
+    return f"Antigravity error: {msg}" if msg else "Antigravity error: unknown error"
+
+
 def openai_completion_object(completion: dict[str, Any]) -> SimpleNamespace:
     """Return an object compatible with Hermes' ChatCompletionsTransport."""
     completion = dict(completion)
     choices = []
-    
+
     # Handle error payload without crashing choices[0]
     if "error" in completion and not completion.get("choices"):
-        err = completion.get("error")
-        err_msg = err.get("message") if isinstance(err, dict) else str(err)
+        err_text = format_antigravity_error(completion.get("error"))
         choices.append({
             "index": 0,
             "message": {
                 "role": "assistant",
-                "content": f"Antigravity error: {err_msg}",
+                "content": err_text,
                 "tool_calls": None,
             },
             "finish_reason": "stop",

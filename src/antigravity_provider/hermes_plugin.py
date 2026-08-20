@@ -6,7 +6,7 @@ from typing import Any
 
 from .agy_subprocess import agy_generate
 from .hermes_provider import DEFAULT_MODEL, PLACEHOLDER_API_KEY, PLACEHOLDER_API_KEY_ENV, PROVIDER_NAME, register_provider_profile
-from .runtime import ensure_provider_profile_files, openai_completion_object
+from .runtime import ensure_provider_profile_files, format_antigravity_error, openai_completion_object
 
 logger = logging.getLogger(__name__)
 
@@ -38,14 +38,13 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
             session_id = kwargs.get("session_id") or request.get("session_id")
             completion = engine.route_request(request, role=role, session_id=session_id)
             if isinstance(completion, dict) and "error" in completion and not completion.get("choices"):
-                err = completion.get("error")
-                err_msg = err.get("message") if isinstance(err, dict) else str(err)
+                err_text = format_antigravity_error(completion.get("error"))
                 completion = {
                     "model": str(request.get("model") or DEFAULT_MODEL),
                     "choices": [
                         {
                             "index": 0,
-                            "message": {"role": "assistant", "content": f"Antigravity error: {err_msg}"},
+                            "message": {"role": "assistant", "content": err_text},
                             "finish_reason": "stop",
                         }
                     ],
@@ -61,14 +60,13 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
     try:
         completion = agy_generate(request)
         if isinstance(completion, dict) and "error" in completion and not completion.get("choices"):
-            err = completion.get("error")
-            err_msg = err.get("message") if isinstance(err, dict) else str(err)
+            err_text = format_antigravity_error(completion.get("error"))
             completion = {
                 "model": str(request.get("model") or DEFAULT_MODEL),
                 "choices": [
                     {
                         "index": 0,
-                        "message": {"role": "assistant", "content": f"Antigravity error: {err_msg}"},
+                        "message": {"role": "assistant", "content": err_text},
                         "finish_reason": "stop",
                     }
                 ],

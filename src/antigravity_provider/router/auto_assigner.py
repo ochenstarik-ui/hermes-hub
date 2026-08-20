@@ -210,6 +210,17 @@ class AutoAssigner:
             return False, f"Профиль '{profile_id}' не найден"
 
         clean_role = role_name.strip().lower()
+        if clean_role in {"spare", "резерв", "none", "unassigned"}:
+            # Remove profile from all active role chains to keep strictly as spare pool
+            for rname, rpolicy in config.roles.items():
+                if profile_id in rpolicy.preferred_chain:
+                    rpolicy.preferred_chain = [p for p in rpolicy.preferred_chain if p != profile_id]
+                    config.roles[rname] = rpolicy
+            pcfg.enabled = True
+            config.profiles[profile_id] = pcfg
+            save_router_config(config)
+            return True, f"Профиль '{profile_id}' сохранен в пуле резерва (spare)"
+
         canonical_role = CANONICAL_ROLE_MAP.get(clean_role, clean_role)
 
         if canonical_role not in config.roles:
