@@ -37,6 +37,12 @@ class AddAccountWizard(HubModal):
 
     def destroy(self):
         self._polling_active = False
+        if self.oauth_session_id:
+            try:
+                from antigravity_provider.router.profile_oauth import cancel_oauth_session
+                cancel_oauth_session(self.oauth_session_id)
+            except Exception:
+                pass
         super().destroy()
 
     def _clear_body(self):
@@ -50,6 +56,15 @@ class AddAccountWizard(HubModal):
     # ═══════════════════════════════════════════════════════════════
 
     def _show_step_1_provider(self):
+        if self.oauth_session_id:
+            try:
+                from antigravity_provider.router.profile_oauth import cancel_oauth_session
+                cancel_oauth_session(self.oauth_session_id)
+                self.oauth_session_id = None
+                self.oauth_url = None
+            except Exception:
+                pass
+        self._polling_active = False
         self._clear_body()
         self.title_lbl.configure(text="Шаг 1 из 4: Выберите провайдера ИИ")
 
@@ -58,45 +73,54 @@ class AddAccountWizard(HubModal):
             text="Выберите платформу для подключения учетной записи:",
             font=Theme.font_body(),
             text_color=Theme.TEXT_SECONDARY,
-        ).pack(anchor="w", pady=(0, 12))
-
-        prov_var = ctk.StringVar(value=self.selected_provider)
+        ).pack(anchor="w", pady=(0, 10))
 
         providers = [
-            ("antigravity", "Google Antigravity", "OAuth 2.0 • Gemini 2.5 Pro, Gemini 2.5 Flash, Claude Sonnet", Theme.PROVIDER_ANTIGRAVITY),
-            ("openai-codex", "OpenAI Codex", "API Key • GPT-5.3 Codex, GPT-5.1 Codex Mini", Theme.PROVIDER_CODEX),
-            ("opencode-go", "OpenCode Go", "Bearer API Key • OpenCode Go 3", Theme.PROVIDER_OPENCODE),
+            ("antigravity", "Google Antigravity", "OAuth 2.0 (Google Account)", Theme.ACCENT),
+            ("openai-codex", "OpenAI Codex", "API Key (Codex / GPT-4)", "#10a37f"),
+            ("opencode-go", "OpenCode Go", "API Key / Subscription", "#8b5cf6"),
         ]
 
-        for p_id, p_name, p_desc, p_col in providers:
-            card = HubCard(self.body, border_color=Theme.BORDER, fg_color=Theme.SURFACE)
-            card.pack(fill="x", pady=6)
+        self.provider_var = ctk.StringVar(value=self.selected_provider)
+
+        for p_id, p_title, p_desc, p_color in providers:
+            card = HubCard(self.body)
+            card.pack(fill="x", pady=4)
 
             rb = ctk.CTkRadioButton(
                 card,
-                text=p_name,
-                variable=prov_var,
+                text="",
                 value=p_id,
-                font=Theme.font_heading(),
-                text_color=p_col,
+                variable=self.provider_var,
+                width=24,
                 fg_color=Theme.ACCENT,
                 hover_color=Theme.ACCENT_HOVER,
             )
-            rb.pack(anchor="w", padx=16, pady=(10, 2))
+            rb.pack(side="left", padx=(12, 8), pady=12)
+
+            info_f = ctk.CTkFrame(card, fg_color="transparent")
+            info_f.pack(side="left", fill="both", expand=True, pady=8)
 
             ctk.CTkLabel(
-                card,
+                info_f,
+                text=p_title,
+                font=Theme.font_body_bold(),
+                text_color=Theme.TEXT_PRIMARY,
+            ).pack(anchor="w")
+
+            ctk.CTkLabel(
+                info_f,
                 text=p_desc,
                 font=Theme.font_caption(),
-                text_color=Theme.TEXT_MUTED,
-            ).pack(anchor="w", padx=44, pady=(0, 10))
-
-        def _next():
-            self.selected_provider = prov_var.get()
-            self._show_step_2_auth()
+                text_color=Theme.TEXT_SECONDARY,
+            ).pack(anchor="w")
 
         HubButton(self.footer, text="Отмена", variant="secondary", width=100, command=self.destroy).pack(side="left")
-        HubButton(self.footer, text="Далее ➔", variant="primary", width=120, command=_next).pack(side="right")
+        HubButton(self.footer, text="Далее ➔", variant="primary", width=140, command=self._on_provider_selected).pack(side="right")
+
+    def _on_provider_selected(self):
+        self.selected_provider = self.provider_var.get()
+        self._show_step_2_auth()
 
     # ═══════════════════════════════════════════════════════════════
     #  STEP 2: Authentication
@@ -122,52 +146,158 @@ class AddAccountWizard(HubModal):
             text_color=Theme.TEXT_SECONDARY,
             wraplength=540,
             justify="left",
-        ).pack(anchor="w", pady=(0, 10))
-
-        steps_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
-        steps_card.pack(fill="x", pady=(0, 12))
-
-        instructions = (
-            "1. Нажмите «Открыть браузер» для перехода на страницу Google.\n"
-            "2. Войдите в нужный Google аккаунт и предоставьте доступ.\n"
-            "3. Hermes Hub автоматически перехватит токен и завершит подключение."
-        )
-        ctk.CTkLabel(
-            steps_card,
-            text=instructions,
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_PRIMARY,
-            justify="left",
-        ).pack(padx=14, pady=12, anchor="w")
+        ).pack(anchor="w", pady=(0, 6))
 
         self.oauth_status_lbl = ctk.CTkLabel(
             self.body,
-            text="Статус: Ожидание запуска OAuth...",
+            text="Статус: Запуск локального слушателя OAuth...",
             font=Theme.font_body_bold(),
             text_color=Theme.STATUS_WARNING,
         )
-        self.oauth_status_lbl.pack(pady=8)
+        self.oauth_status_lbl.pack(anchor="w", pady=(0, 6))
 
-        btns_row = ctk.CTkFrame(self.body, fg_color="transparent")
-        btns_row.pack(fill="x", pady=4)
+        # URL display card
+        url_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
+        url_card.pack(fill="x", pady=(0, 8))
 
-        HubButton(
-            btns_row,
+        ctk.CTkLabel(
+            url_card,
+            text="Ссылка для авторизации:",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+        ).pack(anchor="w", padx=10, pady=(8, 2))
+
+        self.oauth_url_entry = ctk.CTkEntry(
+            url_card,
+            font=Theme.font_mono(),
+            height=34,
+            fg_color=Theme.PRIMARY,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.oauth_url_entry.pack(fill="x", padx=10, pady=(2, 10))
+
+        # Action buttons row
+        self.oauth_btns_row = ctk.CTkFrame(self.body, fg_color="transparent")
+        self.oauth_btns_row.pack(fill="x", pady=4)
+
+        self.open_browser_btn = HubButton(
+            self.oauth_btns_row,
             text="🌐 Открыть браузер",
             variant="primary",
-            width=180,
-            command=self._start_antigravity_oauth,
-        ).pack(side="left", padx=(0, 8))
+            width=170,
+            command=self._open_oauth_browser,
+        )
+        self.open_browser_btn.pack(side="left", padx=(0, 8))
 
-        HubButton(
-            btns_row,
+        self.copy_url_btn = HubButton(
+            self.oauth_btns_row,
             text="📋 Копировать ссылку",
             variant="secondary",
             width=160,
             command=self._copy_oauth_url,
-        ).pack(side="left")
+        )
+        self.copy_url_btn.pack(side="left", padx=(0, 8))
+
+        self.regen_btn = HubButton(
+            self.oauth_btns_row,
+            text="🔄 Создать новую ссылку",
+            variant="secondary",
+            width=180,
+            command=self._regenerate_oauth_session,
+        )
 
         HubButton(self.footer, text="⬅ Назад", variant="secondary", width=100, command=self._show_step_1_provider).pack(side="left")
+
+        # Initialize session immediately
+        self._init_antigravity_oauth_session()
+
+    def _init_antigravity_oauth_session(self):
+        try:
+            from antigravity_provider.router.profile_oauth import start_profile_oauth
+            self.oauth_session_id, self.oauth_url, self.oauth_port = start_profile_oauth(self.target_slot)
+            self.oauth_url_entry.configure(state="normal")
+            self.oauth_url_entry.delete(0, "end")
+            self.oauth_url_entry.insert(0, self.oauth_url)
+            self.oauth_url_entry.configure(state="readonly")
+            self.oauth_status_lbl.configure(
+                text="Ссылка готова. Ожидание входа в Google.",
+                text_color=Theme.STATUS_HEALTHY,
+            )
+            if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
+                self.regen_btn.pack_forget()
+            self._polling_active = True
+            threading.Thread(target=self._poll_oauth, daemon=True).start()
+        except Exception as e:
+            self.oauth_status_lbl.configure(
+                text=f"❌ Ошибка запуска OAuth слушателя: {e}",
+                text_color=Theme.STATUS_ERROR,
+            )
+            if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
+                self.regen_btn.pack(side="left")
+
+    def _open_oauth_browser(self):
+        if not self.oauth_url:
+            self._init_antigravity_oauth_session()
+        if self.oauth_url:
+            import logging
+            logging.getLogger("hermes.router.profile_oauth").info(
+                "OAUTH browser opening redirect_port=%d", getattr(self, "oauth_port", 51121)
+            )
+            webbrowser.open(self.oauth_url)
+            self.oauth_status_lbl.configure(
+                text="🌐 Браузер открыт. Завершите авторизацию в Google...",
+                text_color=Theme.ACCENT,
+            )
+
+    def _copy_oauth_url(self):
+        if self.oauth_url:
+            self.clipboard_clear()
+            self.clipboard_append(self.oauth_url)
+            self.oauth_status_lbl.configure(
+                text="✅ Ссылка скопирована в буфер обмена!",
+                text_color=Theme.STATUS_HEALTHY,
+            )
+
+    def _regenerate_oauth_session(self):
+        if self.oauth_session_id:
+            try:
+                from antigravity_provider.router.profile_oauth import cancel_oauth_session
+                cancel_oauth_session(self.oauth_session_id)
+            except Exception:
+                pass
+        self._init_antigravity_oauth_session()
+
+    def _poll_oauth(self):
+        from antigravity_provider.router.profile_oauth import get_oauth_session
+        for _ in range(300):
+            if not self._polling_active:
+                return
+            time.sleep(1)
+            session = get_oauth_session(self.oauth_session_id)
+            if not session:
+                continue
+
+            status = getattr(session, "status", "").lower()
+            if status in ("completed", "success"):
+                info = getattr(session, "completed_profile_info", {}) or {}
+                self.discovered_identity = info.get("email") or "Google Account"
+                self.discovered_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-thinking"]
+                self.is_verified = True
+                self.after(0, self._show_step_3_validation)
+                return
+            elif status in ("error", "failed", "cancelled"):
+                err_msg = getattr(session, "error_msg", None) or "Авторизация отменена или не удалась"
+                self.after(0, lambda m=err_msg: self._handle_oauth_failure(f"❌ {m}"))
+                return
+            elif status == "timeout":
+                self.after(0, lambda: self._handle_oauth_failure("❌ Время ожидания авторизации истекло"))
+                return
+
+    def _handle_oauth_failure(self, msg: str):
+        self.oauth_status_lbl.configure(text=msg, text_color=Theme.STATUS_ERROR)
+        if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
+            self.regen_btn.pack(side="left")
 
     def _build_api_key_flow(self):
         ctk.CTkLabel(
@@ -229,50 +359,6 @@ class AddAccountWizard(HubModal):
 
         HubButton(self.footer, text="⬅ Назад", variant="secondary", width=100, command=self._show_step_1_provider).pack(side="left")
         HubButton(self.footer, text="Проверить и сохранить ➔", variant="primary", width=200, command=_save_key).pack(side="right")
-
-    def _start_antigravity_oauth(self):
-        self.oauth_status_lbl.configure(text="Запуск локального слушателя и открытие Google...")
-        try:
-            from antigravity_provider.router.profile_oauth import start_profile_oauth
-            self.oauth_session_id, self.oauth_url = start_profile_oauth(self.target_slot)
-            webbrowser.open(self.oauth_url)
-            self.oauth_status_lbl.configure(text="🌐 Ожидание авторизации в браузере...")
-            self._polling_active = True
-            threading.Thread(target=self._poll_oauth, daemon=True).start()
-        except Exception as e:
-            self.oauth_status_lbl.configure(text=f"Ошибка: {e}")
-
-    def _copy_oauth_url(self):
-        if self.oauth_url:
-            self.clipboard_clear()
-            self.clipboard_append(self.oauth_url)
-            self.oauth_status_lbl.configure(text="✅ Ссылка скопирована в буфер обмена!")
-
-    def _poll_oauth(self):
-        from antigravity_provider.router.profile_oauth import get_oauth_session
-        for _ in range(120):
-            if not self._polling_active:
-                return
-            time.sleep(1)
-            session = get_oauth_session(self.oauth_session_id)
-            if not session:
-                continue
-
-            status = getattr(session, "status", "").lower()
-            if status in ("completed", "success"):
-                info = getattr(session, "completed_profile_info", {}) or {}
-                self.discovered_identity = info.get("email") or "Google Account"
-                self.discovered_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-thinking"]
-                self.is_verified = True
-                self.after(0, self._show_step_3_validation)
-                return
-            elif status in ("error", "failed", "cancelled"):
-                err_msg = getattr(session, "error_msg", None) or "Авторизация отменена или не удалась"
-                self.after(0, lambda m=err_msg: self.oauth_status_lbl.configure(text=f"❌ {m}"))
-                return
-            elif status == "timeout":
-                self.after(0, lambda: self.oauth_status_lbl.configure(text="❌ Время ожидания авторизации истекло"))
-                return
 
     # ═══════════════════════════════════════════════════════════════
     #  STEP 3: Validation & Duplicate Detection
