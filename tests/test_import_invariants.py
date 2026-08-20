@@ -17,6 +17,7 @@ Broken *internal* references always fail.
 """
 from __future__ import annotations
 
+import ast
 import importlib
 import pkgutil
 from pathlib import Path
@@ -81,10 +82,32 @@ def test_gui_test_modules_guard_optional_ui_dependency() -> None:
     session ("Interrupted: 1 error during collection") instead of skipping the
     affected module, which takes the release gate down with it.
     """
+    # Modules that pull the GUI toolkit in transitively when imported.
+    GUI_BEARING_PREFIXES = (
+        "customtkinter",
+        "antigravity_provider.router.ui",
+        "antigravity_provider.router.hermes_hub_app",
+    )
+
+    def _imports_gui(tree: ast.AST) -> bool:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                if any(a.name.startswith(GUI_BEARING_PREFIXES) for a in node.names):
+                    return True
+            elif isinstance(node, ast.ImportFrom):
+                if (node.module or "").startswith(GUI_BEARING_PREFIXES):
+                    return True
+        return False
+
     offenders: list[str] = []
     for path in sorted(TESTS_DIR.glob("test_*.py")):
         text = path.read_text(encoding="utf-8", errors="ignore")
-        if "customtkinter" not in text:
+        try:
+            tree = ast.parse(text)
+        except SyntaxError:
+            continue
+        # A mention in prose is not an import; only real imports need the guard.
+        if not _imports_gui(tree):
             continue
         if "importorskip" not in text:
             offenders.append(path.name)

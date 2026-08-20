@@ -347,7 +347,9 @@ class AccountsView(ctk.CTkFrame):
 
     def update_data(self, snapshot: Optional[HubSnapshot] = None):
         """Update views by reusing widgets and updating properties in place."""
-        if snapshot is None:
+        if not isinstance(snapshot, HubSnapshot):
+            # A non-snapshot (e.g. a legacy app_state dict) must fall back
+            # to the store rather than crash the view.
             snapshot = HubStateStore.get().get_snapshot()
 
         self._last_rendered_generation = snapshot.generation

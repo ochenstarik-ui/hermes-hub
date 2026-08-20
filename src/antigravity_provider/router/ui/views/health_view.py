@@ -46,8 +46,10 @@ class HealthView(ctk.CTkFrame):
         for w in self.scroll.winfo_children():
             w.destroy()
 
-        from antigravity_provider.router.state_store import HubStateStore
-        if snapshot is None:
+        from antigravity_provider.router.state_store import HubSnapshot, HubStateStore
+        if not isinstance(snapshot, HubSnapshot):
+            # Callers have historically passed legacy app_state dicts here; a
+            # non-snapshot must fall back to the store, not crash the view.
             snapshot = HubStateStore.get().get_snapshot()
 
         readiness = snapshot.readiness

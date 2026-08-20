@@ -36,6 +36,10 @@ from antigravity_provider.router.codex_oauth import (
     get_codex_oauth_session,
     cancel_codex_oauth_session,
 )
+# Pulls customtkinter transitively; without this guard a headless run aborts
+# collection of the entire session instead of skipping this module.
+pytest.importorskip("customtkinter")
+
 from antigravity_provider.router.ui.components import enable_clipboard_shortcuts, HubEntry
 
 

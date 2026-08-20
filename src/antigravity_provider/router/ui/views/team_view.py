@@ -203,7 +203,7 @@ class TeamView(ctk.CTkFrame):
         self.on_action = on_action
         self._card_widgets: List[AgentCardWidget] = []
         self._build_static_layout()
-        self.update_data(app_state)
+        self.update_data()
 
     def _build_static_layout(self):
         # ── 1. Top Section Header ──
@@ -280,8 +280,10 @@ class TeamView(ctk.CTkFrame):
             self.cards_grid.grid_columnconfigure(col_idx, weight=1)
 
     def update_data(self, snapshot: Optional[Any] = None):
-        from antigravity_provider.router.state_store import HubStateStore
-        if snapshot is None:
+        from antigravity_provider.router.state_store import HubSnapshot, HubStateStore
+        if not isinstance(snapshot, HubSnapshot):
+            # Callers have historically passed legacy app_state dicts here; a
+            # non-snapshot must fall back to the store, not crash the view.
             snapshot = HubStateStore.get().get_snapshot()
 
         readiness = snapshot.readiness
