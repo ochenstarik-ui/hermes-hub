@@ -40,16 +40,19 @@ def pytest_configure(config):
 
 
 def pytest_collection_modifyitems(config, items):
-    """Ensure tests requiring CustomTkinter gracefully skip if it cannot be loaded."""
-    has_ctk = False
-    try:
-        import customtkinter as _ctk  # noqa
-        has_ctk = True
-    except Exception:
-        has_ctk = False
+    """Skip tests explicitly marked as needing the Tk graphical stack.
 
-    if not has_ctk:
+    Selection is by the ``ui`` marker only. It used to also match any test whose
+    *name* contained "ui", "view" or "wizard", which silently skipped static
+    checks that never touch the toolkit — and hid real failures for weeks.
+    Modules that import the GUI stack guard themselves with
+    ``pytest.importorskip("customtkinter")`` at module scope; that guard is
+    enforced by tests/test_import_invariants.py.
+    """
+    try:
+        import customtkinter  # noqa: F401
+    except Exception:
         skip_ui = pytest.mark.skip(reason="customtkinter is not installed in current environment")
         for item in items:
-            if "ui" in item.keywords or "view" in item.name.lower() or "wizard" in item.name.lower():
+            if "ui" in item.keywords:
                 item.add_marker(skip_ui)
