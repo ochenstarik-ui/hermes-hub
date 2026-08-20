@@ -149,7 +149,18 @@ class RouterEngine:
             for m_candidate in viable_models:
                 m_desc = registry.get_model(m_candidate)
                 if m_desc:
-                    ok, score, _ = registry.evaluate_model_score(m_desc, role_reqs)
+                    from .quota_collector import AccountQuotaService
+
+                    quota_remaining = AccountQuotaService.get().remaining_for_model(
+                        pconfig.provider,
+                        pid,
+                        m_desc.family,
+                    )
+                    ok, score, _ = registry.evaluate_model_score(
+                        m_desc,
+                        role_reqs,
+                        quota_remaining_percent=quota_remaining,
+                    )
                     if ok:
                         scored_candidates.append((score, m_candidate))
                 else:

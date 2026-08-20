@@ -148,7 +148,21 @@ class QuotaBucket:
     reset_at: Optional[datetime] = None
     reset_in_seconds: Optional[int] = None
     period: Optional[str] = None  # "5h", "7d", "30d", "sliding"
-    status: str = "healthy"  # "healthy", "warning", "exhausted", "unknown"
+    unit: Optional[str] = None  # requests, tokens, tasks, currency, or provider-defined
+    scope: Optional[str] = None  # account, model_family, organization, or provider-defined
+    status: str = "unknown"  # "healthy", "warning", "exhausted", "unknown"
+
+    @property
+    def label(self) -> str:
+        return self.display_name
+
+    @property
+    def used(self) -> Optional[int]:
+        return self.used_absolute
+
+    @property
+    def limit(self) -> Optional[int]:
+        return self.limit_absolute
 
     def __post_init__(self):
         # Auto-reconcile percentages
@@ -187,7 +201,7 @@ class QuotaBucket:
             return f"Осталось {self.remaining_percent:.0f}%"
         if self.used_percent is not None:
             return f"Использовано {self.used_percent:.0f}%"
-        return "Доступна"
+        return "Н/Д"
 
     def formatted_reset(self) -> Optional[str]:
         """User-facing reset time string."""
@@ -227,7 +241,13 @@ class QuotaSnapshot:
     @property
     def is_estimated(self) -> bool:
         """True if values are baseline or locally estimated rather than measured by live server API."""
-        return self.source in ("baseline", "estimated", "unconfigured", "local_heuristic")
+        return self.source in (
+            "baseline",
+            "estimated",
+            "unconfigured",
+            "local_heuristic",
+            "runtime_error",
+        )
 
     def is_stale(self) -> bool:
         delta = _utc_now() - self.fetched_at

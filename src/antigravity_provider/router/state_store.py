@@ -8,12 +8,15 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
 
 from antigravity_provider.router.event_bus import (
     EventBus,
     EVENT_ACCOUNT_UPDATED,
+    EVENT_ACCOUNT_ADDED,
+    EVENT_ACCOUNT_REMOVED,
+    EVENT_ACCOUNT_AUTH_CHANGED,
     EVENT_QUOTA_UPDATED,
     EVENT_ROUTING_UPDATED,
     EVENT_SYSTEM_READINESS_CHANGED,
@@ -40,6 +43,7 @@ logger = logging.getLogger("hermes.router.state_store")
 class HubSnapshot:
     """Immutable normalized snapshot of the entire Hermes Hub state at a specific generation."""
     generation: int
+    seq: int
     timestamp: float
     profiles_by_provider: Dict[str, List[ProfileViewModel]]
     all_profiles: Dict[str, ProfileViewModel]
@@ -104,53 +108,58 @@ class HubStateStore:
         return self.refresh(force_scan=False)
 
     def refresh(self, force_scan: bool = True, seq: Optional[int] = None) -> HubSnapshot:
-        """Execute a single unified state build cycle and publish an updated HubSnapshot."""
+        """Build outside the store lock, then atomically apply only the newest result."""
+        request_seq = seq if seq is not None else self.next_seq()
+        t0 = time.time()
+
+        # Slow disk/provider reads must not hold the store lock. More recent
+        # requests may complete while this build is running.
+        uh_service = UnifiedHealthService.get()
+        profiles_by_prov = uh_service.scan_all(force=force_scan)
+        all_profs = {
+            profile.profile_id: profile
+            for profiles in profiles_by_prov.values()
+            for profile in profiles
+        }
+        readiness = uh_service.get_system_readiness()
+        agents = uh_service.get_agent_view_models()
+        providers = uh_service.get_provider_summaries()
+        routing = uh_service.get_routing_pipelines()
+        quota_service = AccountQuotaService.get()
+        quotas_map = {
+            profile_id: quota_service.get_snapshot(profile.provider, profile_id)
+            for profile_id, profile in all_profs.items()
+            if profile.auth_state == "AUTHENTICATED"
+        }
+
         with self._lock:
-            if seq is not None and seq < self._latest_applied_seq:
-                logger.warning("Rejecting stale refresh result (seq %d < applied %d)", seq, self._latest_applied_seq)
+            self.refresh_runs_total += 1
+            if request_seq < self._latest_applied_seq:
+                logger.info(
+                    "Discarding late refresh result (seq %d < applied %d)",
+                    request_seq,
+                    self._latest_applied_seq,
+                )
                 self.refresh_skipped_total += 1
                 return self._current_snapshot or self._build_empty_snapshot()
 
-            self.refresh_runs_total += 1
-            if seq is not None:
-                self._latest_applied_seq = max(self._latest_applied_seq, seq)
-
-            t0 = time.time()
+            self._latest_applied_seq = request_seq
             self._generation += 1
             gen = self._generation
-
-            # Single unified scan
-            uh_service = UnifiedHealthService.get()
-            profiles_by_prov = uh_service.scan_all(force=force_scan)
-
-            all_profs: Dict[str, ProfileViewModel] = {}
-            for prov, profs in profiles_by_prov.items():
-                for p in profs:
-                    all_profs[p.profile_id] = p
-
-            readiness = uh_service.get_system_readiness()
-            agents = uh_service.get_agent_view_models()
-            providers = uh_service.get_provider_summaries()
-            routing = uh_service.get_routing_pipelines()
-
-            # Quotas map
-            quota_service = AccountQuotaService.get()
-            quotas_map: Dict[str, Any] = {}
-            for pid, p in all_profs.items():
-                if p.auth_state == "AUTHENTICATED":
-                    quotas_map[pid] = quota_service.get_snapshot(p.provider, pid)
-
             metrics = {
                 "generation": gen,
+                "seq": request_seq,
                 "duration_ms": round((time.time() - t0) * 1000, 2),
                 "total_profiles": len(all_profs),
-                "authenticated_profiles": sum(1 for p in all_profs.values() if p.auth_state == "AUTHENTICATED"),
+                "authenticated_profiles": sum(
+                    1 for profile in all_profs.values() if profile.auth_state == "AUTHENTICATED"
+                ),
                 "refresh_runs_total": self.refresh_runs_total,
                 "refresh_deduplicated_total": self.refresh_deduplicated_total,
             }
-
             snapshot = HubSnapshot(
                 generation=gen,
+                seq=request_seq,
                 timestamp=time.time(),
                 profiles_by_provider=profiles_by_prov,
                 all_profiles=all_profs,
@@ -162,17 +171,20 @@ class HubStateStore:
                 metrics=metrics,
                 is_stale=False,
             )
-
             self._current_snapshot = snapshot
 
         # Emit snapshot update on EventBus
         EventBus.get().publish(EVENT_SYSTEM_READINESS_CHANGED, readiness)
-        EventBus.get().publish(EVENT_REFRESH_COMPLETED, {"generation": gen, "duration_ms": metrics["duration_ms"]})
+        EventBus.get().publish(
+            EVENT_REFRESH_COMPLETED,
+            {"generation": gen, "seq": request_seq, "duration_ms": metrics["duration_ms"]},
+        )
         return snapshot
 
     def _build_empty_snapshot(self) -> HubSnapshot:
         return HubSnapshot(
             generation=0,
+            seq=0,
             timestamp=time.time(),
             profiles_by_provider={},
             all_profiles={},
@@ -185,32 +197,154 @@ class HubStateStore:
             is_stale=True,
         )
 
-    def apply_delta_account_updated(self, profile_id: str) -> None:
-        """Apply targeted account delta update and notify UI without global scan."""
+    def _apply_profile_delta(self, profile: ProfileViewModel) -> HubSnapshot:
+        """Copy-on-write replacement of exactly one profile in the snapshot."""
         with self._lock:
-            self.account_updates_total += 1
-            # Invalidate cached view model for targeted profile
-            uh_service = UnifiedHealthService.get()
-            with uh_service._lock:
-                uh_service._cached_profiles.pop(profile_id, None)
+            current = self._current_snapshot or self._build_empty_snapshot()
+            all_profiles = dict(current.all_profiles)
+            all_profiles[profile.profile_id] = profile
+            grouped = {provider: list(items) for provider, items in current.profiles_by_provider.items()}
+            provider_profiles = grouped.setdefault(profile.provider, [])
+            for index, existing in enumerate(provider_profiles):
+                if existing.profile_id == profile.profile_id:
+                    provider_profiles[index] = profile
+                    break
+            else:
+                provider_profiles.append(profile)
+            self._generation += 1
+            seq = self.next_seq()
+            self._latest_applied_seq = seq
+            updated = replace(
+                current,
+                generation=self._generation,
+                seq=seq,
+                timestamp=time.time(),
+                profiles_by_provider=grouped,
+                all_profiles=all_profiles,
+            )
+            self._current_snapshot = updated
+            return updated
 
-        # Refresh snapshot and notify
-        snap = self.refresh(force_scan=False)
-        updated_profile = snap.get_profile(profile_id)
-        if updated_profile:
-            EventBus.get().publish(EVENT_ACCOUNT_UPDATED, {
+    def apply_delta_account_updated(
+        self,
+        profile_id: str,
+        profile: Optional[ProfileViewModel] = None,
+    ) -> None:
+        """Update one account and publish a profile-keyed event without a global scan."""
+        self.account_updates_total += 1
+        if profile is None:
+            cached = UnifiedHealthService.get().get_cached_profiles()
+            profile = next(
+                (item for items in cached.values() for item in items if item.profile_id == profile_id),
+                None,
+            )
+        if profile is None:
+            logger.warning("Cannot apply account delta for unknown profile %s", profile_id)
+            return
+        snapshot = self._apply_profile_delta(profile)
+        EventBus.get().publish(
+            EVENT_ACCOUNT_UPDATED,
+            {
+                "provider": profile.provider,
                 "profile_id": profile_id,
-                "profile": updated_profile,
-                "generation": snap.generation,
-            })
+                "profile": profile,
+                "generation": snapshot.generation,
+                "seq": snapshot.seq,
+            },
+        )
+
+    def apply_delta_account_added(self, profile: ProfileViewModel) -> None:
+        snapshot = self._apply_profile_delta(profile)
+        EventBus.get().publish(
+            EVENT_ACCOUNT_ADDED,
+            {
+                "provider": profile.provider,
+                "profile_id": profile.profile_id,
+                "profile": profile,
+                "generation": snapshot.generation,
+                "seq": snapshot.seq,
+            },
+        )
+
+    def apply_delta_account_removed(self, provider: str, profile_id: str) -> None:
+        with self._lock:
+            current = self._current_snapshot or self._build_empty_snapshot()
+            all_profiles = dict(current.all_profiles)
+            all_profiles.pop(profile_id, None)
+            grouped = {key: list(value) for key, value in current.profiles_by_provider.items()}
+            grouped[provider] = [item for item in grouped.get(provider, []) if item.profile_id != profile_id]
+            quotas = dict(current.quotas)
+            quotas.pop(profile_id, None)
+            self._generation += 1
+            seq = self.next_seq()
+            self._latest_applied_seq = seq
+            updated = replace(
+                current,
+                generation=self._generation,
+                seq=seq,
+                timestamp=time.time(),
+                profiles_by_provider=grouped,
+                all_profiles=all_profiles,
+                quotas=quotas,
+            )
+            self._current_snapshot = updated
+        EventBus.get().publish(
+            EVENT_ACCOUNT_REMOVED,
+            {"provider": provider, "profile_id": profile_id, "generation": updated.generation, "seq": seq},
+        )
+
+    def publish_auth_changed(self, profile: ProfileViewModel) -> None:
+        snapshot = self._apply_profile_delta(profile)
+        EventBus.get().publish(
+            EVENT_ACCOUNT_AUTH_CHANGED,
+            {
+                "provider": profile.provider,
+                "profile_id": profile.profile_id,
+                "auth_state": profile.auth_state,
+                "profile": profile,
+                "generation": snapshot.generation,
+                "seq": snapshot.seq,
+            },
+        )
 
     def apply_delta_quota_updated(self, provider: str, profile_id: str, quota_snap: Any) -> None:
         """Apply instant runtime quota change (e.g. 429 received during inference)."""
         with self._lock:
             self.quota_updates_total += 1
+            current = self._current_snapshot or self._build_empty_snapshot()
+            quotas = dict(current.quotas)
+            quotas[profile_id] = quota_snap
+            all_profiles = dict(current.all_profiles)
+            profile = all_profiles.get(profile_id)
+            grouped = {provider_key: list(items) for provider_key, items in current.profiles_by_provider.items()}
+            if profile is not None:
+                updated_profile = replace(profile, quota_snapshot=quota_snap)
+                all_profiles[profile_id] = updated_profile
+                grouped[profile.provider] = [
+                    updated_profile if item.profile_id == profile_id else item
+                    for item in grouped.get(profile.provider, [])
+                ]
+            self._generation += 1
+            seq = self.next_seq()
+            self._latest_applied_seq = seq
+            updated = replace(
+                current,
+                generation=self._generation,
+                seq=seq,
+                timestamp=time.time(),
+                profiles_by_provider=grouped,
+                quotas=quotas,
+                all_profiles=all_profiles,
+            )
+            self._current_snapshot = updated
 
-        EventBus.get().publish(EVENT_QUOTA_UPDATED, {
-            "provider": provider,
-            "profile_id": profile_id,
-            "quota_snapshot": quota_snap,
-        })
+        EventBus.get().publish(
+            EVENT_QUOTA_UPDATED,
+            {
+                "provider": provider,
+                "profile_id": profile_id,
+                "quota_snapshot": quota_snap,
+                "generation": updated.generation,
+                "seq": updated.seq,
+            },
+        )

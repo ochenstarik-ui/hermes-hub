@@ -75,6 +75,26 @@ class AccountQuotaService:
                 return ident
         return self._resolve_identity(provider, profile_id)
 
+    def remaining_for_model(self, provider: str, profile_id: str, model_family: str) -> Optional[float]:
+        """Return remaining percent for one model pool, or None when the backend has no value."""
+        snapshot = self.get_snapshot(provider, profile_id)
+        if not snapshot or not snapshot.buckets:
+            return None
+        family = (model_family or "").lower()
+        candidates = [
+            bucket
+            for bucket in snapshot.buckets
+            if not bucket.model_family
+            or bucket.model_family.lower() in family
+            or family in bucket.model_family.lower()
+        ]
+        measured = [bucket.remaining_percent for bucket in candidates if bucket.remaining_percent is not None]
+        if measured:
+            return max(measured)
+        if any(bucket.status == "exhausted" for bucket in candidates):
+            return 0.0
+        return None
+
     def refresh_account_async(self, provider: str, profile_id: str, on_complete: Optional[Callable[[QuotaSnapshot], None]] = None) -> None:
         """Fetch fresh quota in a background thread to prevent UI locking."""
         def _worker():
@@ -220,10 +240,15 @@ class AccountQuotaService:
             )
 
         snap.buckets = updated_buckets
+        snap.source = "runtime_error"
         with self._cache_lock:
             self._snapshots[key] = snap
 
         logger.info("Runtime quota error recorded for %s model=%s (reset in %ds)", key, model, reset_seconds)
+        # Local import avoids the state_store -> quota_collector import cycle.
+        from antigravity_provider.router.state_store import HubStateStore
+
+        HubStateStore.get().apply_delta_quota_updated(provider, profile_id, snap)
 
     # ─────────────────────────────────────────────────────────────
     #  IDENTITY RESOLUTION
@@ -303,7 +328,7 @@ class AccountQuotaService:
             remaining_percent=None,
             period="5h",
             reset_at=claude_reset_5h,
-            status="healthy",
+            status="unknown",
         )
         b_claude_weekly = QuotaBucket(
             id="antigravity.claude.weekly",
@@ -313,7 +338,7 @@ class AccountQuotaService:
             remaining_percent=None,
             period="7d",
             reset_at=weekly_reset,
-            status="healthy",
+            status="unknown",
         )
         b_gemini_5h = QuotaBucket(
             id="antigravity.gemini.5h",
@@ -323,7 +348,7 @@ class AccountQuotaService:
             remaining_percent=None,
             period="5h",
             reset_at=gemini_reset_5h,
-            status="healthy",
+            status="unknown",
         )
         b_gemini_weekly = QuotaBucket(
             id="antigravity.gemini.weekly",
@@ -333,7 +358,7 @@ class AccountQuotaService:
             remaining_percent=None,
             period="7d",
             reset_at=weekly_reset,
-            status="healthy",
+            status="unknown",
         )
 
         return QuotaSnapshot(
@@ -355,7 +380,7 @@ class AccountQuotaService:
             remaining_percent=None,
             period="5h",
             reset_at=now + timedelta(hours=5),
-            status="healthy",
+            status="unknown",
         )
         b_weekly = QuotaBucket(
             id="codex.weekly",
@@ -365,7 +390,7 @@ class AccountQuotaService:
             remaining_percent=None,
             period="7d",
             reset_at=now + timedelta(days=7),
-            status="healthy",
+            status="unknown",
         )
 
         return QuotaSnapshot(
@@ -386,7 +411,7 @@ class AccountQuotaService:
             used_percent=None,
             remaining_percent=None,
             period="sliding",
-            status="healthy",
+            status="unknown",
         )
         b_weekly = QuotaBucket(
             id="opencode.weekly",
@@ -396,7 +421,7 @@ class AccountQuotaService:
             remaining_percent=None,
             period="7d",
             reset_at=now + timedelta(days=7),
-            status="healthy",
+            status="unknown",
         )
         b_monthly = QuotaBucket(
             id="opencode.monthly",
@@ -406,7 +431,7 @@ class AccountQuotaService:
             remaining_percent=None,
             period="30d",
             reset_at=now + timedelta(days=30),
-            status="healthy",
+            status="unknown",
         )
 
         return QuotaSnapshot(
@@ -428,7 +453,7 @@ class AccountQuotaService:
             remaining_percent=None,
             period="5h",
             reset_at=now + timedelta(hours=5),
-            status="healthy",
+            status="unknown",
         )
         b_weekly = QuotaBucket(
             id="claude.weekly",
@@ -438,7 +463,7 @@ class AccountQuotaService:
             remaining_percent=None,
             period="7d",
             reset_at=now + timedelta(days=7),
-            status="healthy",
+            status="unknown",
         )
 
         return QuotaSnapshot(
@@ -459,7 +484,7 @@ class AccountQuotaService:
             used_percent=None,
             remaining_percent=None,
             period="7d",
-            status="healthy",
+            status="unknown",
         )
         b_chat = QuotaBucket(
             id="grok.chat",
@@ -467,7 +492,7 @@ class AccountQuotaService:
             model_family="grok",
             used_percent=None,
             remaining_percent=None,
-            status="healthy",
+            status="unknown",
         )
         b_build = QuotaBucket(
             id="grok.build",
@@ -475,7 +500,7 @@ class AccountQuotaService:
             model_family="grok",
             used_percent=None,
             remaining_percent=None,
-            status="healthy",
+            status="unknown",
         )
         b_frequent = QuotaBucket(
             id="grok.frequent_tasks",
@@ -484,7 +509,7 @@ class AccountQuotaService:
             used_absolute=None,
             remaining_absolute=None,
             limit_absolute=10,
-            status="healthy",
+            status="unknown",
         )
         b_normal = QuotaBucket(
             id="grok.normal_tasks",
@@ -493,7 +518,7 @@ class AccountQuotaService:
             used_absolute=None,
             remaining_absolute=None,
             limit_absolute=30,
-            status="healthy",
+            status="unknown",
         )
 
         return QuotaSnapshot(
@@ -505,19 +530,40 @@ class AccountQuotaService:
         )
 
     def _generate_baseline_snapshot(self, provider: str, profile_id: str) -> QuotaSnapshot:
-        """Baseline snapshot when offline or unconfigured."""
+        """Truthful offline baseline with provider-specific independent limit pools."""
         now = _utc_now()
-        b = QuotaBucket(
-            id=f"{provider}.default",
-            display_name="Основная квота",
-            used_percent=None,
-            remaining_percent=None,
-            status="healthy",
+        bucket_specs = {
+            "antigravity": [
+                ("antigravity.claude.5h", "Claude 5h", "claude", "5h"),
+                ("antigravity.gemini.5h", "Gemini 5h", "gemini", "5h"),
+            ],
+            "openai-codex": [("codex.primary.weekly", "Codex Weekly", "gpt", "7d")],
+            "codex": [("codex.primary.weekly", "Codex Weekly", "gpt", "7d")],
+            "claude": [("claude.session.5h", "Claude 5h", "claude", "5h")],
+            "anthropic": [("claude.session.5h", "Claude 5h", "claude", "5h")],
+            "grok": [("grok.frequent_tasks", "Grok 2h", "grok", "2h")],
+            "xai": [("grok.frequent_tasks", "Grok 2h", "grok", "2h")],
+            "opencode-go": [("opencode.tasks", "OpenCode Tasks", "opencode", "30d")],
+            "opencode": [("opencode.tasks", "OpenCode Tasks", "opencode", "30d")],
+        }
+        specs = bucket_specs.get(
+            provider,
+            [(f"{provider}.default", "Основная квота", None, None)],
         )
+        buckets = [
+            QuotaBucket(
+                id=bucket_id,
+                display_name=display_name,
+                model_family=model_family,
+                period=period,
+                status="unknown",
+            )
+            for bucket_id, display_name, model_family, period in specs
+        ]
         return QuotaSnapshot(
             account_id=profile_id,
             provider=provider,
-            buckets=[b],
+            buckets=buckets,
             fetched_at=now,
             source="baseline",
         )

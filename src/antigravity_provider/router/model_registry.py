@@ -49,6 +49,7 @@ class RoleRequirements:
     latency_priority: float = 0.5     # 0.0 (ignore latency) to 1.0 (maximize speed)
     reasoning_priority: float = 0.5   # 0.0 to 1.0
     quality_priority: float = 0.5     # 0.0 to 1.0
+    quota_priority: float = 1.0       # Prefer model families with measured quota remaining
     diversity_priority: float = 0.0   # 0.0 to 1.0 (prefer different provider/family from reference)
     allow_model_fallback: bool = True
 
@@ -378,6 +379,7 @@ class ModelRegistry:
         descriptor: ModelDescriptor,
         reqs: RoleRequirements,
         reference_author_family: Optional[str] = None,
+        quota_remaining_percent: Optional[float] = None,
     ) -> Tuple[bool, float, str]:
         """Evaluate whether model satisfies hard requirements and calculate multidimensional score."""
         # 1. Hard Filter: Required capabilities
@@ -396,6 +398,8 @@ class ModelRegistry:
         # 4. Hard Filter: Minimum quality tier
         if descriptor.quality_tier < reqs.min_quality_tier:
             return False, 0.0, f"Quality tier {descriptor.quality_tier} < required {reqs.min_quality_tier}"
+        if quota_remaining_percent is not None and quota_remaining_percent <= 0:
+            return False, 0.0, "Quota bucket exhausted"
 
         # ── Weighted Multi-Dimensional Score ──
         # Normalized quality: 0.2 to 1.0
@@ -416,12 +420,19 @@ class ModelRegistry:
         if reqs.diversity_priority > 0 and reference_author_family:
             div_score = 1.0 if descriptor.family != reference_author_family else 0.2
 
+        # Unknown quota remains neutral; it is never treated as 100% available.
+        quota_score = 0.5 if quota_remaining_percent is None else max(
+            0.0,
+            min(1.0, quota_remaining_percent / 100.0),
+        )
+
         total_score = (
             qual_score * reqs.quality_priority
             + reas_score * reqs.reasoning_priority
             + lat_score * reqs.latency_priority
             + cost_score * reqs.cost_priority
             + div_score * reqs.diversity_priority
+            + quota_score * reqs.quota_priority
         )
 
         return True, round(total_score, 4), "Satisfies all capability and quality requirements"

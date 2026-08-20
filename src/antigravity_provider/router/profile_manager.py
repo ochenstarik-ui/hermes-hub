@@ -196,12 +196,41 @@ class ProfileAuthManager:
 
     @classmethod
     def save_profile_auth(cls, provider: str, profile_id: str, auth_data: dict) -> Path:
-        """Save credentials to profile-specific auth.json."""
+        """Atomically save credentials and emit a secret-free targeted event."""
         pdir = get_profile_dir(profile_id, provider)
         pdir.mkdir(parents=True, exist_ok=True)
         auth_file = pdir / "auth.json"
-        auth_file.write_text(json.dumps(auth_data, indent=2), encoding="utf-8")
+        existed = auth_file.is_file()
+        temp_file = pdir / f"auth.json.tmp-{threading.get_ident()}"
+        temp_file.write_text(json.dumps(auth_data, indent=2), encoding="utf-8")
+        os.replace(temp_file, auth_file)
+
+        from antigravity_provider.router.event_bus import (
+            EVENT_ACCOUNT_ADDED,
+            EVENT_ACCOUNT_AUTH_CHANGED,
+            EventBus,
+        )
+
+        EventBus.get().publish(
+            EVENT_ACCOUNT_AUTH_CHANGED if existed else EVENT_ACCOUNT_ADDED,
+            {"provider": provider, "profile_id": profile_id},
+        )
         return auth_file
+
+    @classmethod
+    def delete_profile_auth(cls, provider: str, profile_id: str) -> bool:
+        """Delete one credential file and emit a targeted removal event."""
+        auth_file = get_profile_auth_path(provider, profile_id)
+        if not auth_file.is_file():
+            return False
+        auth_file.unlink()
+        from antigravity_provider.router.event_bus import EVENT_ACCOUNT_REMOVED, EventBus
+
+        EventBus.get().publish(
+            EVENT_ACCOUNT_REMOVED,
+            {"provider": provider, "profile_id": profile_id},
+        )
+        return True
 
     @classmethod
     def load_profile_auth(cls, provider: str, profile_id: str) -> Optional[dict]:

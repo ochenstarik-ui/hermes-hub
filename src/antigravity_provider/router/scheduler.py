@@ -19,6 +19,8 @@ from typing import Any, Callable, Dict, List, Optional, Set
 
 from antigravity_provider.router.event_bus import (
     EventBus,
+    EVENT_ACCOUNT_ADDED,
+    EVENT_ACCOUNT_AUTH_CHANGED,
     EVENT_REFRESH_STARTED,
     EVENT_REFRESH_COMPLETED,
     EVENT_REFRESH_FAILED,
@@ -85,6 +87,17 @@ class HermesRefreshScheduler:
         self.tasks_deduplicated_total: int = 0
 
         self._init_default_tasks()
+        EventBus.get().subscribe(EVENT_ACCOUNT_ADDED, self._on_account_event)
+        EventBus.get().subscribe(EVENT_ACCOUNT_AUTH_CHANGED, self._on_account_event)
+
+    def _on_account_event(self, _event_name: str, payload: Any) -> None:
+        """Refresh only the account mentioned by an OAuth/auth lifecycle event."""
+        if not isinstance(payload, dict):
+            return
+        provider = payload.get("provider")
+        profile_id = payload.get("profile_id")
+        if provider and profile_id:
+            self.trigger_refresh_account(str(provider), str(profile_id))
 
     @classmethod
     def get(cls) -> HermesRefreshScheduler:
@@ -235,14 +248,32 @@ class HermesRefreshScheduler:
             if task.scope == "single" and task.profile_id:
                 status = uh_service.get_profile_status(task.provider, task.profile_id)
                 if status.get("authenticated"):
-                    quota_service.refresh_account_async(task.provider, task.profile_id)
+                    quota_snapshot = quota_service.fetch_account_quota(
+                        task.provider,
+                        task.profile_id,
+                        force=True,
+                    )
+                    HubStateStore.get().apply_delta_quota_updated(
+                        task.provider,
+                        task.profile_id,
+                        quota_snapshot,
+                    )
 
             elif task.scope in ("full", "current"):
                 # Refresh quota snapshots for configured accounts of this provider
                 profs = uh_service.get_cached_profiles().get(task.provider, [])
                 for p in profs:
                     if p.auth_state == "AUTHENTICATED":
-                        quota_service.refresh_account_async(task.provider, p.profile_id)
+                        quota_snapshot = quota_service.fetch_account_quota(
+                            task.provider,
+                            p.profile_id,
+                            force=True,
+                        )
+                        HubStateStore.get().apply_delta_quota_updated(
+                            task.provider,
+                            p.profile_id,
+                            quota_snapshot,
+                        )
 
             # Rebuild unified snapshot
             HubStateStore.get().refresh(force_scan=True, seq=seq)
@@ -279,7 +310,8 @@ class HermesRefreshScheduler:
         def _worker():
             try:
                 quota_service = AccountQuotaService.get()
-                quota_service.refresh_account_async(provider, profile_id)
+                quota_snapshot = quota_service.fetch_account_quota(provider, profile_id, force=True)
+                HubStateStore.get().apply_delta_quota_updated(provider, profile_id, quota_snapshot)
                 HubStateStore.get().apply_delta_account_updated(profile_id)
             finally:
                 with self._lock:
@@ -304,8 +336,13 @@ class HermesRefreshScheduler:
 
         def _worker():
             try:
-                AccountQuotaService.get().refresh_all_accounts_async()
-                HubStateStore.get().refresh(force_scan=True)
+                quota_service = AccountQuotaService.get()
+                results = quota_service.fetch_all_configured(force=True)
+                store = HubStateStore.get()
+                for key, quota_snapshot in results.items():
+                    provider, profile_id = key.split(":", 1)
+                    store.apply_delta_quota_updated(provider, profile_id, quota_snapshot)
+                store.refresh(force_scan=True)
             finally:
                 with self._lock:
                     self._in_flight_refreshes.pop(key, None)

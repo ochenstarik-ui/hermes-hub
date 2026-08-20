@@ -47,16 +47,16 @@ def test_quota_collector_never_fakes_api_source_without_network():
 
 
 def test_quota_bucket_formatted_remaining_honesty():
-    """P0-1: Bucket formatted_remaining returns honest availability when percentages are None."""
+    """P0-1: Missing values are unknown, not evidence that quota is available."""
     b = QuotaBucket(
         id="test.bucket",
         display_name="Test Bucket",
         used_percent=None,
         remaining_percent=None,
-        status="healthy",
+        status="unknown",
     )
-    assert b.formatted_remaining() == "Доступна"
-    assert b.status == "healthy"
+    assert b.formatted_remaining() == "Н/Д"
+    assert b.status == "unknown"
 
 
 # ── TEST P0-2: OAuth Fail-Closed & DEV_MODE Gating ──
