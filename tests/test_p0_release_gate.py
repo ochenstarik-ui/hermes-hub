@@ -364,3 +364,56 @@ def test_p0_11_rate_limit_vs_quota_classification():
         classification = adapter.classify_error(exc_info.value)
         assert classification.category == ErrorCategory.QUOTA_EXHAUSTED
         assert classification.reset_duration_seconds == 7200
+
+
+@pytest.mark.unit
+def test_r4_settings_runtime_influence(tmp_path, monkeypatch):
+    """R4: Verify that hub_settings.json dynamically modifies RouterEngine behavior."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+
+    from antigravity_provider.router.settings_service import save_hub_settings
+    from antigravity_provider.router.adapters.antigravity_adapter import AntigravityAdapter
+    from antigravity_provider.router.adapters.codex_adapter import CodexAdapter
+
+    config = RouterConfig(
+        profiles={
+            "ag-orch-primary": RouterProfileConfig(profile_id="ag-orch-primary", provider="antigravity", enabled=True),
+            "codex-orch-fallback": RouterProfileConfig(profile_id="codex-orch-fallback", provider="openai-codex", enabled=True),
+        },
+        roles={
+            "orchestrator": RolePolicy(
+                role_name="orchestrator",
+                preferred_chain=["ag-orch-primary", "codex-orch-fallback"],
+                max_failover_attempts=2,
+            )
+        }
+    )
+    save_router_config(config)
+
+    # 1. With auto_failover=False in hub_settings.json, failover must NOT attempt fallback
+    save_hub_settings({"auto_failover": False})
+    engine = RouterEngine(config=config)
+
+    def mock_agy_quota(profile, req):
+        raise QuotaExceededError("Quota reached", provider="antigravity", profile_id=profile.profile_id)
+
+    mock_codex = MagicMock()
+
+    with patch.object(AntigravityAdapter, "invoke", side_effect=mock_agy_quota), \
+         patch.object(CodexAdapter, "invoke", mock_codex):
+
+        res = engine.route_request({"messages": [{"role": "user", "content": "Hello"}]}, role="orchestrator")
+        assert "error" in res or "choices" in res
+        # Codex fallback must NOT have been called because auto_failover was False!
+        assert mock_codex.call_count == 0
+
+    # 2. With auto_failover=True in hub_settings.json, failover attempts fallback
+    save_hub_settings({"auto_failover": True, "failover_attempts": 2})
+    mock_codex.return_value = {"choices": [{"message": {"role": "assistant", "content": "Fallback OK"}}]}
+
+    with patch.object(AntigravityAdapter, "invoke", side_effect=mock_agy_quota), \
+         patch.object(CodexAdapter, "invoke", mock_codex):
+
+        res = engine.route_request({"messages": [{"role": "user", "content": "Hello"}]}, role="orchestrator")
+        assert res["choices"][0]["message"]["content"] == "Fallback OK"
+        assert mock_codex.call_count == 1

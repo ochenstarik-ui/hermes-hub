@@ -77,16 +77,28 @@ class RouterEngine:
         role_policy = self.config.get_role_policy(target_role)
 
         requested_model = request.get("model")
-        family = extract_model_family(requested_model)
+        # Read runtime settings from hub_settings.json
+        from .settings_service import get_hub_settings
+        hub_settings = get_hub_settings()
+
+        affinity_enabled = bool(hub_settings.get("session_affinity", True)) and role_policy.session_affinity_enabled
+        auto_failover = bool(hub_settings.get("auto_failover", True))
+        auto_return_primary = bool(hub_settings.get("auto_return_primary", True))
 
         # 1. Check Session Affinity
         candidate_profiles: list[str] = []
-        if target_session and role_policy.session_affinity_enabled:
+        if target_session and affinity_enabled:
             aff_rec = self.affinity.get_affinity(target_session)
             if aff_rec and aff_rec.profile_id in self.config.profiles:
-                aff_profile = self.config.profiles[aff_rec.profile_id]
-                if aff_profile.enabled and self.health.is_healthy(aff_rec.profile_id, requested_model):
-                    candidate_profiles.append(aff_rec.profile_id)
+                # If auto_return_primary is active, check if primary chain slot is healthy again
+                primary_pid = role_policy.preferred_chain[0] if role_policy.preferred_chain else None
+                if auto_return_primary and primary_pid and primary_pid != aff_rec.profile_id and self.health.is_healthy(primary_pid, requested_model):
+                    # Return to primary account
+                    pass
+                else:
+                    aff_profile = self.config.profiles[aff_rec.profile_id]
+                    if aff_profile.enabled and self.health.is_healthy(aff_rec.profile_id, requested_model):
+                        candidate_profiles.append(aff_rec.profile_id)
 
         # 2. Add remaining preferred chain candidates
         for pid in role_policy.preferred_chain:
@@ -101,7 +113,11 @@ class RouterEngine:
 
         failover_trail: list[dict[str, Any]] = []
         attempts = 0
-        max_attempts = min(role_policy.max_failover_attempts, len(candidate_profiles))
+        if auto_failover:
+            configured_attempts = hub_settings.get("failover_attempts", role_policy.max_failover_attempts)
+            max_attempts = min(int(configured_attempts), len(candidate_profiles))
+        else:
+            max_attempts = 1
 
         for pid in candidate_profiles:
             if attempts >= max_attempts:
@@ -155,7 +171,7 @@ class RouterEngine:
                 self.leases.release(pid)
 
                 # Set / update session affinity
-                if target_session and role_policy.session_affinity_enabled:
+                if target_session and affinity_enabled:
                     self.affinity.set_affinity(target_session, target_role, pid, exec_request.get("model"))
 
                 # Attach router telemetry
