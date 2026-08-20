@@ -15,6 +15,7 @@ Missing *third-party* optional dependencies (customtkinter, PIL, ...) are
 skipped, not failed: those are legitimately absent in headless environments.
 Broken *internal* references always fail.
 """
+
 from __future__ import annotations
 
 import ast
@@ -124,10 +125,9 @@ def test_antigravity_provider_loads_from_repo() -> None:
     """Verify that antigravity_provider is loaded from the repository src, not from %LOCALAPPDATA%."""
     import antigravity_provider
     import antigravity_provider.runtime
-    
+
     pkg_file = Path(antigravity_provider.__file__).resolve()
     runtime_file = Path(antigravity_provider.runtime.__file__).resolve()
-    
+
     assert str(PACKAGE_ROOT.resolve()) in str(pkg_file) or str(PACKAGE_ROOT.resolve()) in str(pkg_file.parent)
     assert str(PACKAGE_ROOT.resolve()) in str(runtime_file)
-
