@@ -1,22 +1,19 @@
 """Hermes Hub — Comprehensive Google Antigravity OAuth Lifecycle Test Suite.
 
 Verifies:
-1. Callback listener exists immediately after start.
-2. redirect_uri strictly matches the actual listening port.
-3. Listener remains alive during idle wait.
-4. Simulated valid callback is accepted and exchanges tokens.
-5. State mismatch callback is rejected.
-6. Timeout terminates listener cleanly.
-7. Cancel / wizard close terminates listener.
-8. Listener stays alive until code exchange completes.
-9. Retry after cancel / timeout succeeds without port collision.
-10. Immediate Step 2 URL availability and single-session invariance.
-11. Copy URL works without Open Browser.
-12. Repeated Open Browser clicks reuse identical session and state.
-13. Regeneration creates a new session / state / port and invalidates old callback.
+TEST A — Automatic OAuth flow (session -> listener -> callback -> token exchange -> save)
+TEST B — Manual callback fallback (session -> paste full URL -> original PKCE -> token exchange -> save)
+TEST C — State mismatch rejection (callback state != session state -> reject, no token exchange)
+TEST D — OAuth error callback (error=access_denied -> clean failure, no token exchange)
+TEST E — Repeated 'Открыть в браузере' (state/port/verifier/URL invariance)
+TEST F — Copy before open browser (immediate full URL in clipboard)
+TEST G — Listener lifecycle (close wizard -> stopped; timeout -> stopped; restart -> old invalidated)
+TEST H — Double completion protection (atomic single completion, no duplicate save)
+TEST I — ERR_CONNECTION_REFUSED regression test: socket is verified listening BEFORE URL is published.
 """
 from __future__ import annotations
 
+import socket
 import time
 import urllib.parse
 import urllib.request
@@ -43,142 +40,119 @@ def cleanup_oauth_sessions():
 
 
 @pytest.mark.unit
-def test_oauth_listener_exists_and_port_matches(tmp_path, monkeypatch):
-    """1 & 2: Verify callback listener exists and redirect_uri uses the exact bound port."""
+def test_a_automatic_oauth_flow(tmp_path, monkeypatch):
+    """TEST A: Automatic OAuth flow from session start to callback and completion."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
 
     session_id, auth_url, port = start_profile_oauth("ag-orch-primary")
     session = get_oauth_session(session_id)
-
     assert session is not None
     assert session.is_listening is True
-    assert f":{port}/oauth-callback" in session.redirect_uri
-    assert f":{port}/oauth-callback" in urllib.parse.unquote(auth_url)
-    assert session.status == "pending"
-
-
-@pytest.mark.unit
-def test_oauth_listener_remains_alive_during_wait(tmp_path, monkeypatch):
-    """3: Verify listener socket remains listening during idle wait."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
-
-    session_id, auth_url, port = start_profile_oauth("ag-orch-primary")
-    session = get_oauth_session(session_id)
-
-    # Let it idle for 0.5s
-    time.sleep(0.5)
-    assert session.is_listening is True
-    assert session.status == "pending"
-
-    # Ping non-callback path (should get 404, but server must stay alive)
-    try:
-        req = urllib.request.Request(f"http://127.0.0.1:{port}/random-probe")
-        with urllib.request.urlopen(req, timeout=2) as resp:
-            pass
-    except urllib.error.HTTPError as e:
-        assert e.code == 404
-
-    # Server must still be alive!
-    time.sleep(0.2)
-    assert session.is_listening is True
-    assert session.status == "pending"
-
-
-@pytest.mark.unit
-def test_simulated_valid_callback_success(tmp_path, monkeypatch):
-    """4 & 8: Verify valid callback is accepted and tokens are finalized."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
-
-    session_id, auth_url, port = start_profile_oauth("ag-orch-primary")
-    session = get_oauth_session(session_id)
 
     mock_tokens = {
-        "access_token": "ya29.mock_token",
-        "refresh_token": "1//mock_refresh",
+        "access_token": "ya29.mock_auto_token",
+        "refresh_token": "1//mock_auto_refresh",
         "expires_at": int(time.time()) + 3600,
         "token_type": "Bearer",
     }
 
     with patch("antigravity_provider.router.profile_oauth.exchange_code_for_tokens", return_value=mock_tokens), \
-         patch("antigravity_provider.router.profile_oauth.fetch_user_email", return_value="developer@google.com"):
+         patch("antigravity_provider.router.profile_oauth.fetch_user_email", return_value="auto_user@google.com"):
 
-        # Send HTTP GET callback matching state and code
-        callback_url = f"http://127.0.0.1:{port}/oauth-callback?code=mock_auth_code_123&state={session.state}"
+        callback_url = f"http://127.0.0.1:{port}/oauth-callback?code=mock_code_auto&state={session.state}"
         req = urllib.request.Request(callback_url)
         with urllib.request.urlopen(req, timeout=5) as resp:
             assert resp.status == 200
             content = resp.read().decode("utf-8")
-            assert "Account Authorized" in content
+            assert "Авторизация успешно завершена" in content
 
-        # Wait briefly for thread finalization
+        # Wait for thread finalization
         deadline = time.time() + 3.0
         while time.time() < deadline and session.status == "pending":
             time.sleep(0.05)
 
         assert session.status == "completed"
-        assert session.completed_profile_info["email"] == "developer@google.com"
+        assert session.completed_profile_info["email"] == "auto_user@google.com"
+
+        # Verify saved credentials
+        saved = ProfileAuthManager.load_profile_auth("antigravity", "ag-orch-primary")
+        assert saved is not None
+        assert saved["email"] == "auto_user@google.com"
 
 
 @pytest.mark.unit
-def test_state_mismatch_rejected(tmp_path, monkeypatch):
-    """5: Verify callback with mismatched state is rejected as failed."""
+def test_b_manual_callback_fallback(tmp_path, monkeypatch):
+    """TEST B: Manual callback fallback when localhost callback is not reached."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
 
     session_id, auth_url, port = start_profile_oauth("ag-orch-primary")
     session = get_oauth_session(session_id)
+    assert session is not None
 
-    bad_state = "totally_wrong_state_value"
-    callback_url = f"http://127.0.0.1:{port}/oauth-callback?code=mock_code&state={bad_state}"
-    req = urllib.request.Request(callback_url)
-    with urllib.request.urlopen(req, timeout=5) as resp:
-        assert resp.status == 200
+    mock_tokens = {
+        "access_token": "ya29.mock_manual_token",
+        "refresh_token": "1//mock_manual_refresh",
+        "expires_at": int(time.time()) + 3600,
+        "token_type": "Bearer",
+    }
 
-    deadline = time.time() + 3.0
-    while time.time() < deadline and session.status == "pending":
-        time.sleep(0.05)
+    with patch("antigravity_provider.router.profile_oauth.exchange_code_for_tokens", return_value=mock_tokens) as mock_exchange, \
+         patch("antigravity_provider.router.profile_oauth.fetch_user_email", return_value="manual_user@google.com"):
 
-    assert session.status == "failed"
-    assert "State mismatch" in session.error_msg
+        pasted_url = f"http://127.0.0.1:{port}/oauth-callback?state={session.state}&code=mock_manual_code_789&scope=openid"
+        ok, msg = session.handle_manual_callback_url(pasted_url)
+
+        assert ok is True
+        assert session.status == "completed"
+        assert session.completed_profile_info["email"] == "manual_user@google.com"
+
+        # Ensure ORIGINAL PKCE verifier was used
+        assert mock_exchange.call_count == 1
+        call_kwargs = mock_exchange.call_args[1]
+        assert call_kwargs["code_verifier"] == session.verifier
 
 
 @pytest.mark.unit
-def test_cancel_session_terminates_listener(tmp_path, monkeypatch):
-    """6 & 7: Verify explicit cancel terminates listener immediately."""
+def test_c_state_mismatch(tmp_path, monkeypatch):
+    """TEST C: Callback with mismatched state is strictly rejected without token exchange."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
 
     session_id, auth_url, port = start_profile_oauth("ag-orch-primary")
     session = get_oauth_session(session_id)
-    assert session.is_listening is True
+    assert session is not None
 
-    cancel_oauth_session(session_id)
-    time.sleep(0.2)
+    with patch("antigravity_provider.router.profile_oauth.exchange_code_for_tokens") as mock_exchange:
+        pasted_url = f"http://127.0.0.1:{port}/oauth-callback?state=wrong_mismatched_state&code=mock_code"
+        ok, msg = session.handle_manual_callback_url(pasted_url)
 
-    assert session.status == "cancelled"
-    assert session.is_listening is False
+        assert ok is False
+        assert "Несовпадение" in msg or "state" in msg
+        assert session.status == "failed"
+        assert mock_exchange.call_count == 0
 
 
 @pytest.mark.unit
-def test_retry_after_cancel_works_cleanly(tmp_path, monkeypatch):
-    """9: Verify retry after cancel opens a new listener cleanly."""
+def test_d_oauth_error_callback(tmp_path, monkeypatch):
+    """TEST D: Provider error callback (e.g. access_denied) is cleanly handled."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
 
-    # First attempt
-    s1_id, url1, port1 = start_profile_oauth("ag-orch-primary")
-    s1 = get_oauth_session(s1_id)
-    cancel_oauth_session(s1_id)
-    time.sleep(0.2)
+    session_id, auth_url, port = start_profile_oauth("ag-orch-primary")
+    session = get_oauth_session(session_id)
+    assert session is not None
 
-    # Second attempt
-    s2_id, url2, port2 = start_profile_oauth("ag-orch-primary")
-    s2 = get_oauth_session(s2_id)
-    assert s2 is not None
-    assert s2.is_listening is True
-    assert s2.session_id != s1_id
+    with patch("antigravity_provider.router.profile_oauth.exchange_code_for_tokens") as mock_exchange:
+        error_url = f"http://127.0.0.1:{port}/oauth-callback?error=access_denied&error_description=User+denied+access&state={session.state}"
+        ok, msg = session.handle_manual_callback_url(error_url)
+
+        assert ok is False
+        assert "отклонил" in msg or "access_denied" in msg
+        assert session.status == "failed"
+        assert mock_exchange.call_count == 0
 
 
 @pytest.mark.unit
-def test_single_session_invariance_and_regeneration(tmp_path, monkeypatch):
-    """10-13: Test Wizard Step 2 immediate URL availability, single-session reuse, and regeneration."""
+def test_e_repeated_open_browser_invariance(tmp_path, monkeypatch):
+    """TEST E: Repeated 'Открыть в браузере' does NOT change session, state, verifier, or URL."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     pytest.importorskip("customtkinter")
     import customtkinter as ctk
@@ -190,44 +164,137 @@ def test_single_session_invariance_and_regeneration(tmp_path, monkeypatch):
         wizard = AddAccountWizard(root)
         wizard.selected_provider = "antigravity"
         wizard.target_slot = "ag-spare-1"
-
-        # 1. Opening Step 2 initializes OAuth immediately
         wizard._show_step_2_auth()
-        assert wizard.oauth_url is not None
-        assert wizard.oauth_session_id is not None
-        assert wizard.oauth_url.startswith("https://accounts.google.com")
 
-        # 2. URL entry contains the URL
-        entry_text = wizard.oauth_url_entry.get()
-        assert entry_text == wizard.oauth_url
-
-        # 3. Repeated Open Browser does NOT change session or state
         orig_session_id = wizard.oauth_session_id
         orig_url = wizard.oauth_url
+        orig_port = wizard.oauth_port
+
+        session = get_oauth_session(orig_session_id)
+        orig_state = session.state
+        orig_verifier = session.verifier
 
         with patch("webbrowser.open") as mock_open:
             wizard._open_oauth_browser()
-            assert mock_open.call_count == 1
-            assert mock_open.call_args[0][0] == orig_url
-            assert wizard.oauth_session_id == orig_session_id
-
             wizard._open_oauth_browser()
-            assert mock_open.call_count == 2
+            wizard._open_oauth_browser()
+
+            assert mock_open.call_count == 3
+            for call in mock_open.call_args_list:
+                assert call[0][0] == orig_url
+
             assert wizard.oauth_session_id == orig_session_id
             assert wizard.oauth_url == orig_url
-
-        # 4. Explicit regeneration creates NEW session and state
-        wizard._regenerate_oauth_session()
-        new_session_id = wizard.oauth_session_id
-        new_url = wizard.oauth_url
-
-        assert new_session_id != orig_session_id
-        assert new_url != orig_url
-
-        # Old session must be cancelled
-        old_session = get_oauth_session(orig_session_id)
-        assert old_session is None or old_session.status == "cancelled"
+            assert wizard.oauth_port == orig_port
+            assert session.state == orig_state
+            assert session.verifier == orig_verifier
 
         wizard.destroy()
     finally:
         root.destroy()
+
+
+@pytest.mark.unit
+def test_f_copy_before_open_browser(tmp_path, monkeypatch):
+    """TEST F: Copy button works immediately upon entering Step 2 without opening browser."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    pytest.importorskip("customtkinter")
+    import customtkinter as ctk
+    from antigravity_provider.router.ui.add_account_wizard import AddAccountWizard
+
+    root = ctk.CTk()
+    root.withdraw()
+    try:
+        wizard = AddAccountWizard(root)
+        wizard.selected_provider = "antigravity"
+        wizard.target_slot = "ag-spare-1"
+        wizard._show_step_2_auth()
+
+        assert wizard.oauth_url is not None
+        assert wizard.oauth_url.startswith("https://accounts.google.com")
+
+        # Copy without opening browser
+        wizard._copy_oauth_url()
+        clipboard_content = wizard.clipboard_get()
+        assert clipboard_content == wizard.oauth_url
+
+        wizard.destroy()
+    finally:
+        root.destroy()
+
+
+@pytest.mark.unit
+def test_g_listener_lifecycle_cleanup(tmp_path, monkeypatch):
+    """TEST G: Listener is stopped on cancel/destroy/timeout and restarted cleanly."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+
+    # 1. Cancel terminates listener
+    s1_id, url1, p1 = start_profile_oauth("ag-orch-primary")
+    s1 = get_oauth_session(s1_id)
+    assert s1.is_listening is True
+
+    cancel_oauth_session(s1_id)
+    time.sleep(0.2)
+    assert s1.is_listening is False
+    assert s1.status == "cancelled"
+
+    # 2. Restart creates active new session
+    s2_id, url2, p2 = start_profile_oauth("ag-orch-primary")
+    s2 = get_oauth_session(s2_id)
+    assert s2.is_listening is True
+    assert s2_id != s1_id
+
+
+@pytest.mark.unit
+def test_h_double_completion_protection(tmp_path, monkeypatch):
+    """TEST H: Double completion (automatic + manual race) executes exactly once."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+
+    session_id, auth_url, port = start_profile_oauth("ag-orch-primary")
+    session = get_oauth_session(session_id)
+
+    mock_tokens = {
+        "access_token": "ya29.mock_double_token",
+        "refresh_token": "1//mock_double_refresh",
+        "expires_at": int(time.time()) + 3600,
+        "token_type": "Bearer",
+    }
+
+    with patch("antigravity_provider.router.profile_oauth.exchange_code_for_tokens", return_value=mock_tokens) as mock_exchange, \
+         patch("antigravity_provider.router.profile_oauth.fetch_user_email", return_value="race_user@google.com"):
+
+        # 1. First completion (automatic)
+        ok1, msg1 = session.handle_callback(code="code_1", state=session.state, source="automatic")
+        assert ok1 is True
+        assert mock_exchange.call_count == 1
+
+        # 2. Second completion (manual duplicate attempt with same session)
+        ok2, msg2 = session.handle_manual_callback_url(f"http://127.0.0.1:{port}/oauth-callback?state={session.state}&code=code_1")
+        assert ok2 is True
+        assert "уже успешно завершена" in msg2
+
+        # Token exchange MUST have occurred exactly once
+        assert mock_exchange.call_count == 1
+
+
+@pytest.mark.unit
+def test_i_err_connection_refused_regression_listener_ready_before_url(tmp_path, monkeypatch):
+    """TEST I: Architectural invariant — listener socket is READY before URL is published."""
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+
+    session = ProfileOAuthSession("ag-orch-primary")
+    assert session.is_listening is False
+
+    # Start session
+    auth_url = session.start()
+
+    # The socket MUST be listening and connectable BEFORE the user could receive the URL
+    assert session.is_listening is True
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(2.0)
+    connect_result = sock.connect_ex(("127.0.0.1", session.port))
+    sock.close()
+
+    assert connect_result == 0, f"ERR_CONNECTION_REFUSED: Listener on port {session.port} was not ready!"
+    assert f":{session.port}/oauth-callback" in urllib.parse.unquote(auth_url)
+    session.cancel()

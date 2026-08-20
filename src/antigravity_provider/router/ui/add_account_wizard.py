@@ -141,71 +141,124 @@ class AddAccountWizard(HubModal):
     def _build_antigravity_oauth_flow(self):
         ctk.CTkLabel(
             self.body,
-            text="Для Google Antigravity требуется вход через защищённый протокол Google OAuth:",
-            font=Theme.font_body(),
+            text="Для Google Antigravity требуется авторизация Google OAuth.",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 2))
+
+        ctk.CTkLabel(
+            self.body,
+            text="После входа Google автоматически вернёт результат авторизации в Hermes Hub.",
+            font=Theme.font_caption(),
             text_color=Theme.TEXT_SECONDARY,
             wraplength=540,
             justify="left",
-        ).pack(anchor="w", pady=(0, 6))
+            anchor="w",
+        ).pack(fill="x", pady=(0, 8))
 
-        self.oauth_status_lbl = ctk.CTkLabel(
-            self.body,
-            text="Статус: Запуск локального слушателя OAuth...",
-            font=Theme.font_body_bold(),
-            text_color=Theme.STATUS_WARNING,
-        )
-        self.oauth_status_lbl.pack(anchor="w", pady=(0, 6))
-
-        # URL display card
-        url_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
-        url_card.pack(fill="x", pady=(0, 8))
+        # 1. Authorization link card
+        auth_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
+        auth_card.pack(fill="x", pady=(0, 8))
 
         ctk.CTkLabel(
-            url_card,
-            text="Ссылка для авторизации:",
+            auth_card,
+            text="Ссылка авторизации",
             font=Theme.font_caption(),
             text_color=Theme.TEXT_SECONDARY,
-        ).pack(anchor="w", padx=10, pady=(8, 2))
+        ).pack(anchor="w", padx=10, pady=(6, 2))
+
+        url_row = ctk.CTkFrame(auth_card, fg_color="transparent")
+        url_row.pack(fill="x", padx=10, pady=(0, 6))
 
         self.oauth_url_entry = ctk.CTkEntry(
-            url_card,
+            url_row,
             font=Theme.font_mono(),
-            height=34,
+            height=32,
             fg_color=Theme.PRIMARY,
             border_color=Theme.BORDER,
             text_color=Theme.TEXT_PRIMARY,
         )
-        self.oauth_url_entry.pack(fill="x", padx=10, pady=(2, 10))
+        self.oauth_url_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
 
-        # Action buttons row
-        self.oauth_btns_row = ctk.CTkFrame(self.body, fg_color="transparent")
-        self.oauth_btns_row.pack(fill="x", pady=4)
+        self.copy_url_btn = HubButton(
+            url_row,
+            text="📋",
+            variant="secondary",
+            width=40,
+            height=32,
+            command=self._copy_oauth_url,
+        )
+        self.copy_url_btn.pack(side="right")
+
+        action_row = ctk.CTkFrame(auth_card, fg_color="transparent")
+        action_row.pack(fill="x", padx=10, pady=(0, 8))
 
         self.open_browser_btn = HubButton(
-            self.oauth_btns_row,
-            text="🌐 Открыть браузер",
+            action_row,
+            text="🌐 Открыть в браузере",
             variant="primary",
-            width=170,
+            width=180,
             command=self._open_oauth_browser,
         )
         self.open_browser_btn.pack(side="left", padx=(0, 8))
 
-        self.copy_url_btn = HubButton(
-            self.oauth_btns_row,
-            text="📋 Копировать ссылку",
-            variant="secondary",
-            width=160,
-            command=self._copy_oauth_url,
-        )
-        self.copy_url_btn.pack(side="left", padx=(0, 8))
-
         self.regen_btn = HubButton(
-            self.oauth_btns_row,
+            action_row,
             text="🔄 Создать новую ссылку",
             variant="secondary",
             width=180,
             command=self._regenerate_oauth_session,
         )
+
+        # 2. Manual Callback Fallback Card
+        manual_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
+        manual_card.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            manual_card,
+            text="▸ Не удалось завершить авторизацию автоматически?",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+            anchor="w",
+        ).pack(fill="x", padx=10, pady=(6, 2))
+
+        ctk.CTkLabel(
+            manual_card,
+            text="Вставьте полный URL из адресной строки браузера (если localhost вернул ошибку):",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+            anchor="w",
+        ).pack(fill="x", padx=10, pady=(0, 4))
+
+        self.manual_callback_entry = ctk.CTkEntry(
+            manual_card,
+            placeholder_text="http://127.0.0.1:49725/oauth-callback?state=...&code=...",
+            font=Theme.font_mono(),
+            height=32,
+            fg_color=Theme.PRIMARY,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.manual_callback_entry.pack(fill="x", padx=10, pady=(0, 6))
+
+        self.manual_submit_btn = HubButton(
+            manual_card,
+            text="✓ Завершить авторизацию",
+            variant="secondary",
+            width=200,
+            command=self._submit_manual_callback,
+        )
+        self.manual_submit_btn.pack(anchor="w", padx=10, pady=(0, 8))
+
+        # Status label
+        self.oauth_status_lbl = ctk.CTkLabel(
+            self.body,
+            text="Подготовка авторизации...",
+            font=Theme.font_body_bold(),
+            text_color=Theme.STATUS_WARNING,
+        )
+        self.oauth_status_lbl.pack(pady=(4, 0))
 
         HubButton(self.footer, text="⬅ Назад", variant="secondary", width=100, command=self._show_step_1_provider).pack(side="left")
 
@@ -221,16 +274,21 @@ class AddAccountWizard(HubModal):
             self.oauth_url_entry.insert(0, self.oauth_url)
             self.oauth_url_entry.configure(state="readonly")
             self.oauth_status_lbl.configure(
-                text="Ссылка готова. Ожидание входа в Google.",
+                text="✓ Ссылка авторизации готова. Ожидание авторизации...",
                 text_color=Theme.STATUS_HEALTHY,
             )
             if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
                 self.regen_btn.pack_forget()
+            if hasattr(self, "manual_callback_entry"):
+                self.manual_callback_entry.configure(state="normal")
+                self.manual_callback_entry.delete(0, "end")
+            if hasattr(self, "manual_submit_btn"):
+                self.manual_submit_btn.configure(state="normal")
             self._polling_active = True
             threading.Thread(target=self._poll_oauth, daemon=True).start()
         except Exception as e:
             self.oauth_status_lbl.configure(
-                text=f"❌ Ошибка запуска OAuth слушателя: {e}",
+                text=f"Не удалось запустить локальный OAuth callback: {e}",
                 text_color=Theme.STATUS_ERROR,
             )
             if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
@@ -246,7 +304,7 @@ class AddAccountWizard(HubModal):
             )
             webbrowser.open(self.oauth_url)
             self.oauth_status_lbl.configure(
-                text="🌐 Браузер открыт. Завершите авторизацию в Google...",
+                text="🌐 Браузер открыт. Ожидание завершения авторизации...",
                 text_color=Theme.ACCENT,
             )
 
@@ -255,7 +313,7 @@ class AddAccountWizard(HubModal):
             self.clipboard_clear()
             self.clipboard_append(self.oauth_url)
             self.oauth_status_lbl.configure(
-                text="✅ Ссылка скопирована в буфер обмена!",
+                text="✓ Ссылка скопирована",
                 text_color=Theme.STATUS_HEALTHY,
             )
 
@@ -267,6 +325,52 @@ class AddAccountWizard(HubModal):
             except Exception:
                 pass
         self._init_antigravity_oauth_session()
+
+    def _submit_manual_callback(self):
+        raw_url = self.manual_callback_entry.get().strip()
+        if not raw_url:
+            self.oauth_status_lbl.configure(
+                text="❌ Пожалуйста, вставьте полный URL из адресной строки браузера.",
+                text_color=Theme.STATUS_ERROR,
+            )
+            return
+
+        from antigravity_provider.router.profile_oauth import get_oauth_session
+        session = get_oauth_session(self.oauth_session_id)
+        if not session:
+            self.oauth_status_lbl.configure(
+                text="❌ Сессия авторизации не найдена. Создайте новую ссылку.",
+                text_color=Theme.STATUS_ERROR,
+            )
+            if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
+                self.regen_btn.pack(side="left")
+            return
+
+        self.oauth_status_lbl.configure(
+            text="Проверка авторизации...",
+            text_color=Theme.ACCENT,
+        )
+
+        ok, msg = session.handle_manual_callback_url(raw_url)
+        if ok:
+            self.manual_callback_entry.configure(state="disabled")
+            self.manual_submit_btn.configure(state="disabled")
+            info = getattr(session, "completed_profile_info", {}) or {}
+            self.discovered_identity = info.get("email") or "Google Account"
+            self.discovered_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-thinking"]
+            self.is_verified = True
+            self.oauth_status_lbl.configure(
+                text=f"✓ Аккаунт подключен: {self.discovered_identity}",
+                text_color=Theme.STATUS_HEALTHY,
+            )
+            self._show_step_3_validation()
+        else:
+            self.oauth_status_lbl.configure(
+                text=f"❌ {msg}",
+                text_color=Theme.STATUS_ERROR,
+            )
+            if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
+                self.regen_btn.pack(side="left")
 
     def _poll_oauth(self):
         from antigravity_provider.router.profile_oauth import get_oauth_session
