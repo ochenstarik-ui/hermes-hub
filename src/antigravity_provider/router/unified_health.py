@@ -42,6 +42,7 @@ STATUS_QUOTA_LOW = "quota_low"
 STATUS_QUOTA_EXHAUSTED = "quota_exhausted"
 STATUS_COOLDOWN = "cooldown"
 STATUS_RATE_LIMITED = "rate_limited"
+STATUS_NOT_CONFIGURED = "not_configured"
 STATUS_AUTH_REQUIRED = "auth_required"
 STATUS_AUTH_EXPIRED = "auth_expired"
 STATUS_DISABLED = "disabled"
@@ -241,9 +242,19 @@ class UnifiedHealthService:
             cls._instance = cls()
         return cls._instance
 
-    def scan_all(self) -> Dict[str, List[ProfileViewModel]]:
-        """Query router config, ProfileAuthManager, HealthTracker and build unified presentation models."""
+    def scan_all(self, force: bool = False) -> Dict[str, List[ProfileViewModel]]:
+        """Query router config, ProfileAuthManager, HealthTracker and build unified presentation models (cached)."""
         with self._lock:
+            if not force and self._cached_profiles and self._last_scan_time and (time.time() - self._last_scan_time < 30):
+                # Return cached by provider instantly without disk I/O
+                result: Dict[str, List[ProfileViewModel]] = {"antigravity": [], "openai-codex": [], "opencode-go": []}
+                for p in self._cached_profiles.values():
+                    if p.provider in result:
+                        result[p.provider].append(p)
+                    else:
+                        result[p.provider] = [p]
+                return result
+
             config = load_router_config()
             engine = get_router_engine()
             main_ag = ProfileAuthManager.get_main_profile("antigravity")
@@ -295,10 +306,10 @@ class UnifiedHealthService:
                     )
                 elif auth_error:
                     auth_state = "AUTH_EXPIRED"
-                    identity = f"Ошибка: {auth_error}"
+                    identity = "Требуется повторная авторизация"
                 else:
-                    auth_state = "AUTH_REQUIRED"
-                    identity = "Холодный резерв" if is_cold else "Аккаунт не подключён"
+                    auth_state = "NOT_CONFIGURED"
+                    identity = "Холодный резерв" if is_cold else "Аккаунт не добавлен"
 
                 # Calculate per-family model states
                 model_states: Dict[str, ModelFamilyHealth] = {}
@@ -309,13 +320,17 @@ class UnifiedHealthService:
                     frec = precord.families.get(fam)
 
                     f_cd = 0
-                    if frec and frec.reset_at and frec.reset_at > now:
+                    if is_authenticated and frec and frec.reset_at and frec.reset_at > now:
                         f_cd = int(frec.reset_at - now)
                         max_cd = max(max_cd, f_cd)
 
                     if not is_authenticated:
-                        f_status = STATUS_AUTH_REQUIRED
-                        f_lbl = "Требуется вход"
+                        if auth_error:
+                            f_status = STATUS_AUTH_EXPIRED
+                            f_lbl = "Требуется авторизация"
+                        else:
+                            f_status = STATUS_NOT_CONFIGURED
+                            f_lbl = "Аккаунт не добавлен"
                     elif f_cd > 0:
                         f_status = STATUS_QUOTA_EXHAUSTED
                         f_lbl = f"Квота исчерпана ({f_cd}s)"
@@ -338,36 +353,39 @@ class UnifiedHealthService:
                         status=f_status,
                         status_label_ru=f_lbl,
                         cooldown_remaining_sec=f_cd,
-                        reset_at=frec.reset_at if frec else None,
-                        reason=frec.reason if frec else None,
+                        reset_at=frec.reset_at if frec and is_authenticated else None,
+                        reason=frec.reason if frec and is_authenticated else None,
                     )
 
-                # UNIFIED HEALTH DETERMINATION (Strict & Consistent)
+                # UNIFIED HEALTH DETERMINATION (Strict Priority Resolver)
+                # 1. Disabled
                 if not pcfg.enabled:
                     health_state = STATUS_DISABLED
                     health_lbl = "Отключён"
+                # 2. No credentials -> NOT_CONFIGURED (never QUOTA_EXHAUSTED or HEALTHY)
                 elif not is_authenticated:
                     if auth_error:
                         health_state = STATUS_AUTH_EXPIRED
-                        health_lbl = "Авторизация истекла"
+                        health_lbl = "Требуется повторная авторизация"
                     elif is_cold:
                         health_state = STATUS_COLD_SPARE
                         health_lbl = "Холодный резерв"
                     else:
-                        health_state = STATUS_AUTH_REQUIRED
-                        health_lbl = "Требуется авторизация"
-                elif max_cd > 0:
+                        health_state = STATUS_NOT_CONFIGURED
+                        health_lbl = "Аккаунт не добавлен"
+                # 3. Active Cooldown / Quota exhausted
+                elif max_cd > 0 or precord.overall_state == QUOTA_EXHAUSTED:
                     health_state = STATUS_QUOTA_EXHAUSTED
                     health_lbl = "Квота исчерпана"
-                elif precord.overall_state == QUOTA_EXHAUSTED:
-                    health_state = STATUS_QUOTA_EXHAUSTED
-                    health_lbl = "Квота исчерпана"
+                # 4. Rate limited
                 elif precord.overall_state == RATE_LIMITED:
                     health_state = STATUS_RATE_LIMITED
                     health_lbl = "Лимит запросов"
+                # 5. Unhealthy probe error
                 elif precord.overall_state == HT_UNHEALTHY:
                     health_state = STATUS_UNHEALTHY
                     health_lbl = "Ошибка"
+                # 6. Live healthy
                 else:
                     health_state = STATUS_HEALTHY
                     health_lbl = "Работает"

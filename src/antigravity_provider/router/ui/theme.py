@@ -1,4 +1,4 @@
-"""Hermes Hub — Centralized Design Tokens and Theme Definition.
+"""Hermes Hub — Centralized Design Tokens and Theme Definition (v3).
 
 Source of Truth: Brand Guidelines & Brandbook
 Primary Palette:
@@ -41,7 +41,7 @@ class Theme:
     # ── Typography Colors ──
     TEXT_PRIMARY = "#F7F1E3"
     TEXT_SECONDARY = "#C5BEAF"
-    TEXT_MUTED = "#7D8F81"
+    TEXT_MUTED = "#8A9C8E"
     TEXT_ON_ACCENT = "#0F1510"
     TEXT_ACCENT = "#CDAA64"
     TEXT_DISABLED = "#546457"
@@ -82,14 +82,14 @@ class Theme:
     RADIUS_LG = 14
     RADIUS_PILL = 999
 
-    # ── Control Heights ──
-    HEIGHT_BTN_SM = 28
-    HEIGHT_BTN_MD = 36
+    # ── Control Heights & Dimensions ──
+    HEIGHT_BTN_SM = 30
+    HEIGHT_BTN_MD = 38
     HEIGHT_BTN_LG = 44
-    HEIGHT_NAV_ITEM = 40
-    HEIGHT_HEADER = 56
-    HEIGHT_STATUSBAR = 28
-    WIDTH_SIDEBAR = 220
+    HEIGHT_NAV_ITEM = 42
+    HEIGHT_HEADER = 60
+    HEIGHT_STATUSBAR = 30
+    WIDTH_SIDEBAR = 240
 
     # ── Fonts ──
     FONT_FAMILY_TITLE = "Cinzel"
@@ -98,40 +98,44 @@ class Theme:
 
     @classmethod
     def font_title_hero(cls):
-        return (cls.FONT_FAMILY_TITLE, 22, "bold")
+        return (cls.FONT_FAMILY_TITLE, 24, "bold")
+
+    @classmethod
+    def font_title_page(cls):
+        return (cls.FONT_FAMILY_UI, 24, "bold")
 
     @classmethod
     def font_title_section(cls):
-        return (cls.FONT_FAMILY_UI, 20, "bold")
+        return (cls.FONT_FAMILY_UI, 19, "bold")
 
     @classmethod
     def font_heading(cls):
-        return (cls.FONT_FAMILY_UI, 15, "bold")
+        return (cls.FONT_FAMILY_UI, 16, "bold")
 
     @classmethod
     def font_subheading(cls):
-        return (cls.FONT_FAMILY_UI, 13, "bold")
+        return (cls.FONT_FAMILY_UI, 15, "bold")
 
     @classmethod
     def font_body(cls):
-        return (cls.FONT_FAMILY_UI, 12)
+        return (cls.FONT_FAMILY_UI, 14)
 
     @classmethod
     def font_body_bold(cls):
-        return (cls.FONT_FAMILY_UI, 12, "bold")
+        return (cls.FONT_FAMILY_UI, 14, "bold")
 
     @classmethod
     def font_caption(cls):
-        return (cls.FONT_FAMILY_UI, 11)
+        return (cls.FONT_FAMILY_UI, 12)
 
     @classmethod
     def font_micro(cls):
-        return (cls.FONT_FAMILY_UI, 10)
+        return (cls.FONT_FAMILY_UI, 11)
 
     @classmethod
     def font_mono(cls):
-        return (cls.FONT_FAMILY_MONO, 11)
+        return (cls.FONT_FAMILY_MONO, 13)
 
     @classmethod
     def font_mono_sm(cls):
-        return (cls.FONT_FAMILY_MONO, 10)
+        return (cls.FONT_FAMILY_MONO, 12)

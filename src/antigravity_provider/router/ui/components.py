@@ -1,4 +1,4 @@
-"""Hermes Hub — Reusable Design System Component Library (v2)."""
+"""Hermes Hub — Reusable Design System Component Library (v3)."""
 from __future__ import annotations
 
 import tkinter as tk
@@ -6,10 +6,11 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import customtkinter as ctk
 
 from antigravity_provider.router.ui.theme import Theme
+from antigravity_provider.router.ui.assets import AssetManager
 
 
 class HubButton(ctk.CTkButton):
-    """Design-system compliant button supporting primary, secondary, ghost and danger variants."""
+    """Design-system compliant button supporting primary, secondary, ghost, danger and accent_outline variants."""
 
     def __init__(
         self,
@@ -20,6 +21,7 @@ class HubButton(ctk.CTkButton):
         width: int = 120,
         height: int = Theme.HEIGHT_BTN_MD,
         font: Optional[Tuple[str, int, str]] = None,
+        image: Optional[ctk.CTkImage] = None,
         **kwargs,
     ):
         if font is None:
@@ -70,6 +72,7 @@ class HubButton(ctk.CTkButton):
             "text_color": text_color,
             "border_width": border_width,
             "font": font,
+            "image": image,
         }
         if border_color is not None:
             btn_kwargs["border_color"] = border_color
@@ -120,7 +123,7 @@ class HubSectionHeader(ctk.CTkFrame):
         ctk.CTkLabel(
             left,
             text=title,
-            font=Theme.font_title_section(),
+            font=Theme.font_title_page(),
             text_color=Theme.TEXT_PRIMARY,
         ).pack(anchor="w")
 
@@ -151,8 +154,9 @@ class HubStatusBadge(ctk.CTkFrame):
         "quota_exhausted": (Theme.STATUS_ERROR, "Квота исчерпана"),
         "cooldown": (Theme.STATUS_WARNING, "Ожидание сброса"),
         "rate_limited": (Theme.STATUS_WARNING, "Лимит запросов"),
+        "not_configured": (Theme.TEXT_MUTED, "Аккаунт не добавлен"),
         "auth_required": (Theme.STATUS_AUTH_REQUIRED, "Требуется вход"),
-        "auth_expired": (Theme.STATUS_AUTH_REQUIRED, "Авторизация истекла"),
+        "auth_expired": (Theme.STATUS_AUTH_REQUIRED, "Требуется повторная авторизация"),
         "disabled": (Theme.STATUS_DISABLED, "Отключён"),
         "cold_spare": (Theme.TEXT_MUTED, "Холодный резерв"),
         "unhealthy": (Theme.STATUS_ERROR, "Ошибка"),
@@ -166,56 +170,56 @@ class HubStatusBadge(ctk.CTkFrame):
         color, label = self.STATUS_MAP.get(clean_key, (Theme.TEXT_MUTED, status_key))
 
         inner = ctk.CTkFrame(self, fg_color="transparent")
-        inner.pack(padx=8, pady=3)
+        inner.pack(padx=10, pady=4)
 
         ctk.CTkLabel(
             inner,
             text="●",
             font=("Segoe UI", 12, "bold"),
             text_color=color,
-        ).pack(side="left", padx=(0, 4))
+        ).pack(side="left", padx=(0, 5))
 
         ctk.CTkLabel(
             inner,
             text=label,
-            font=Theme.font_micro(),
+            font=Theme.font_caption(),
             text_color=Theme.TEXT_SECONDARY,
         ).pack(side="left")
 
 
 class HubProviderBadge(ctk.CTkFrame):
-    """Badge indicating the AI provider with distinct color."""
+    """Badge indicating the AI provider with real provider mark."""
 
-    def __init__(self, master: Any, provider: str, **kwargs):
+    def __init__(self, master: Any, provider: str, size: Tuple[int, int] = (18, 18), **kwargs):
         super().__init__(master=master, fg_color="transparent", **kwargs)
 
         prov = provider.lower()
         if "antigravity" in prov:
             color = Theme.PROVIDER_ANTIGRAVITY
             name = "Google Antigravity"
-            icon = "G"
-        elif "codex" in prov:
+        elif "codex" in prov or "openai" in prov:
             color = Theme.PROVIDER_CODEX
             name = "OpenAI Codex"
-            icon = "◈"
         elif "opencode" in prov:
             color = Theme.PROVIDER_OPENCODE
             name = "OpenCode Go"
-            icon = "◈"
         else:
             color = Theme.TEXT_MUTED
             name = provider
-            icon = "◈"
 
         badge = ctk.CTkFrame(self, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
         badge.pack(side="left")
 
+        img = AssetManager.get().get_provider_image(prov, size=size)
+        if img:
+            ctk.CTkLabel(badge, image=img, text="").pack(side="left", padx=(6, 4), pady=3)
+
         ctk.CTkLabel(
             badge,
-            text=f"{icon} {name}",
-            font=Theme.font_micro(),
+            text=name,
+            font=Theme.font_caption(),
             text_color=color,
-        ).pack(padx=6, pady=2)
+        ).pack(side="left", padx=(0 if img else 6, 8), pady=3)
 
 
 class HubMetricCard(HubCard):
@@ -234,14 +238,13 @@ class HubMetricCard(HubCard):
         border_color = Theme.BORDER_ACCENT if accent else Theme.BORDER
         super().__init__(master=master, border_color=border_color, **kwargs)
 
-        # Header: icon + title
         top = ctk.CTkFrame(self, fg_color="transparent")
-        top.pack(fill="x", padx=16, pady=(12, 4))
+        top.pack(fill="x", padx=16, pady=(14, 4))
 
         ctk.CTkLabel(
             top,
             text=icon,
-            font=("Segoe UI", 14),
+            font=("Segoe UI", 16),
             text_color=Theme.ACCENT if accent else Theme.TEXT_MUTED,
         ).pack(side="left", padx=(0, 6))
 
@@ -252,30 +255,99 @@ class HubMetricCard(HubCard):
             text_color=Theme.TEXT_MUTED,
         ).pack(side="left")
 
-        # Value
         val_color = Theme.ACCENT if accent else Theme.TEXT_PRIMARY
         self.val_label = ctk.CTkLabel(
             self,
             text=value,
-            font=("Segoe UI", 26, "bold"),
+            font=("Segoe UI", 28, "bold"),
             text_color=val_color,
         )
         self.val_label.pack(anchor="w", padx=16, pady=(2, 2))
 
-        # Subtext
         self.sub_label = ctk.CTkLabel(
             self,
             text=subtext,
             font=Theme.font_caption(),
             text_color=Theme.TEXT_SECONDARY,
         )
-        self.sub_label.pack(anchor="w", padx=16, pady=(0, 12))
+        self.sub_label.pack(anchor="w", padx=16, pady=(0, 14))
+
+
+class HubToolbar(ctk.CTkFrame):
+    """Cockpit-grade toolbar with Search, Category Filter, and Sorting."""
+
+    def __init__(
+        self,
+        master: Any,
+        on_search: Optional[Callable[[str], None]] = None,
+        on_filter: Optional[Callable[[str], None]] = None,
+        on_sort: Optional[Callable[[str], None]] = None,
+        **kwargs,
+    ):
+        super().__init__(master=master, fg_color="transparent", **kwargs)
+        self.on_search = on_search
+        self.on_filter = on_filter
+        self.on_sort = on_sort
+
+        # Search Entry
+        self.search_entry = ctk.CTkEntry(
+            self,
+            placeholder_text="🔍 Поиск аккаунта или модели...",
+            font=Theme.font_body(),
+            height=Theme.HEIGHT_BTN_MD,
+            width=260,
+            fg_color=Theme.SURFACE,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.search_entry.pack(side="left", padx=(0, 10))
+        self.search_entry.bind("<KeyRelease>", self._handle_search)
+
+        # Filter Option Menu
+        self.filter_menu = ctk.CTkOptionMenu(
+            self,
+            values=["Все статусы", "Подключённые", "Требуют входа", "Квота исчерпана"],
+            font=Theme.font_caption(),
+            height=Theme.HEIGHT_BTN_MD,
+            width=160,
+            fg_color=Theme.SURFACE,
+            button_color=Theme.SECONDARY,
+            text_color=Theme.TEXT_PRIMARY,
+            command=self._handle_filter,
+        )
+        self.filter_menu.pack(side="left", padx=(0, 10))
+
+        # Sort Option Menu
+        self.sort_menu = ctk.CTkOptionMenu(
+            self,
+            values=["По умолчанию", "По имени", "По статусу", "По провайдеру"],
+            font=Theme.font_caption(),
+            height=Theme.HEIGHT_BTN_MD,
+            width=150,
+            fg_color=Theme.SURFACE,
+            button_color=Theme.SECONDARY,
+            text_color=Theme.TEXT_PRIMARY,
+            command=self._handle_sort,
+        )
+        self.sort_menu.pack(side="left")
+
+    def _handle_search(self, event=None):
+        if self.on_search:
+            self.on_search(self.search_entry.get().strip().lower())
+
+    def _handle_filter(self, choice: str):
+        if self.on_filter:
+            self.on_filter(choice)
+
+    def _handle_sort(self, choice: str):
+        if self.on_sort:
+            self.on_sort(choice)
 
 
 class HubModal(ctk.CTkToplevel):
     """Reusable modal dialog on dark backdrop."""
 
-    def __init__(self, parent: Any, title: str, width: int = 560, height: int = 480):
+    def __init__(self, parent: Any, title: str, width: int = 580, height: int = 500):
         super().__init__(parent)
         self.title(title)
         self.geometry(f"{width}x{height}")
@@ -284,7 +356,6 @@ class HubModal(ctk.CTkToplevel):
         self.transient(parent)
         self.grab_set()
 
-        # Center on parent
         self.update_idletasks()
         px = parent.winfo_x() + (parent.winfo_width() - width) // 2
         py = parent.winfo_y() + (parent.winfo_height() - height) // 2
@@ -298,22 +369,19 @@ class HubModal(ctk.CTkToplevel):
         )
         self.container.pack(fill="both", expand=True, padx=16, pady=16)
 
-        # Header
         self.hdr = ctk.CTkFrame(self.container, fg_color="transparent")
         self.hdr.pack(fill="x", padx=16, pady=(16, 8))
 
         self.title_lbl = ctk.CTkLabel(
             self.hdr,
             text=title,
-            font=Theme.font_heading(),
+            font=Theme.font_title_section(),
             text_color=Theme.TEXT_PRIMARY,
         )
         self.title_lbl.pack(side="left")
 
-        # Body area
         self.body = ctk.CTkFrame(self.container, fg_color="transparent")
         self.body.pack(fill="both", expand=True, padx=16, pady=8)
 
-        # Footer
         self.footer = ctk.CTkFrame(self.container, fg_color="transparent")
         self.footer.pack(fill="x", padx=16, pady=(8, 16))

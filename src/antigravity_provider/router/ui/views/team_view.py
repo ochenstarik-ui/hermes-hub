@@ -1,10 +1,11 @@
-"""Hermes Hub — Team View (Команда агентов и Dashboard с Unified Health)."""
+"""Hermes Hub — Team View (Команда агентов и Dashboard с Unified Health v3)."""
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
 import customtkinter as ctk
 
 from antigravity_provider.router.ui.theme import Theme
+from antigravity_provider.router.ui.assets import AssetManager
 from antigravity_provider.router.ui.components import (
     HubButton,
     HubCard,
@@ -20,6 +21,7 @@ from antigravity_provider.router.unified_health import (
     STATUS_QUOTA_LOW,
     STATUS_QUOTA_EXHAUSTED,
     STATUS_AUTH_REQUIRED,
+    STATUS_NOT_CONFIGURED,
     STATUS_AUTH_EXPIRED,
 )
 
@@ -34,62 +36,66 @@ class AgentCardWidget(HubCard):
 
         # ── Line 1: Role Title + Badges + Status Dot ──
         self.line1 = ctk.CTkFrame(self, fg_color="transparent")
-        self.line1.pack(fill="x", padx=12, pady=(10, 2))
+        self.line1.pack(fill="x", padx=14, pady=(12, 2))
 
         self.role_lbl = ctk.CTkLabel(self.line1, text="—", font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY)
         self.role_lbl.pack(side="left")
 
         self.orch_pill = ctk.CTkFrame(self.line1, fg_color="#3D3522", corner_radius=Theme.RADIUS_SM)
-        self.orch_pill_lbl = ctk.CTkLabel(self.orch_pill, text="👑 MAIN", font=Theme.font_micro(), text_color=Theme.ACCENT)
+        self.orch_pill_lbl = ctk.CTkLabel(self.orch_pill, text="👑 ЛИДЕР РОУТЕРА", font=Theme.font_micro(), text_color=Theme.ACCENT)
         self.orch_pill_lbl.pack(padx=5, pady=1)
 
-        self.status_dot = ctk.CTkLabel(self.line1, text="●", font=("Segoe UI", 12, "bold"), text_color=Theme.STATUS_HEALTHY)
+        self.status_dot = ctk.CTkLabel(self.line1, text="●", font=("Segoe UI", 13, "bold"), text_color=Theme.STATUS_HEALTHY)
         self.status_dot.pack(side="right")
 
         # ── Line 2: Internal ID + Model ──
         self.line2 = ctk.CTkFrame(self, fg_color="transparent")
-        self.line2.pack(fill="x", padx=12, pady=(0, 4))
-        self.id_model_lbl = ctk.CTkLabel(self.line2, text="—", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
+        self.line2.pack(fill="x", padx=14, pady=(0, 4))
+        self.id_model_lbl = ctk.CTkLabel(self.line2, text="—", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED)
         self.id_model_lbl.pack(anchor="w")
 
-        # ── Line 3: Provider ──
+        # ── Line 3: Provider with Real Logo ──
         self.line3 = ctk.CTkFrame(self, fg_color="transparent")
-        self.line3.pack(fill="x", padx=12, pady=(2, 2))
+        self.line3.pack(fill="x", padx=14, pady=(2, 2))
+
+        self.prov_icon = ctk.CTkLabel(self.line3, text="")
+        self.prov_icon.pack(side="left", padx=(0, 6))
+
         self.prov_lbl = ctk.CTkLabel(self.line3, text="—", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY)
-        self.prov_lbl.pack(anchor="w")
+        self.prov_lbl.pack(side="left")
 
         # ── Line 4: Identity / Account ──
         self.line4 = ctk.CTkFrame(self, fg_color="transparent")
-        self.line4.pack(fill="x", padx=12, pady=(2, 4))
+        self.line4.pack(fill="x", padx=14, pady=(2, 4))
         self.identity_lbl = ctk.CTkLabel(self.line4, text="—", font=Theme.font_mono_sm(), text_color=Theme.TEXT_SECONDARY)
         self.identity_lbl.pack(anchor="w")
 
         # ── Line 5: Role Tag Pills ──
         self.line5 = ctk.CTkFrame(self, fg_color="transparent")
-        self.line5.pack(fill="x", padx=12, pady=(4, 6))
+        self.line5.pack(fill="x", padx=14, pady=(4, 6))
 
         self.pill1 = ctk.CTkFrame(self.line5, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
-        self.pill1.pack(side="left", padx=(0, 4))
+        self.pill1.pack(side="left", padx=(0, 6))
         self.pill1_lbl = ctk.CTkLabel(self.pill1, text="—", font=Theme.font_micro(), text_color=Theme.TEXT_SECONDARY)
         self.pill1_lbl.pack(padx=6, pady=2)
 
         self.pill2 = ctk.CTkFrame(self.line5, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
-        self.pill2.pack(side="left", padx=(0, 4))
+        self.pill2.pack(side="left", padx=(0, 6))
         self.pill2_lbl = ctk.CTkLabel(self.pill2, text="Primary", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
         self.pill2_lbl.pack(padx=6, pady=2)
 
         # ── Line 6: Status & Menu Action ──
         self.line6 = ctk.CTkFrame(self, fg_color="transparent")
-        self.line6.pack(fill="x", padx=12, pady=(4, 10))
+        self.line6.pack(fill="x", padx=14, pady=(4, 12))
 
-        self.status_str_lbl = ctk.CTkLabel(self.line6, text="● Работает", font=Theme.font_micro(), text_color=Theme.STATUS_HEALTHY)
+        self.status_str_lbl = ctk.CTkLabel(self.line6, text="● Работает", font=Theme.font_caption(), text_color=Theme.STATUS_HEALTHY)
         self.status_str_lbl.pack(side="left")
 
         self.menu_btn = ctk.CTkButton(
             self.line6,
             text="⋮",
-            width=26,
-            height=22,
+            width=28,
+            height=24,
             fg_color="transparent",
             hover_color=Theme.SURFACE_HOVER,
             text_color=Theme.TEXT_SECONDARY,
@@ -111,20 +117,27 @@ class AgentCardWidget(HubCard):
             self.orch_pill.pack_forget()
 
         # Dot color
-        dot_color = Theme.STATUS_HEALTHY if a.status == STATUS_HEALTHY else (Theme.STATUS_WARNING if "quota" in a.status or "auth" in a.status else Theme.STATUS_ERROR)
+        dot_color = Theme.STATUS_HEALTHY if a.status == STATUS_HEALTHY else (Theme.STATUS_WARNING if "quota" in a.status or "auth" in a.status or "not_configured" in a.status else Theme.STATUS_ERROR)
         self.status_dot.configure(text_color=dot_color)
 
         # ID + Model
         self.id_model_lbl.configure(text=f"{a.assigned_profile_id} • {a.model}")
 
-        # Provider
+        # Provider Icon + Label
+        p_img = AssetManager.get().get_provider_image(a.provider, size=(18, 18))
+        if p_img:
+            self.prov_icon.configure(image=p_img)
+            self.prov_icon.pack(side="left", padx=(0, 6))
+        else:
+            self.prov_icon.pack_forget()
+
         prov = a.provider.lower()
         if "antigravity" in prov:
-            self.prov_lbl.configure(text="G Google Antigravity", text_color=Theme.PROVIDER_ANTIGRAVITY)
+            self.prov_lbl.configure(text="Google Antigravity", text_color=Theme.PROVIDER_ANTIGRAVITY)
         elif "codex" in prov:
-            self.prov_lbl.configure(text="◈ OpenAI Codex", text_color=Theme.PROVIDER_CODEX)
+            self.prov_lbl.configure(text="OpenAI Codex", text_color=Theme.PROVIDER_CODEX)
         elif "opencode" in prov:
-            self.prov_lbl.configure(text="◈ OpenCode Go", text_color=Theme.PROVIDER_OPENCODE)
+            self.prov_lbl.configure(text="OpenCode Go", text_color=Theme.PROVIDER_OPENCODE)
         else:
             self.prov_lbl.configure(text=a.provider_display_name, text_color=Theme.TEXT_MUTED)
 
@@ -147,7 +160,7 @@ class AgentCardWidget(HubCard):
 
         popup = ctk.CTkToplevel(self.winfo_toplevel())
         popup.title(f"Действия: {a.role_name_ru}")
-        popup.geometry("300x240")
+        popup.geometry("320x260")
         popup.configure(fg_color=Theme.DARK)
         popup.resizable(False, False)
         popup.transient(self.winfo_toplevel())
@@ -159,20 +172,20 @@ class AgentCardWidget(HubCard):
         popup.geometry(f"+{px}+{py}")
 
         c = HubCard(popup, fg_color=Theme.DARK, border_color=Theme.BORDER_ACCENT)
-        c.pack(fill="both", expand=True, padx=8, pady=8)
+        c.pack(fill="both", expand=True, padx=10, pady=10)
 
         ctk.CTkLabel(c, text=a.role_name_ru, font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(pady=(8, 2))
-        ctk.CTkLabel(c, text=f"Аккаунт: {a.account_identity} ({pid})", font=Theme.font_mono_sm(), text_color=Theme.TEXT_MUTED).pack(pady=(0, 8))
+        ctk.CTkLabel(c, text=f"Аккаунт: {a.account_identity} ({pid})", font=Theme.font_mono_sm(), text_color=Theme.TEXT_MUTED).pack(pady=(0, 10))
 
         def _do(action_name: str):
             popup.destroy()
             if self.on_action:
                 self.on_action(action_name, {"profile_id": pid, "provider": a.provider, "display_name": a.assigned_display_name})
 
-        HubButton(c, text="⚡ Проверить (Тест)", variant="secondary", height=28, command=lambda: _do("test")).pack(fill="x", padx=12, pady=2)
-        HubButton(c, text="👑 Назначить главным оркестратором", variant="secondary", height=28, command=lambda: _do("set_orchestrator")).pack(fill="x", padx=12, pady=2)
-        HubButton(c, text="★ Сделать основным аккаунтом Hermes", variant="secondary", height=28, command=lambda: _do("set_main")).pack(fill="x", padx=12, pady=2)
-        HubButton(c, text="🔄 Перераспределить роли", variant="ghost", height=26, command=lambda: _do("auto_assign_all")).pack(fill="x", padx=12, pady=(2, 0))
+        HubButton(c, text="⚡ Проверить (Тест)", variant="secondary", height=30, command=lambda: _do("test")).pack(fill="x", padx=12, pady=2)
+        HubButton(c, text="👑 Назначить главным оркестратором", variant="secondary", height=30, command=lambda: _do("set_orchestrator")).pack(fill="x", padx=12, pady=2)
+        HubButton(c, text="★ Сделать основным аккаунтом Hermes", variant="secondary", height=30, command=lambda: _do("set_main")).pack(fill="x", padx=12, pady=2)
+        HubButton(c, text="🔄 Перераспределить роли", variant="ghost", height=28, command=lambda: _do("auto_assign_all")).pack(fill="x", padx=12, pady=(2, 0))
 
 
 class TeamView(ctk.CTkFrame):
@@ -195,7 +208,7 @@ class TeamView(ctk.CTkFrame):
         ctk.CTkLabel(
             left_titles,
             text="Команда агентов",
-            font=Theme.font_title_section(),
+            font=Theme.font_title_page(),
             text_color=Theme.TEXT_PRIMARY,
         ).pack(anchor="w")
 
@@ -220,7 +233,7 @@ class TeamView(ctk.CTkFrame):
         ctk.CTkButton(
             right_actions,
             text="⋮",
-            width=36,
+            width=38,
             height=Theme.HEIGHT_BTN_MD,
             fg_color=Theme.SURFACE,
             hover_color=Theme.SURFACE_HOVER,
@@ -240,7 +253,7 @@ class TeamView(ctk.CTkFrame):
         for i in range(4):
             metrics_grid.grid_columnconfigure(i, weight=1)
 
-        self.m1 = HubMetricCard(metrics_grid, title="АГЕНТЫ", value="6/6", subtext="готовы к работе", icon="👥", accent=True)
+        self.m1 = HubMetricCard(metrics_grid, title="АГЕНТЫ", value="0/6", subtext="готовы к работе", icon="👥", accent=True)
         self.m1.grid(row=0, column=0, padx=6, sticky="nsew")
 
         self.m2 = HubMetricCard(metrics_grid, title="АККАУНТЫ", value="0/16", subtext="подключено", icon="💼")
@@ -258,7 +271,7 @@ class TeamView(ctk.CTkFrame):
         for col_idx in range(3):
             self.cards_grid.grid_columnconfigure(col_idx, weight=1)
 
-    def update_data(self, app_state: Dict[str, Any]):
+    def update_data(self, app_state: Optional[Dict[str, Any]] = None):
         service = UnifiedHealthService.get()
         readiness = service.get_system_readiness()
         agents = service.get_agent_view_models()
