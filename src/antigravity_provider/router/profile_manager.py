@@ -230,7 +230,7 @@ class ProfileAuthManager:
 
     @classmethod
     def extract_jwt_identity(cls, token: str) -> Tuple[Optional[str], Optional[str]]:
-        """Extract email and subject (sub) from JWT id_token without verifying signature."""
+        """Extract email and subject (sub) from JWT id_token / access_token without verifying signature."""
         try:
             parts = token.split(".")
             if len(parts) < 2:
@@ -240,12 +240,54 @@ class ProfileAuthManager:
             if rem:
                 payload_b64 += "=" * (4 - rem)
             data = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
-            email = data.get("email")
-            sub = data.get("sub")
+            # Standard claims + OpenAI / Google custom profile claims
+            email = (
+                data.get("email")
+                or data.get("https://api.openai.com/profile", {}).get("email")
+                or data.get("userinfo", {}).get("email")
+            )
+            sub = data.get("sub") or data.get("user_id") or data.get("id")
             return email, sub
         except Exception as e:
             logger.debug("Failed to extract JWT identity: %s", e)
             return None, None
+
+    @classmethod
+    def verify_codex_profile(cls, profile_id: str) -> Dict[str, Any]:
+        """Verify Codex profile authentication and return metadata."""
+        auth_data = cls.load_profile_auth("openai-codex", profile_id)
+        if not auth_data:
+            return {"valid": False, "email": None, "profile_id": profile_id}
+
+        tokens = auth_data.get("token") or auth_data.get("tokens", {})
+        acc_token = tokens.get("access_token") if isinstance(tokens, dict) else (auth_data.get("access_token") or "")
+        id_token = tokens.get("id_token") if isinstance(tokens, dict) else (auth_data.get("id_token") or "")
+
+        email = auth_data.get("email")
+        if not email and id_token:
+            email, _ = cls.extract_jwt_identity(id_token)
+        if not email and acc_token:
+            email, _ = cls.extract_jwt_identity(acc_token)
+
+        key = auth_data.get("api_key", "")
+        if acc_token:
+            return {
+                "valid": True,
+                "email": email or "ChatGPT Account",
+                "profile_id": profile_id,
+                "auth_mode": "oauth",
+            }
+        elif key:
+            ok, masked, models = cls.verify_codex_token(key)
+            return {
+                "valid": ok,
+                "email": masked or "OpenAI API Key",
+                "profile_id": profile_id,
+                "auth_mode": "api_key",
+                "models": models,
+            }
+
+        return {"valid": False, "email": None, "profile_id": profile_id}
 
     @classmethod
     def verify_antigravity_token(cls, access_token: str) -> Tuple[bool, Optional[str], Optional[str]]:
@@ -284,7 +326,7 @@ class ProfileAuthManager:
         # Fallback offline check for structural validity
         if api_key.startswith("sk-") and len(api_key) >= 20:
             masked = f"sk-...{api_key[-4:]}"
-            return True, masked, ["gpt-5.3-codex", "gpt-5.1-codex-mini"]
+            return True, masked, ["gpt-4o", "o3-mini", "gpt-4o-mini", "codex"]
         return False, None, []
 
     @classmethod
@@ -337,13 +379,33 @@ class ProfileAuthManager:
             }
 
         elif provider == "openai-codex":
+            tokens = auth_data.get("token") or auth_data.get("tokens", {})
+            acc_token = tokens.get("access_token") if isinstance(tokens, dict) else (auth_data.get("access_token") or "")
+            id_token = tokens.get("id_token") if isinstance(tokens, dict) else (auth_data.get("id_token") or "")
+            email = auth_data.get("email")
+            if not email and id_token:
+                email, _ = cls.extract_jwt_identity(id_token)
+            if not email and acc_token:
+                email, _ = cls.extract_jwt_identity(acc_token)
+
             key = auth_data.get("api_key", "")
+            is_oauth = bool(acc_token)
+            is_auth = is_oauth or bool(key)
+
+            account_id_masked = None
+            if is_oauth:
+                account_id_masked = mask_email(email) if email else "ChatGPT Account"
+            elif key:
+                account_id_masked = f"sk-...{key[-4:]}" if len(key) > 8 else "sk-***"
+
             return {
-                "authenticated": bool(key),
+                "authenticated": is_auth,
                 "provider": provider,
                 "profile_id": profile_id,
-                "account_id_masked": f"sk-...{key[-4:]}" if len(key) > 8 else "sk-***",
-                "status": "AUTHENTICATED" if key else "NOT_CONFIGURED",
+                "auth_mode": "oauth" if is_oauth else ("api_key" if key else "unconfigured"),
+                "email_masked": mask_email(email) if email else None,
+                "account_id_masked": account_id_masked,
+                "status": "AUTHENTICATED" if is_auth else "NOT_CONFIGURED",
                 "error": None,
             }
 

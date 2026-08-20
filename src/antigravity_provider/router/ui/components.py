@@ -103,6 +103,89 @@ class HubCard(ctk.CTkFrame):
         )
 
 
+def enable_clipboard_shortcuts(entry_widget: Any) -> None:
+    """Enable robust clipboard (Ctrl+V, Ctrl+C, Ctrl+X, Ctrl+A, Shift+Insert) across English and Cyrillic layouts."""
+    inner = getattr(entry_widget, "_entry", entry_widget)
+
+    def _paste_handler(event=None):
+        try:
+            text = entry_widget.clipboard_get()
+            if text is not None:
+                try:
+                    inner.delete("sel.first", "sel.last")
+                except Exception:
+                    pass
+                inner.insert("insert", text)
+            return "break"
+        except Exception:
+            return "break"
+
+    def _select_all_handler(event=None):
+        try:
+            inner.select_range(0, "end")
+            inner.icursor("end")
+            return "break"
+        except Exception:
+            return "break"
+
+    def _copy_handler(event=None):
+        try:
+            if inner.select_present():
+                sel = inner.selection_get()
+                entry_widget.clipboard_clear()
+                entry_widget.clipboard_append(sel)
+            return "break"
+        except Exception:
+            pass
+
+    def _cut_handler(event=None):
+        try:
+            if inner.select_present():
+                sel = inner.selection_get()
+                entry_widget.clipboard_clear()
+                entry_widget.clipboard_append(sel)
+                inner.delete("sel.first", "sel.last")
+            return "break"
+        except Exception:
+            pass
+
+    # Standard Latin shortcuts
+    for p in ("<Control-v>", "<Control-V>", "<Control-KeyPress-v>", "<Control-KeyPress-V>", "<Shift-Insert>", "<Shift-KeyPress-Insert>"):
+        try: inner.bind(p, _paste_handler, add=False)
+        except Exception: pass
+    for a in ("<Control-a>", "<Control-A>", "<Control-KeyPress-a>", "<Control-KeyPress-A>"):
+        try: inner.bind(a, _select_all_handler, add=False)
+        except Exception: pass
+    for c in ("<Control-c>", "<Control-C>", "<Control-KeyPress-c>", "<Control-KeyPress-C>"):
+        try: inner.bind(c, _copy_handler, add=False)
+        except Exception: pass
+    for x in ("<Control-x>", "<Control-X>", "<Control-KeyPress-x>", "<Control-KeyPress-X>"):
+        try: inner.bind(x, _cut_handler, add=False)
+        except Exception: pass
+
+    # Windows Cyrillic / Russian keyboard layouts
+    for p in ("<Control-KeyPress-1084>", "<Control-KeyPress-1052>", "<Control-cyrillic_em>", "<Control-Cyrillic_EM>"):
+        try: inner.bind(p, _paste_handler, add=False)
+        except Exception: pass
+    for a in ("<Control-KeyPress-1092>", "<Control-KeyPress-1060>", "<Control-cyrillic_ef>", "<Control-Cyrillic_EF>"):
+        try: inner.bind(a, _select_all_handler, add=False)
+        except Exception: pass
+    for c in ("<Control-KeyPress-1089>", "<Control-KeyPress-1057>", "<Control-cyrillic_es>", "<Control-Cyrillic_ES>"):
+        try: inner.bind(c, _copy_handler, add=False)
+        except Exception: pass
+    for x in ("<Control-KeyPress-1095>", "<Control-KeyPress-1063>", "<Control-cyrillic_che>", "<Control-Cyrillic_CHE>"):
+        try: inner.bind(x, _cut_handler, add=False)
+        except Exception: pass
+
+
+class HubEntry(ctk.CTkEntry):
+    """Design-system compliant Entry with automatic clipboard & keyboard layout support."""
+
+    def __init__(self, master: Any, **kwargs):
+        super().__init__(master=master, **kwargs)
+        enable_clipboard_shortcuts(self)
+
+
 class HubSectionHeader(ctk.CTkFrame):
     """Section title with optional subtitle and right-aligned action button."""
 

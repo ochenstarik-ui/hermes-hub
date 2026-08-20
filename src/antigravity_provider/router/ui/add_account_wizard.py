@@ -1,4 +1,11 @@
-"""Hermes Hub — Add Account Multi-Step Wizard Modal."""
+"""Hermes Hub — Add Account Multi-Step Wizard Modal (v3).
+
+Supports:
+- Google Antigravity (Cockpit Tools model OAuth with immediate URL & manual fallback)
+- OpenAI Codex (OAuth / ChatGPT Device Code flow + OpenAI API Key mode)
+- OpenCode Go (API Key / Token input with clipboard Paste button & full keyboard shortcuts)
+- Multi-account profile isolation & auto-assignment to router roles.
+"""
 from __future__ import annotations
 
 import json
@@ -10,7 +17,7 @@ from typing import Any, Callable, Dict, List, Optional
 import customtkinter as ctk
 
 from antigravity_provider.router.ui.theme import Theme
-from antigravity_provider.router.ui.components import HubButton, HubCard, HubModal
+from antigravity_provider.router.ui.components import HubButton, HubCard, HubEntry, HubModal
 from antigravity_provider.router.auto_assigner import AutoAssigner
 from antigravity_provider.router.profile_manager import ProfileAuthManager
 from antigravity_provider.router.unified_health import EventLogService
@@ -20,17 +27,22 @@ class AddAccountWizard(HubModal):
     """4-Step Add Account Wizard with OAuth / API Key support and Auto-Assignment."""
 
     def __init__(self, parent: Any, on_complete: Optional[Callable[[Dict[str, Any]], None]] = None):
-        super().__init__(parent, title="Мастер подключения аккаунта", width=620, height=520)
+        super().__init__(parent, title="Мастер подключения аккаунта", width=640, height=540)
         self.on_complete = on_complete
         self.step = 1
 
         self.selected_provider: str = "antigravity"
+        self.codex_auth_mode: str = "oauth"  # oauth | api_key
         self.target_slot: str = ""
         self.discovered_identity: str = ""
         self.discovered_models: List[str] = []
         self.is_verified: bool = False
+
         self.oauth_session_id: Optional[str] = None
         self.oauth_url: Optional[str] = None
+        self.codex_session_id: Optional[str] = None
+        self.codex_url: Optional[str] = None
+        self.codex_user_code: Optional[str] = None
         self._polling_active = False
 
         self._show_step_1_provider()
@@ -41,6 +53,12 @@ class AddAccountWizard(HubModal):
             try:
                 from antigravity_provider.router.profile_oauth import cancel_oauth_session
                 cancel_oauth_session(self.oauth_session_id)
+            except Exception:
+                pass
+        if self.codex_session_id:
+            try:
+                from antigravity_provider.router.codex_oauth import cancel_codex_oauth_session
+                cancel_codex_oauth_session(self.codex_session_id)
             except Exception:
                 pass
         super().destroy()
@@ -56,14 +74,7 @@ class AddAccountWizard(HubModal):
     # ═══════════════════════════════════════════════════════════════
 
     def _show_step_1_provider(self):
-        if self.oauth_session_id:
-            try:
-                from antigravity_provider.router.profile_oauth import cancel_oauth_session
-                cancel_oauth_session(self.oauth_session_id)
-                self.oauth_session_id = None
-                self.oauth_url = None
-            except Exception:
-                pass
+        self._cancel_active_sessions()
         self._polling_active = False
         self._clear_body()
         self.title_lbl.configure(text="Шаг 1 из 4: Выберите провайдера ИИ")
@@ -77,7 +88,7 @@ class AddAccountWizard(HubModal):
 
         providers = [
             ("antigravity", "Google Antigravity", "OAuth 2.0 (Google Account)", Theme.ACCENT),
-            ("openai-codex", "OpenAI Codex", "API Key (Codex / GPT-4)", "#10a37f"),
+            ("openai-codex", "OpenAI Codex", "OAuth (ChatGPT) или API Key", "#10a37f"),
             ("opencode-go", "OpenCode Go", "API Key / Subscription", "#8b5cf6"),
         ]
 
@@ -122,6 +133,26 @@ class AddAccountWizard(HubModal):
         self.selected_provider = self.provider_var.get()
         self._show_step_2_auth()
 
+    def _cancel_active_sessions(self):
+        if self.oauth_session_id:
+            try:
+                from antigravity_provider.router.profile_oauth import cancel_oauth_session
+                cancel_oauth_session(self.oauth_session_id)
+            except Exception:
+                pass
+            self.oauth_session_id = None
+            self.oauth_url = None
+
+        if self.codex_session_id:
+            try:
+                from antigravity_provider.router.codex_oauth import cancel_codex_oauth_session
+                cancel_codex_oauth_session(self.codex_session_id)
+            except Exception:
+                pass
+            self.codex_session_id = None
+            self.codex_url = None
+            self.codex_user_code = None
+
     # ═══════════════════════════════════════════════════════════════
     #  STEP 2: Authentication
     # ═══════════════════════════════════════════════════════════════
@@ -131,12 +162,21 @@ class AddAccountWizard(HubModal):
         self.title_lbl.configure(text="Шаг 2 из 4: Авторизация учетной записи")
 
         # Find target slot
-        self.target_slot = AutoAssigner.find_free_slot(self.selected_provider) or "ag-spare-1"
+        self.target_slot = AutoAssigner.find_free_slot(self.selected_provider) or f"{self.selected_provider[:3]}-spare-1"
 
         if self.selected_provider == "antigravity":
             self._build_antigravity_oauth_flow()
+        elif self.selected_provider == "openai-codex":
+            if self.codex_auth_mode == "oauth":
+                self._build_codex_oauth_flow()
+            else:
+                self._build_api_key_flow()
         else:
             self._build_api_key_flow()
+
+    # ─────────────────────────────────────────────────────────────
+    #  ANTIGRAVITY OAUTH FLOW
+    # ─────────────────────────────────────────────────────────────
 
     def _build_antigravity_oauth_flow(self):
         ctk.CTkLabel(
@@ -171,7 +211,7 @@ class AddAccountWizard(HubModal):
         url_row = ctk.CTkFrame(auth_card, fg_color="transparent")
         url_row.pack(fill="x", padx=10, pady=(0, 6))
 
-        self.oauth_url_entry = ctk.CTkEntry(
+        self.oauth_url_entry = HubEntry(
             url_row,
             font=Theme.font_mono(),
             height=32,
@@ -231,8 +271,11 @@ class AddAccountWizard(HubModal):
             anchor="w",
         ).pack(fill="x", padx=10, pady=(0, 4))
 
-        self.manual_callback_entry = ctk.CTkEntry(
-            manual_card,
+        manual_entry_row = ctk.CTkFrame(manual_card, fg_color="transparent")
+        manual_entry_row.pack(fill="x", padx=10, pady=(0, 6))
+
+        self.manual_callback_entry = HubEntry(
+            manual_entry_row,
             placeholder_text="http://127.0.0.1:49725/oauth-callback?state=...&code=...",
             font=Theme.font_mono(),
             height=32,
@@ -240,7 +283,16 @@ class AddAccountWizard(HubModal):
             border_color=Theme.BORDER,
             text_color=Theme.TEXT_PRIMARY,
         )
-        self.manual_callback_entry.pack(fill="x", padx=10, pady=(0, 6))
+        self.manual_callback_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        HubButton(
+            manual_entry_row,
+            text="📋 Вставить",
+            variant="secondary",
+            width=80,
+            height=32,
+            command=lambda: self._paste_into_entry(self.manual_callback_entry),
+        ).pack(side="right")
 
         self.manual_submit_btn = HubButton(
             manual_card,
@@ -285,7 +337,7 @@ class AddAccountWizard(HubModal):
             if hasattr(self, "manual_submit_btn"):
                 self.manual_submit_btn.configure(state="normal")
             self._polling_active = True
-            threading.Thread(target=self._poll_oauth, daemon=True).start()
+            threading.Thread(target=self._poll_antigravity_oauth, daemon=True).start()
         except Exception as e:
             self.oauth_status_lbl.configure(
                 text=f"Не удалось запустить локальный OAuth callback: {e}",
@@ -372,7 +424,7 @@ class AddAccountWizard(HubModal):
             if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
                 self.regen_btn.pack(side="left")
 
-    def _poll_oauth(self):
+    def _poll_antigravity_oauth(self):
         from antigravity_provider.router.profile_oauth import get_oauth_session
         for _ in range(300):
             if not self._polling_active:
@@ -403,17 +455,343 @@ class AddAccountWizard(HubModal):
         if hasattr(self, "regen_btn") and self.regen_btn.winfo_exists():
             self.regen_btn.pack(side="left")
 
-    def _build_api_key_flow(self):
+    # ─────────────────────────────────────────────────────────────
+    #  OPENAI CODEX OAUTH FLOW (DEVICE CODE / CHATGPT)
+    # ─────────────────────────────────────────────────────────────
+
+    def _build_codex_oauth_flow(self):
         ctk.CTkLabel(
             self.body,
-            text=f"Введите ключ API для {self.selected_provider}:",
+            text="Для OpenAI Codex доступно подключение через ChatGPT Account или API Key:",
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_SECONDARY,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 6))
+
+        # Mode selector radio buttons
+        mode_card = HubCard(self.body, fg_color="transparent")
+        mode_card.pack(fill="x", pady=(0, 8))
+
+        self.codex_mode_var = ctk.StringVar(value="oauth")
+
+        rb1 = ctk.CTkRadioButton(
+            mode_card,
+            text="OAuth — OpenAI / ChatGPT аккаунт (Рекомендуется)",
+            value="oauth",
+            variable=self.codex_mode_var,
+            font=Theme.font_body_bold(),
+            fg_color=Theme.ACCENT,
+            command=self._on_codex_mode_toggle,
+        )
+        rb1.pack(anchor="w", padx=4, pady=2)
+
+        rb2 = ctk.CTkRadioButton(
+            mode_card,
+            text="API Key — OpenAI API (sk-...)",
+            value="api_key",
+            variable=self.codex_mode_var,
+            font=Theme.font_body(),
+            fg_color=Theme.ACCENT,
+            command=self._on_codex_mode_toggle,
+        )
+        rb2.pack(anchor="w", padx=4, pady=2)
+
+        # Device auth card
+        auth_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
+        auth_card.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            auth_card,
+            text="Ссылка для входа в OpenAI (ChatGPT):",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+        ).pack(anchor="w", padx=10, pady=(6, 2))
+
+        url_row = ctk.CTkFrame(auth_card, fg_color="transparent")
+        url_row.pack(fill="x", padx=10, pady=(0, 6))
+
+        self.codex_url_entry = HubEntry(
+            url_row,
+            font=Theme.font_mono(),
+            height=32,
+            fg_color=Theme.PRIMARY,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.codex_url_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        HubButton(
+            url_row,
+            text="📋",
+            variant="secondary",
+            width=40,
+            height=32,
+            command=self._copy_codex_url,
+        ).pack(side="right")
+
+        # Code display row
+        code_card = ctk.CTkFrame(auth_card, fg_color="transparent")
+        code_card.pack(fill="x", padx=10, pady=(0, 6))
+
+        ctk.CTkLabel(
+            code_card,
+            text="Код подтверждения:",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(side="left", padx=(0, 8))
+
+        self.codex_code_lbl = ctk.CTkLabel(
+            code_card,
+            text="...",
+            font=Theme.font_mono_bold(),
+            text_color=Theme.ACCENT,
+        )
+        self.codex_code_lbl.pack(side="left", padx=(0, 8))
+
+        HubButton(
+            code_card,
+            text="📋 Копировать код",
+            variant="secondary",
+            width=130,
+            height=28,
+            command=self._copy_codex_code,
+        ).pack(side="left")
+
+        action_row = ctk.CTkFrame(auth_card, fg_color="transparent")
+        action_row.pack(fill="x", padx=10, pady=(0, 8))
+
+        HubButton(
+            action_row,
+            text="🌐 Открыть в браузере",
+            variant="primary",
+            width=180,
+            command=self._open_codex_browser,
+        ).pack(side="left", padx=(0, 8))
+
+        # Manual Fallback Card for Codex
+        manual_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
+        manual_card.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            manual_card,
+            text="▸ Не удалось завершить авторизацию автоматически?",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+            anchor="w",
+        ).pack(fill="x", padx=10, pady=(6, 2))
+
+        ctk.CTkLabel(
+            manual_card,
+            text="Вставьте токен или JSON авторизации OpenAI вручную:",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+            anchor="w",
+        ).pack(fill="x", padx=10, pady=(0, 4))
+
+        manual_entry_row = ctk.CTkFrame(manual_card, fg_color="transparent")
+        manual_entry_row.pack(fill="x", padx=10, pady=(0, 6))
+
+        self.codex_manual_entry = HubEntry(
+            manual_entry_row,
+            placeholder_text='{"access_token": "..."} или токен...',
+            font=Theme.font_mono(),
+            height=32,
+            fg_color=Theme.PRIMARY,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.codex_manual_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+
+        HubButton(
+            manual_entry_row,
+            text="📋 Вставить",
+            variant="secondary",
+            width=80,
+            height=32,
+            command=lambda: self._paste_into_entry(self.codex_manual_entry),
+        ).pack(side="right")
+
+        HubButton(
+            manual_card,
+            text="✓ Завершить авторизацию",
+            variant="secondary",
+            width=200,
+            command=self._submit_manual_codex,
+        ).pack(anchor="w", padx=10, pady=(0, 8))
+
+        # Status label
+        self.codex_status_lbl = ctk.CTkLabel(
+            self.body,
+            text="Подготовка сессии OpenAI...",
+            font=Theme.font_body_bold(),
+            text_color=Theme.STATUS_WARNING,
+        )
+        self.codex_status_lbl.pack(pady=(4, 0))
+
+        HubButton(self.footer, text="⬅ Назад", variant="secondary", width=100, command=self._show_step_1_provider).pack(side="left")
+
+        # Start session
+        self._init_codex_oauth_session()
+
+    def _on_codex_mode_toggle(self):
+        self.codex_auth_mode = self.codex_mode_var.get()
+        self._show_step_2_auth()
+
+    def _init_codex_oauth_session(self):
+        try:
+            from antigravity_provider.router.codex_oauth import start_codex_oauth
+            self.codex_session_id, self.codex_url, self.codex_user_code = start_codex_oauth(self.target_slot)
+            self.codex_url_entry.configure(state="normal")
+            self.codex_url_entry.delete(0, "end")
+            self.codex_url_entry.insert(0, self.codex_url)
+            self.codex_url_entry.configure(state="readonly")
+            self.codex_code_lbl.configure(text=self.codex_user_code)
+            self.codex_status_lbl.configure(
+                text="✓ Сессия готова. Введите код на странице OpenAI в браузере...",
+                text_color=Theme.STATUS_HEALTHY,
+            )
+            self._polling_active = True
+            threading.Thread(target=self._poll_codex_oauth, daemon=True).start()
+        except Exception as e:
+            self.codex_status_lbl.configure(
+                text=f"Ошибка запуска сессии OpenAI: {e}",
+                text_color=Theme.STATUS_ERROR,
+            )
+
+    def _open_codex_browser(self):
+        if self.codex_url:
+            webbrowser.open(self.codex_url)
+            self.codex_status_lbl.configure(
+                text="🌐 Браузер открыт. Введите код подтверждения...",
+                text_color=Theme.ACCENT,
+            )
+
+    def _copy_codex_url(self):
+        if self.codex_url:
+            self.clipboard_clear()
+            self.clipboard_append(self.codex_url)
+            self.codex_status_lbl.configure(
+                text="✓ Ссылка скопирована в буфер обмена",
+                text_color=Theme.STATUS_HEALTHY,
+            )
+
+    def _copy_codex_code(self):
+        if self.codex_user_code:
+            self.clipboard_clear()
+            self.clipboard_append(self.codex_user_code)
+            self.codex_status_lbl.configure(
+                text=f"✓ Код {self.codex_user_code} скопирован",
+                text_color=Theme.STATUS_HEALTHY,
+            )
+
+    def _submit_manual_codex(self):
+        raw = self.codex_manual_entry.get().strip()
+        if not raw:
+            self.codex_status_lbl.configure(
+                text="❌ Пожалуйста, вставьте токен или JSON авторизации.",
+                text_color=Theme.STATUS_ERROR,
+            )
+            return
+
+        from antigravity_provider.router.codex_oauth import get_codex_oauth_session
+        session = get_codex_oauth_session(self.codex_session_id)
+        if not session:
+            self.codex_status_lbl.configure(
+                text="❌ Сессия не найдена. Повторите попытку.",
+                text_color=Theme.STATUS_ERROR,
+            )
+            return
+
+        ok, msg = session.handle_manual_input(raw)
+        if ok:
+            info = getattr(session, "completed_profile_info", {}) or {}
+            self.discovered_identity = info.get("email") or "ChatGPT Account"
+            self.discovered_models = ["gpt-4o", "o3-mini", "gpt-4o-mini", "codex"]
+            self.is_verified = True
+            self._show_step_3_validation()
+        else:
+            self.codex_status_lbl.configure(text=f"❌ {msg}", text_color=Theme.STATUS_ERROR)
+
+    def _poll_codex_oauth(self):
+        from antigravity_provider.router.codex_oauth import get_codex_oauth_session
+        for _ in range(900):
+            if not self._polling_active:
+                return
+            time.sleep(1)
+            session = get_codex_oauth_session(self.codex_session_id)
+            if not session:
+                continue
+
+            status = getattr(session, "status", "").lower()
+            if status in ("completed", "success"):
+                info = getattr(session, "completed_profile_info", {}) or {}
+                self.discovered_identity = info.get("email") or "ChatGPT Account"
+                self.discovered_models = ["gpt-4o", "o3-mini", "gpt-4o-mini", "codex"]
+                self.is_verified = True
+                self.after(0, self._show_step_3_validation)
+                return
+            elif status in ("error", "failed", "cancelled"):
+                err_msg = getattr(session, "error_msg", None) or "Авторизация не удалась"
+                self.after(0, lambda m=err_msg: self.codex_status_lbl.configure(text=f"❌ {m}", text_color=Theme.STATUS_ERROR))
+                return
+            elif status == "timeout":
+                self.after(0, lambda: self.codex_status_lbl.configure(text="❌ Время ожидания авторизации истекло", text_color=Theme.STATUS_ERROR))
+                return
+
+    # ─────────────────────────────────────────────────────────────
+    #  API KEY FLOW (Codex API Key / OpenCode Go)
+    # ─────────────────────────────────────────────────────────────
+
+    def _build_api_key_flow(self):
+        # If Codex, show mode switcher
+        if self.selected_provider == "openai-codex":
+            mode_card = HubCard(self.body, fg_color="transparent")
+            mode_card.pack(fill="x", pady=(0, 8))
+
+            self.codex_mode_var = ctk.StringVar(value="api_key")
+
+            rb1 = ctk.CTkRadioButton(
+                mode_card,
+                text="OAuth — OpenAI / ChatGPT аккаунт (Рекомендуется)",
+                value="oauth",
+                variable=self.codex_mode_var,
+                font=Theme.font_body(),
+                fg_color=Theme.ACCENT,
+                command=self._on_codex_mode_toggle,
+            )
+            rb1.pack(anchor="w", padx=4, pady=2)
+
+            rb2 = ctk.CTkRadioButton(
+                mode_card,
+                text="API Key — OpenAI API (sk-...)",
+                value="api_key",
+                variable=self.codex_mode_var,
+                font=Theme.font_body_bold(),
+                fg_color=Theme.ACCENT,
+                command=self._on_codex_mode_toggle,
+            )
+            rb2.pack(anchor="w", padx=4, pady=2)
+
+        prompt_text = (
+            "Введите ключ OpenAI API (sk-...):"
+            if self.selected_provider == "openai-codex"
+            else "Введите ключ API / Bearer Token для OpenCode Go:"
+        )
+
+        ctk.CTkLabel(
+            self.body,
+            text=prompt_text,
             font=Theme.font_body(),
             text_color=Theme.TEXT_SECONDARY,
         ).pack(anchor="w", pady=(0, 6))
 
-        self.key_entry = ctk.CTkEntry(
-            self.body,
-            placeholder_text="sk-...",
+        entry_row = ctk.CTkFrame(self.body, fg_color="transparent")
+        entry_row.pack(fill="x", pady=(0, 8))
+
+        placeholder = "sk-..." if self.selected_provider == "openai-codex" else "opencode-..."
+        self.key_entry = HubEntry(
+            entry_row,
+            placeholder_text=placeholder,
             font=Theme.font_mono(),
             show="*",
             height=38,
@@ -421,7 +799,16 @@ class AddAccountWizard(HubModal):
             border_color=Theme.BORDER,
             text_color=Theme.TEXT_PRIMARY,
         )
-        self.key_entry.pack(fill="x", pady=(0, 8))
+        self.key_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        HubButton(
+            entry_row,
+            text="📋 Вставить",
+            variant="secondary",
+            width=90,
+            height=38,
+            command=lambda: self._paste_into_entry(self.key_entry),
+        ).pack(side="right")
 
         self.key_status_lbl = ctk.CTkLabel(
             self.body,
@@ -451,6 +838,7 @@ class AddAccountWizard(HubModal):
             auth_data = {
                 "provider": self.selected_provider,
                 "profile_id": self.target_slot,
+                "auth_mode": "api_key",
                 "api_key": k,
                 "created_at": time.time(),
             }
@@ -463,6 +851,24 @@ class AddAccountWizard(HubModal):
 
         HubButton(self.footer, text="⬅ Назад", variant="secondary", width=100, command=self._show_step_1_provider).pack(side="left")
         HubButton(self.footer, text="Проверить и сохранить ➔", variant="primary", width=200, command=_save_key).pack(side="right")
+
+    def _paste_into_entry(self, target_entry: Any):
+        """Read clipboard cleanly, strip whitespace, and insert into target entry widget."""
+        try:
+            val = self.clipboard_get()
+            if val is not None:
+                cleaned = str(val).strip()
+                if cleaned:
+                    target_entry.delete(0, "end")
+                    target_entry.insert(0, cleaned)
+                    if hasattr(self, "key_status_lbl"):
+                        self.key_status_lbl.configure(text="")
+                    return
+            if hasattr(self, "key_status_lbl"):
+                self.key_status_lbl.configure(text="Буфер обмена пуст.")
+        except Exception as e:
+            if hasattr(self, "key_status_lbl"):
+                self.key_status_lbl.configure(text="Не удалось прочитать буфер обмена.")
 
     # ═══════════════════════════════════════════════════════════════
     #  STEP 3: Validation & Duplicate Detection
@@ -488,58 +894,59 @@ class AddAccountWizard(HubModal):
                 text_color=Theme.STATUS_WARNING,
                 wraplength=500,
                 justify="left",
-            ).pack(padx=14, pady=10)
+            ).pack(padx=14, pady=10, anchor="w")
 
-        # Status card
+        info_card = HubCard(self.body)
+        info_card.pack(fill="x", pady=(0, 12))
+
+        p_name = "Google Antigravity" if self.selected_provider == "antigravity" else (
+            "OpenAI Codex" if self.selected_provider == "openai-codex" else "OpenCode Go"
+        )
+        status_text = "✓ Проверен и готов к работе" if self.is_verified else "⚠ НЕ ПРОВЕРЕН (Сохранён офлайн)"
         status_color = Theme.STATUS_HEALTHY if self.is_verified else Theme.STATUS_WARNING
-        status_text = f"✓ Аккаунт успешно проверен: {self.discovered_identity}" if self.is_verified else f"⚠ Аккаунт сохранён (НЕ ПРОВЕРЕН): {self.discovered_identity}"
 
-        succ_card = HubCard(self.body, border_color=status_color)
-        succ_card.pack(fill="x", pady=6)
+        ctk.CTkLabel(info_card, text=f"Провайдер: {p_name}", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", padx=14, pady=(10, 2))
+        ctk.CTkLabel(info_card, text=f"Идентификатор: {self.discovered_identity}", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", padx=14, pady=2)
+        ctk.CTkLabel(info_card, text=f"Статус: {status_text}", font=Theme.font_body_bold(), text_color=status_color).pack(anchor="w", padx=14, pady=2)
 
-        ctk.CTkLabel(
-            succ_card,
-            text=status_text,
-            font=Theme.font_heading(),
-            text_color=status_color,
-        ).pack(anchor="w", padx=16, pady=(12, 4))
-
-        ctk.CTkLabel(
-            succ_card,
-            text=f"Провайдер: {self.selected_provider}  |  Слот: {self.target_slot}",
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_SECONDARY,
-        ).pack(anchor="w", padx=16, pady=(0, 12))
-
-        # Models list
         if self.discovered_models:
-            ctk.CTkLabel(self.body, text="Доступные проверенные модели:", font=Theme.font_subheading(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", pady=(8, 4))
-            for m in self.discovered_models:
-                ctk.CTkLabel(self.body, text=f"  ✓ {m}", font=Theme.font_mono_sm(), text_color=Theme.TEXT_SECONDARY).pack(anchor="w")
+            models_str = ", ".join(self.discovered_models[:4])
+            if len(self.discovered_models) > 4:
+                models_str += f" (+{len(self.discovered_models)-4})"
+            ctk.CTkLabel(info_card, text=f"Доступные модели: {models_str}", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(anchor="w", padx=14, pady=(2, 10))
         else:
-            ctk.CTkLabel(self.body, text="Модели не обнаружены или не проверены.", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED).pack(anchor="w", pady=(8, 4))
+            ctk.CTkLabel(info_card, text="", font=Theme.font_caption()).pack(pady=(0, 6))
 
-        HubButton(self.footer, text="Перейти к назначению роли ➔", variant="primary", width=220, command=self._show_step_4_assignment).pack(side="right")
+        HubButton(self.footer, text="⬅ Назад", variant="secondary", width=100, command=self._show_step_2_auth).pack(side="left")
+        HubButton(self.footer, text="Далее к назначению ➔", variant="primary", width=180, command=self._show_step_4_assignment).pack(side="right")
 
     # ═══════════════════════════════════════════════════════════════
-    #  STEP 4: Auto-Assignment Recommendation
+    #  STEP 4: Role Assignment & Confirmation
     # ═══════════════════════════════════════════════════════════════
 
     def _show_step_4_assignment(self):
         self._clear_body()
-        self.title_lbl.configure(text="Шаг 4 из 4: Назначение роли в команде")
+        self.title_lbl.configure(text="Шаг 4 из 4: Назначение роли")
 
-        # Get AutoAssigner recommendation
-        rec_slot, rec_title, rec_reason = AutoAssigner.recommend_assignment(self.selected_provider)
+        rec_role, rec_reason = AutoAssigner.recommend_role_for_new_account(self.selected_provider, self.target_slot)
 
-        rec_card = HubCard(self.body, border_color=Theme.BORDER_ACCENT, fg_color=Theme.DARK)
-        rec_card.pack(fill="x", pady=(0, 14))
+        rec_card = HubCard(self.body, border_color=Theme.ACCENT)
+        rec_card.pack(fill="x", pady=(0, 12))
+
+        role_labels = {
+            "orchestrator": "Оркестратор (Главный агент)",
+            "coder": "Разработчик (Coder)",
+            "reviewer": "Ревьюер (Reviewer)",
+            "researcher": "Исследователь (Research)",
+            "general": "Общий пул (General)",
+            "spare": "Только резерв (Cold Spare)",
+        }
 
         ctk.CTkLabel(
             rec_card,
-            text=f"⚡ Рекомендация Hermes Hub: «{rec_title}»",
-            font=Theme.font_heading(),
-            text_color=Theme.TEXT_ACCENT,
+            text=f"💡 Рекомендованное назначение: {role_labels.get(rec_role, rec_role)}",
+            font=Theme.font_body_bold(),
+            text_color=Theme.ACCENT,
         ).pack(anchor="w", padx=14, pady=(10, 2))
 
         ctk.CTkLabel(
@@ -547,23 +954,20 @@ class AddAccountWizard(HubModal):
             text=rec_reason,
             font=Theme.font_caption(),
             text_color=Theme.TEXT_SECONDARY,
-            wraplength=500,
+            wraplength=520,
             justify="left",
         ).pack(anchor="w", padx=14, pady=(0, 10))
 
-        # Options
-        role_var = ctk.StringVar(value="auto")
+        ctk.CTkLabel(
+            self.body,
+            text="Выберите роль в многоагентной цепочке маршрутизации:",
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(anchor="w", pady=(4, 6))
 
-        roles_opts = [
-            ("auto", f"Автоматически: {rec_title} (Рекомендуется)"),
-            ("orchestrator", "Главный оркестратор"),
-            ("coder", "Кодер"),
-            ("reviewer", "Ревьюер"),
-            ("researcher", "Исследователь"),
-            ("spare", "Только резерв (Spare)"),
-        ]
+        role_var = ctk.StringVar(value=rec_role)
 
-        for val, lbl in roles_opts:
+        for val, lbl in role_labels.items():
             ctk.CTkRadioButton(
                 self.body,
                 text=lbl,

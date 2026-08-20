@@ -25,22 +25,38 @@ class CodexAdapter(BaseProviderAdapter):
 
     def _resolve_token(self, profile: RouterProfileConfig) -> Optional[str]:
         # 1. Profile auth_config token
-        if "access_token" in profile.auth_config:
+        if "access_token" in profile.auth_config and profile.auth_config["access_token"]:
             return profile.auth_config["access_token"]
-        if "api_key" in profile.auth_config:
+        if "api_key" in profile.auth_config and profile.auth_config["api_key"]:
             return profile.auth_config["api_key"]
 
-        # 2. Check environment variable mapped to this account
+        # 2. Check profile-specific storage (Multi-account isolation)
+        try:
+            from ..profile_manager import ProfileAuthManager
+            creds = ProfileAuthManager.load_profile_auth("openai-codex", profile.profile_id)
+            if creds:
+                if isinstance(creds.get("token"), dict) and creds["token"].get("access_token"):
+                    return creds["token"]["access_token"]
+                if isinstance(creds.get("tokens"), dict) and creds["tokens"].get("access_token"):
+                    return creds["tokens"]["access_token"]
+                if creds.get("access_token"):
+                    return creds["access_token"]
+                if creds.get("api_key"):
+                    return creds["api_key"]
+        except Exception:
+            pass
+
+        # 3. Check environment variable mapped to this account
         env_var_name = f"CODEX_TOKEN_{profile.profile_id.upper().replace('-', '_')}"
         if env_var_name in os.environ and os.environ[env_var_name].strip():
             return os.environ[env_var_name].strip()
 
-        # 3. Check general CODEX / OPENAI keys
+        # 4. Check general CODEX / OPENAI keys
         for fallback_env in ("CODEX_API_KEY", "OPENAI_API_KEY"):
             if fallback_env in os.environ and os.environ[fallback_env].strip():
                 return os.environ[fallback_env].strip()
 
-        # 4. Check Hermes auth.json store
+        # 5. Check Hermes auth.json store
         try:
             from hermes_cli.auth import resolve_codex_runtime_credentials
             creds = resolve_codex_runtime_credentials()
