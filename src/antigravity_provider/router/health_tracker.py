@@ -63,14 +63,57 @@ def extract_model_family(model_name: Optional[str]) -> str:
     return "default"
 
 
+class _FileLock:
+    """Interprocess file lock supporting Windows (msvcrt) and Unix (fcntl)."""
+
+    def __init__(self, lock_path: Path):
+        self.lock_path = lock_path
+        self._fd: Optional[int] = None
+
+    def __enter__(self):
+        try:
+            self.lock_path.parent.mkdir(parents=True, exist_ok=True)
+            self._fd = os.open(str(self.lock_path), os.O_CREAT | os.O_RDWR)
+            if os.name == "nt":
+                import msvcrt
+                msvcrt.locking(self._fd, msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+                fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except Exception:
+            pass
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if self._fd is not None:
+            try:
+                if os.name == "nt":
+                    import msvcrt
+                    try:
+                        msvcrt.locking(self._fd, msvcrt.LK_UNLCK, 1)
+                    except Exception:
+                        pass
+                else:
+                    import fcntl
+                    try:
+                        fcntl.flock(self._fd, fcntl.LOCK_UN)
+                    except Exception:
+                        pass
+                os.close(self._fd)
+            except Exception:
+                pass
+            self._fd = None
+
+
 class HealthTracker:
-    """Thread-safe health tracker for router profiles and model families with atomic disk persistence."""
+    """Thread-safe health tracker for router profiles and model families with atomic disk persistence and interprocess locking."""
 
     def __init__(self, state_file: Optional[Path] = None):
         if state_file is None:
             state_file = paths.get_router_state_path()
 
         self.state_file = state_file
+        self.lock_file = self.state_file.with_suffix(".lock")
         self._lock = threading.RLock()
         self._profiles: dict[str, ProfileHealthRecord] = {}
         self._load_state()
@@ -105,7 +148,7 @@ class HealthTracker:
             pass
 
     def _save_state(self) -> None:
-        """Atomically persist health state to disk using temporary file + atomic rename."""
+        """Atomically persist health state to disk with interprocess locking and temporary file replace."""
         try:
             self.state_file.parent.mkdir(parents=True, exist_ok=True)
             data: dict[str, Any] = {"profiles": {}}
@@ -131,18 +174,19 @@ class HealthTracker:
                 data["profiles"][pid] = pdict
 
             serialized = json.dumps(data, indent=2, ensure_ascii=False) + "\n"
-            
-            # Atomic file replace
-            tmp_fd, tmp_path = tempfile.mkstemp(
-                dir=str(self.state_file.parent),
-                prefix="router_state_",
-                suffix=".tmp",
-            )
-            with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
-                f.write(serialized)
-            
-            # Atomic replace (works on Windows & POSIX in Python 3.3+)
-            os.replace(tmp_path, str(self.state_file))
+
+            with _FileLock(self.lock_file):
+                # Atomic file replace
+                tmp_fd, tmp_path = tempfile.mkstemp(
+                    dir=str(self.state_file.parent),
+                    prefix="router_state_",
+                    suffix=".tmp",
+                )
+                with os.fdopen(tmp_fd, "w", encoding="utf-8") as f:
+                    f.write(serialized)
+
+                # Atomic replace (works on Windows & POSIX in Python 3.3+)
+                os.replace(tmp_path, str(self.state_file))
         except Exception:
             pass
 

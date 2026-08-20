@@ -48,7 +48,9 @@ def test_silent_installer_execution_with_hermes(tmp_path):
 
     env = dict(os.environ)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
-    env["LOCALAPPDATA"] = str(tmp_path)
+    env["LOCALAPPDATA"] = str(tmp_path / "localappdata")
+    env["APPDATA"] = str(tmp_path / "appdata")
+    env["USERPROFILE"] = str(tmp_path / "user")
 
     res = subprocess.run([str(SETUP_EXE), "/silent"], env=env, capture_output=True, text=True)
     assert res.returncode == 0, f"Expected returncode 0, got {res.returncode}. Stderr: {res.stderr}"
@@ -63,7 +65,9 @@ def test_silent_installer_fails_without_hermes(tmp_path):
     fake_home = tmp_path / "non_existent_hermes"
     env = dict(os.environ)
     env["HERMES_HOME"] = str(fake_home)
-    env["LOCALAPPDATA"] = str(tmp_path)
+    env["LOCALAPPDATA"] = str(tmp_path / "localappdata")
+    env["APPDATA"] = str(tmp_path / "appdata")
+    env["USERPROFILE"] = str(tmp_path / "user")
 
     res = subprocess.run([str(SETUP_EXE), "/silent"], env=env, capture_output=True, text=True)
     assert res.returncode != 0, f"Expected failure for missing Hermes, got {res.returncode}"

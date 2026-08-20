@@ -25,6 +25,11 @@ from ..router_config import RouterProfileConfig
 from .base_adapter import BaseProviderAdapter, ErrorCategory, ErrorClassification
 
 
+import threading
+
+_AGY_INVOCATION_LOCK = threading.RLock()
+
+
 def get_profile_env_dir(profile_id: str) -> Path:
     """Return isolated environment path for an agy profile."""
     return get_profile_dir(profile_id, "antigravity")
@@ -49,26 +54,28 @@ class AntigravityAdapter(BaseProviderAdapter):
 
         # Load profile-specific auth and swap into Windows Credential Manager if present
         profile_auth = ProfileAuthManager.load_profile_auth("antigravity", profile.profile_id)
-        prev_cred = None
 
         if profile_auth:
-            with _CM_LOCK:
-                try:
-                    prev_cred = ProfileAuthManager.read_windows_credential("gemini:antigravity")
-                except Exception:
-                    prev_cred = None
-                ProfileAuthManager.write_windows_credential("gemini:antigravity", profile_auth)
-
-        try:
-            res = agy_generate(req, custom_env=custom_env)
-        finally:
-            if profile_auth:
+            with _AGY_INVOCATION_LOCK:
+                prev_cred = None
                 with _CM_LOCK:
                     try:
-                        if prev_cred:
-                            ProfileAuthManager.write_windows_credential("gemini:antigravity", prev_cred)
+                        prev_cred = ProfileAuthManager.read_windows_credential("gemini:antigravity")
                     except Exception:
-                        pass
+                        prev_cred = None
+                    ProfileAuthManager.write_windows_credential("gemini:antigravity", profile_auth)
+
+                try:
+                    res = agy_generate(req, custom_env=custom_env)
+                finally:
+                    with _CM_LOCK:
+                        try:
+                            if prev_cred:
+                                ProfileAuthManager.write_windows_credential("gemini:antigravity", prev_cred)
+                        except Exception:
+                            pass
+        else:
+            res = agy_generate(req, custom_env=custom_env)
 
         if isinstance(res, dict) and "error" in res:
             err_dict = res.get("error")

@@ -26,11 +26,13 @@ class RouterEngine:
     ) -> None:
         self.config = config or load_router_config()
         self.health = health or HealthTracker()
-        self.affinity = affinity or SessionAffinityTracker()
+        self.affinity = affinity or SessionAffinityTracker(ttl_seconds=self.config.session_affinity_ttl_seconds)
         self.leases = leases or LeaseManager()
 
     def reload_config(self) -> None:
         self.config = load_router_config()
+        if self.affinity and hasattr(self.affinity, "ttl_seconds"):
+            self.affinity.ttl_seconds = self.config.session_affinity_ttl_seconds
 
     def resolve_role(self, request: Dict[str, Any], explicit_role: Optional[str] = None) -> str:
         """Determine logical role from explicit parameter, request payload, or personality."""
@@ -199,6 +201,10 @@ class RouterEngine:
             try:
                 # Prepare profile-specific model selection
                 exec_request = dict(request)
+                if "timeout" not in exec_request:
+                    from antigravity_provider.router.settings_service import get_hub_settings
+                    exec_request["timeout"] = get_hub_settings().get("model_timeout_seconds", 60)
+
                 if selected_model and selected_model != "default":
                     exec_request["model"] = selected_model
                 elif pconfig.preferred_models:

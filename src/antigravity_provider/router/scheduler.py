@@ -122,6 +122,27 @@ class HermesRefreshScheduler:
                 priority=10,
             )
 
+    def apply_settings(self, settings: Optional[Dict[str, Any]] = None) -> None:
+        """Apply monitoring settings from hub_settings.json."""
+        if settings is None:
+            try:
+                from antigravity_provider.router.settings_service import get_hub_settings
+                settings = get_hub_settings()
+            except Exception:
+                settings = {}
+
+        auto_mon = settings.get("auto_monitoring", True)
+        interval = max(5, int(settings.get("monitoring_interval_seconds", 30)))
+
+        with self._lock:
+            for task in self._tasks.values():
+                if task.scope == "current":
+                    task.interval_seconds = interval
+                elif task.scope == "full":
+                    task.interval_seconds = max(interval * 4, 120)
+                if not auto_mon:
+                    task.next_run_at = float("inf")
+
     def set_provider_interval(self, provider: str, interval_seconds: int) -> None:
         """Update refresh interval for a specific provider (e.g. from settings view)."""
         with self._lock:

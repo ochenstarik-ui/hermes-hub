@@ -390,8 +390,28 @@ def save_router_config(config: RouterConfig, config_path: Optional[Path] = None)
             "profiles": profiles_data,
         }
 
-        config_path.write_text(yaml.safe_dump(data, sort_keys=False, allow_unicode=True), encoding="utf-8")
+        existing_comments = []
+        if config_path.exists():
+            try:
+                for line in config_path.read_text(encoding="utf-8").splitlines():
+                    if line.strip().startswith("#"):
+                        existing_comments.append(line)
+                    elif not line.strip():
+                        if existing_comments:
+                            existing_comments.append(line)
+                    else:
+                        break
+            except Exception:
+                pass
+
+        dumped_yaml = yaml.safe_dump(data, sort_keys=False, allow_unicode=True)
+        if existing_comments:
+            content = "\n".join(existing_comments).rstrip() + "\n\n" + dumped_yaml
+        else:
+            content = "# Hermes Router Configuration\n# Multi-Provider Profile and Role Routing Rules\n\n" + dumped_yaml
+
+        config_path.write_text(content, encoding="utf-8")
         return True
-    except Exception as e:
+    except Exception:
         return False
 
