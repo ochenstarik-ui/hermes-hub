@@ -23,10 +23,10 @@ CALLBACK_PORT = 51121
 CALLBACK_PATH = "/oauth-callback"
 AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 TOKEN_URL = "https://oauth2.googleapis.com/token"
-CLIENT_ID = "".join(
-    ("1071006060591", "-", "tmhssin2h21lcre235vtolojh4g403ep", ".apps.", "googleusercontent", ".com")
-)
-CLIENT_SECRET = "".join(("GOC", "SPX", "-", "K58FWR486LdLJ1mLB", "8sXC4z6qDAf"))
+# Standard Native Desktop Client configuration per RFC 8252 PKCE flow.
+# See docs/OAUTH_CLIENT.md for architecture and threat model.
+CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+CLIENT_SECRET = "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"
 SCOPES = [
     "https://www.googleapis.com/auth/cloud-platform",
     "https://www.googleapis.com/auth/userinfo.email",

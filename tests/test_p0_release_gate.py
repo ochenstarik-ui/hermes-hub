@@ -417,3 +417,36 @@ def test_r4_settings_runtime_influence(tmp_path, monkeypatch):
         res = engine.route_request({"messages": [{"role": "user", "content": "Hello"}]}, role="orchestrator")
         assert res["choices"][0]["message"]["content"] == "Fallback OK"
         assert mock_codex.call_count == 1
+
+
+@pytest.mark.unit
+def test_s4_secret_scanner_ast_detection(tmp_path):
+    """S4/N3: Verify that AST secret scanner catches obfuscated string concatenation and real tokens."""
+    import importlib
+    import sys
+    scripts_dir = str(Path(__file__).resolve().parent.parent / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import release_gate
+    importlib.reload(release_gate)
+    scan_file_for_secrets = release_gate.scan_file_for_secrets
+
+    # 1. Obfuscated secret assignment via string concatenation must be detected
+    bad_file_1 = tmp_path / "bad_code_1.py"
+    bad_file_1.write_text('CLIENT_SECRET = "secret_" + "part2"\n', encoding="utf-8")
+    v1 = scan_file_for_secrets(bad_file_1)
+    assert len(v1) > 0
+    assert any("Obfuscated" in x or "secret" in x for x in v1)
+
+    # 2. Live API key pattern must be detected
+    bad_file_2 = tmp_path / "bad_code_2.py"
+    bad_file_2.write_text('KEY = "sk-abcdef1234567890123456789012345678"\n', encoding="utf-8")
+    v2 = scan_file_for_secrets(bad_file_2)
+    assert len(v2) > 0
+    assert any("Live API key" in x for x in v2)
+
+    # 3. Clean file passes
+    clean_file = tmp_path / "clean_code.py"
+    clean_file.write_text('def hello(): return "world"\n', encoding="utf-8")
+    v3 = scan_file_for_secrets(clean_file)
+    assert len(v3) == 0

@@ -11,6 +11,7 @@ Strictly checks all criteria before allowing a release build:
 """
 from __future__ import annotations
 
+import ast
 import json
 import os
 import re
@@ -98,6 +99,65 @@ def check_zero_hardcoded_paths() -> tuple[bool, str]:
     return True, "Zero hardcoded developer paths in src/"
 
 
+def _eval_ast_str_expr(node: ast.AST) -> str | None:
+    """Evaluate constant string or binary string additions in AST."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    elif isinstance(node, ast.BinOp) and isinstance(node.op, ast.Add):
+        left = _eval_ast_str_expr(node.left)
+        right = _eval_ast_str_expr(node.right)
+        if left is not None and right is not None:
+            return left + right
+    return None
+
+
+def scan_file_for_secrets(file_path: Path) -> list[str]:
+    """Scan a Python file using AST and regex for hardcoded secrets, keys, or obfuscated tokens."""
+    violations = []
+    content = file_path.read_text(encoding="utf-8", errors="ignore")
+
+    # 1. Regex checks for live credentials
+    patterns = [
+        (re.compile(r"""(?:sk-[a-zA-Z0-9]{32,}|opencode-[a-zA-Z0-9]{20,})"""), "Live API key pattern"),
+        (re.compile(r"""ya29\.[a-zA-Z0-9_-]{40,}"""), "Google OAuth user token"),
+        (re.compile(r"""-----BEGIN [A-Z ]*PRIVATE KEY-----"""), "Private Key header"),
+        (re.compile(r"""(?:bearer\s+[a-zA-Z0-9_\-\.]{40,})""", re.IGNORECASE), "Bearer token pattern"),
+    ]
+    for pat, desc in patterns:
+        if pat.search(content):
+            violations.append(f"{desc} in {file_path.name}")
+
+    # 2. AST variable inspection
+    try:
+        tree = ast.parse(content, filename=str(file_path))
+    except Exception as e:
+        violations.append(f"Syntax error in {file_path.name}: {e}")
+        return violations
+
+    ALLOWED_PUBLIC_CLIENT_SECRET = "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"
+    ALLOWED_PUBLIC_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+    SENSITIVE_VAR_NAMES = {"CLIENT_SECRET", "API_KEY", "ACCESS_TOKEN", "REFRESH_TOKEN", "SECRET_KEY", "PRIVATE_KEY"}
+
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Assign):
+            for target in node.targets:
+                if isinstance(target, ast.Name) and target.id.upper() in SENSITIVE_VAR_NAMES:
+                    # Detect obfuscation via string concatenation
+                    if isinstance(node.value, (ast.BinOp, ast.Call)):
+                        violations.append(f"Obfuscated secret assignment in variable '{target.id}' in {file_path.name}")
+                    val_str = _eval_ast_str_expr(node.value)
+                    if val_str:
+                        if target.id == "CLIENT_SECRET" and val_str == ALLOWED_PUBLIC_CLIENT_SECRET:
+                            continue
+                        if target.id == "CLIENT_ID" and val_str == ALLOWED_PUBLIC_CLIENT_ID:
+                            continue
+                        if val_str.startswith("PLACEHOLDER") or val_str.startswith("dummy_") or val_str == "":
+                            continue
+                        violations.append(f"Hardcoded sensitive secret in variable '{target.id}' in {file_path.name}")
+
+    return violations
+
+
 def check_security_zero_secrets() -> tuple[bool, str]:
     secret_files = list(ROOT.rglob("auth.json")) + list(ROOT.rglob("*.secret")) + list(ROOT.rglob("*.key")) + list(ROOT.rglob(".env*"))
     tracked_secrets = []
@@ -108,15 +168,18 @@ def check_security_zero_secrets() -> tuple[bool, str]:
     if tracked_secrets:
         return False, f"Found sensitive secret files in repository:\n" + "\n".join(tracked_secrets)
 
-    # Check for hardcoded OpenAI / OpenCode live API keys in src/
+    # Scan all python files in src/
     src_dir = ROOT / "src"
-    live_key_pattern = re.compile(r"""(?:sk-[a-zA-Z0-9]{32,}|opencode-[a-zA-Z0-9]{20,})""")
+    all_violations = []
     for f in src_dir.rglob("*.py"):
-        text = f.read_text(encoding="utf-8", errors="ignore")
-        if live_key_pattern.search(text):
-            return False, f"Found potential live API key in source file: {f.relative_to(ROOT)}"
+        violations = scan_file_for_secrets(f)
+        if violations:
+            all_violations.extend([f"{f.relative_to(ROOT)}: {v}" for v in violations])
 
-    return True, "Zero secret/credential files or live API keys tracked in repository"
+    if all_violations:
+        return False, f"Secret scanner detected violations in src/:\n" + "\n".join(all_violations)
+
+    return True, "Zero secret files, live tokens, or obfuscated secret assignments in src/"
 
 
 def run_release_gate():
