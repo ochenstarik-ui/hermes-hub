@@ -38,8 +38,13 @@ class RouterConfig:
     default_role: str = "orchestrator"
     quota_cooldown_seconds: int = 1800  # 30 min default
     rate_limit_cooldown_seconds: int = 60  # 1 min default
+    max_failover_attempts: int = 3
+    cooldown_base_seconds: int = 300
+    cooldown_max_seconds: int = 3600
+    session_affinity_ttl_seconds: int = 1800
     roles: dict[str, RolePolicy] = field(default_factory=dict)
     profiles: dict[str, RouterProfileConfig] = field(default_factory=dict)
+    raw_router_block: dict[str, Any] = field(default_factory=dict)
 
     def get_profile(self, profile_id: str) -> Optional[RouterProfileConfig]:
         return self.profiles.get(profile_id)
@@ -146,24 +151,27 @@ def get_default_router_config() -> RouterConfig:
         "ag-cold-1": RouterProfileConfig(
             profile_id="ag-cold-1",
             provider="antigravity",
-            account_id="ag-acc-cold1",
-            capabilities=["cold-spare"],
+            account_id="ag-acc-c1",
+            capabilities=["cold-spare", "coding", "reasoning"],
+            preferred_models=["gemini-3.5-flash"],
             enabled=False,
             max_concurrency=1,
         ),
         "ag-cold-2": RouterProfileConfig(
             profile_id="ag-cold-2",
             provider="antigravity",
-            account_id="ag-acc-cold2",
-            capabilities=["cold-spare"],
+            account_id="ag-acc-c2",
+            capabilities=["cold-spare", "coding", "reasoning"],
+            preferred_models=["gemini-3.5-flash"],
             enabled=False,
             max_concurrency=1,
         ),
         "ag-cold-3": RouterProfileConfig(
             profile_id="ag-cold-3",
             provider="antigravity",
-            account_id="ag-acc-cold3",
-            capabilities=["cold-spare"],
+            account_id="ag-acc-c3",
+            capabilities=["cold-spare", "coding", "reasoning"],
+            preferred_models=["gemini-3.5-flash"],
             enabled=False,
             max_concurrency=1,
         ),
@@ -172,25 +180,25 @@ def get_default_router_config() -> RouterConfig:
             profile_id="opengo-1",
             provider="opencode-go",
             account_id="opengo-acc-1",
-            capabilities=["research", "search", "fast", "review"],
-            preferred_models=["qwen3.8-max", "glm-5.3", "deepseek-v4-flash", "grok-4.5"],
-            max_concurrency=3,
+            capabilities=["coding", "fast", "multimodal"],
+            preferred_models=["deepseek-r1", "qwen-2.5-coder-32b", "deepseek-v3"],
+            max_concurrency=5,
         ),
         "opengo-2": RouterProfileConfig(
             profile_id="opengo-2",
             provider="opencode-go",
             account_id="opengo-acc-2",
-            capabilities=["reviewer", "review", "coding", "reasoning"],
-            preferred_models=["deepseek-v4-pro", "grok-4.5", "qwen3.7-max"],
-            max_concurrency=3,
+            capabilities=["research", "coding", "multimodal"],
+            preferred_models=["deepseek-v3", "qwen-2.5-coder-32b", "deepseek-r1"],
+            max_concurrency=5,
         ),
         "opengo-3": RouterProfileConfig(
             profile_id="opengo-3",
             provider="opencode-go",
             account_id="opengo-acc-3",
-            capabilities=["coder-fallback", "orchestrator", "coding", "reasoning"],
-            preferred_models=["kimi-k2.7-code", "deepseek-v4-pro", "qwen3.8-max"],
-            max_concurrency=3,
+            capabilities=["fallback", "coding", "reasoning"],
+            preferred_models=["deepseek-r1", "deepseek-v3", "qwen-2.5-coder-32b"],
+            max_concurrency=5,
         ),
     }
 
@@ -267,6 +275,8 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
 
     try:
         data = yaml.safe_load(config_path.read_text(encoding="utf-8")) or {}
+        r_block = data.get("router") if isinstance(data.get("router"), dict) else {}
+
         profiles_raw = data.get("profiles", {})
         profiles: dict[str, RouterProfileConfig] = {}
         for pid, pdata in profiles_raw.items():
@@ -295,13 +305,27 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
                 default_model=rdata.get("default_model"),
             )
 
+        enabled = bool(r_block.get("enabled", data.get("enabled", True)))
+        default_role = str(r_block.get("default_role", data.get("default_role", "orchestrator")))
+        max_failover = int(r_block.get("max_failover_attempts", data.get("max_failover_attempts", 3)))
+        cooldown_base = int(r_block.get("cooldown_base_seconds", data.get("cooldown_base_seconds", 300)))
+        cooldown_max = int(r_block.get("cooldown_max_seconds", data.get("cooldown_max_seconds", 3600)))
+        session_ttl = int(r_block.get("session_affinity_ttl_seconds", data.get("session_affinity_ttl_seconds", 1800)))
+        quota_cooldown = int(r_block.get("quota_cooldown_seconds", data.get("quota_cooldown_seconds", 1800)))
+        rate_cooldown = int(r_block.get("rate_limit_cooldown_seconds", data.get("rate_limit_cooldown_seconds", 60)))
+
         return RouterConfig(
-            enabled=bool(data.get("enabled", True)),
-            default_role=str(data.get("default_role", "orchestrator")),
-            quota_cooldown_seconds=int(data.get("quota_cooldown_seconds", 1800)),
-            rate_limit_cooldown_seconds=int(data.get("rate_limit_cooldown_seconds", 60)),
+            enabled=enabled,
+            default_role=default_role,
+            quota_cooldown_seconds=quota_cooldown,
+            rate_limit_cooldown_seconds=rate_cooldown,
+            max_failover_attempts=max_failover,
+            cooldown_base_seconds=cooldown_base,
+            cooldown_max_seconds=cooldown_max,
+            session_affinity_ttl_seconds=session_ttl,
             roles=roles or get_default_router_config().roles,
             profiles=profiles or get_default_router_config().profiles,
+            raw_router_block=r_block,
         )
     except Exception as e:
         # Fall back gracefully to built-in defaults on YAML error
@@ -309,7 +333,7 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
 
 
 def save_router_config(config: RouterConfig, config_path: Optional[Path] = None) -> bool:
-    """Save RouterConfig to YAML file."""
+    """Save RouterConfig to YAML file preserving canonical router block schema."""
     if config_path is None:
         env_config = os.environ.get("HERMES_ROUTER_CONFIG", "").strip()
         if env_config:
@@ -341,6 +365,7 @@ def save_router_config(config: RouterConfig, config_path: Optional[Path] = None)
         roles_data = {}
         for rname, rpol in config.roles.items():
             roles_data[rname] = {
+                "role_name": rname,
                 "preferred_chain": rpol.preferred_chain,
                 "fallback_capabilities": rpol.fallback_capabilities,
                 "max_failover_attempts": rpol.max_failover_attempts,
@@ -349,11 +374,18 @@ def save_router_config(config: RouterConfig, config_path: Optional[Path] = None)
             if rpol.default_model:
                 roles_data[rname]["default_model"] = rpol.default_model
 
-        data = {
+        router_block = dict(config.raw_router_block) if config.raw_router_block else {}
+        router_block.update({
             "enabled": config.enabled,
             "default_role": config.default_role,
-            "quota_cooldown_seconds": config.quota_cooldown_seconds,
-            "rate_limit_cooldown_seconds": config.rate_limit_cooldown_seconds,
+            "max_failover_attempts": config.max_failover_attempts,
+            "cooldown_base_seconds": config.cooldown_base_seconds,
+            "cooldown_max_seconds": config.cooldown_max_seconds,
+            "session_affinity_ttl_seconds": config.session_affinity_ttl_seconds,
+        })
+
+        data = {
+            "router": router_block,
             "roles": roles_data,
             "profiles": profiles_data,
         }

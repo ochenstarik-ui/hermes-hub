@@ -56,17 +56,34 @@ class AntigravityAdapter(BaseProviderAdapter):
             res = agy_generate(req, custom_env=custom_env)
 
         if isinstance(res, dict) and "error" in res:
-            err_dict = res["error"]
+            err_dict = res.get("error")
             err_msg = err_dict.get("message", "Antigravity provider error") if isinstance(err_dict, dict) else str(err_dict)
             err_lower = err_msg.lower()
-            if any(k in err_lower for k in ("quota", "resource_exhausted", "429", "limit", "exhausted")):
-                raise QuotaExceededError(err_msg, provider="antigravity", profile_id=profile.profile_id)
-            elif any(k in err_lower for k in ("auth", "401", "403", "expired", "token", "unauthorized")):
+
+            # 1. Auth errors
+            if any(k in err_lower for k in ("auth", "401", "403", "expired", "token", "unauthorized", "login", "keychain")):
                 raise AuthExpiredError(err_msg, provider="antigravity", profile_id=profile.profile_id)
-            elif "rate" in err_lower:
+
+            # 2. Rate limiting (Check BEFORE general quota so "429: rate limit exceeded" gets 60s cooldown)
+            if any(k in err_lower for k in ("rate", "too many requests", "rate_limit")):
                 raise RateLimitedError(err_msg, provider="antigravity", profile_id=profile.profile_id)
-            else:
-                raise ProviderUnavailableError(err_msg, provider="antigravity", profile_id=profile.profile_id)
+
+            # 3. Quota Exhaustion (Parse reset duration e.g. "resets in 2h")
+            if any(k in err_lower for k in ("quota", "resource_exhausted", "429", "limit", "exhausted")):
+                reset_sec = 1800
+                m_hr = re.search(r"(\d+)\s*(?:hours?|h\b)", err_lower)
+                m_min = re.search(r"(\d+)\s*(?:minutes?|m\b)", err_lower)
+                m_sec = re.search(r"(\d+)\s*(?:seconds?|s\b)", err_lower)
+                if m_hr:
+                    reset_sec = int(m_hr.group(1)) * 3600
+                elif m_min:
+                    reset_sec = int(m_min.group(1)) * 60
+                elif m_sec:
+                    reset_sec = int(m_sec.group(1))
+
+                raise QuotaExceededError(err_msg, provider="antigravity", profile_id=profile.profile_id, reset_in_sec=reset_sec)
+
+            raise ProviderUnavailableError(err_msg, provider="antigravity", profile_id=profile.profile_id)
 
         return res
 

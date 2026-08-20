@@ -45,37 +45,34 @@ def check_version_consistency() -> tuple[bool, str]:
     return True, f"Version {ver} is consistent across all manifests"
 
 
-def check_p0_release_gate() -> tuple[bool, str]:
-    res = subprocess.run(
-        [sys.executable, "-m", "pytest", "-v", "tests/test_p0_release_gate.py"],
+def _run_pytest(args: list[str]) -> subprocess.CompletedProcess:
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(ROOT / "src")
+    return subprocess.run(
+        [sys.executable, "-m", "pytest"] + args,
         cwd=str(ROOT),
+        env=env,
         capture_output=True,
         text=True,
     )
+
+
+def check_p0_release_gate() -> tuple[bool, str]:
+    res = _run_pytest(["-v", "tests/test_p0_release_gate.py"])
     if res.returncode != 0:
         return False, f"P0 tests failed:\n{res.stdout}\n{res.stderr}"
-    return True, "9/9 P0 release blockers verified"
+    return True, "12/12 P0 release blockers & regression checks verified"
 
 
 def check_updater_and_rollback() -> tuple[bool, str]:
-    res = subprocess.run(
-        [sys.executable, "-m", "pytest", "-v", "tests/test_updater.py"],
-        cwd=str(ROOT),
-        capture_output=True,
-        text=True,
-    )
+    res = _run_pytest(["-v", "tests/test_updater.py"])
     if res.returncode != 0:
         return False, f"Updater tests failed:\n{res.stdout}\n{res.stderr}"
     return True, "Auto-updater, SHA-256 verification, and rollback verified"
 
 
 def check_full_test_suite() -> tuple[bool, str]:
-    res = subprocess.run(
-        [sys.executable, "-m", "pytest", "-v"],
-        cwd=str(ROOT),
-        capture_output=True,
-        text=True,
-    )
+    res = _run_pytest(["-v"])
     if res.returncode != 0:
         return False, f"Offline pytest suite failed:\n{res.stdout}\n{res.stderr}"
     return True, "All unit and integration tests passed offline"
@@ -102,15 +99,24 @@ def check_zero_hardcoded_paths() -> tuple[bool, str]:
 
 
 def check_security_zero_secrets() -> tuple[bool, str]:
-    secret_files = list(ROOT.rglob("auth.json")) + list(ROOT.rglob("*.secret")) + list(ROOT.rglob("*.key"))
+    secret_files = list(ROOT.rglob("auth.json")) + list(ROOT.rglob("*.secret")) + list(ROOT.rglob("*.key")) + list(ROOT.rglob(".env*"))
     tracked_secrets = []
     for sf in secret_files:
-        if ".git" not in str(sf) and "venv" not in str(sf) and "scratch" not in str(sf):
+        if ".git" not in str(sf) and "venv" not in str(sf) and "scratch" not in str(sf) and "example" not in str(sf):
             tracked_secrets.append(str(sf.relative_to(ROOT)))
 
     if tracked_secrets:
         return False, f"Found sensitive secret files in repository:\n" + "\n".join(tracked_secrets)
-    return True, "Zero secret/credential files tracked in repository"
+
+    # Check for hardcoded OpenAI / OpenCode live API keys in src/
+    src_dir = ROOT / "src"
+    live_key_pattern = re.compile(r"""(?:sk-[a-zA-Z0-9]{32,}|opencode-[a-zA-Z0-9]{20,})""")
+    for f in src_dir.rglob("*.py"):
+        text = f.read_text(encoding="utf-8", errors="ignore")
+        if live_key_pattern.search(text):
+            return False, f"Found potential live API key in source file: {f.relative_to(ROOT)}"
+
+    return True, "Zero secret/credential files or live API keys tracked in repository"
 
 
 def run_release_gate():

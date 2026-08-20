@@ -115,13 +115,41 @@ def openai_completion_object(completion: dict[str, Any]) -> SimpleNamespace:
     """Return an object compatible with Hermes' ChatCompletionsTransport."""
     completion = dict(completion)
     choices = []
-    for raw_choice in completion.get("choices") or []:
-        choice = dict(raw_choice)
-        message = dict(choice.get("message") or {})
-        message.setdefault("content", None)
-        message.setdefault("tool_calls", None)
-        choice["message"] = message
-        choices.append(choice)
+    
+    # Handle error payload without crashing choices[0]
+    if "error" in completion and not completion.get("choices"):
+        err = completion.get("error")
+        err_msg = err.get("message") if isinstance(err, dict) else str(err)
+        choices.append({
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": f"Antigravity error: {err_msg}",
+                "tool_calls": None,
+            },
+            "finish_reason": "stop",
+        })
+    else:
+        for raw_choice in completion.get("choices") or []:
+            choice = dict(raw_choice)
+            message = dict(choice.get("message") or {})
+            message.setdefault("content", None)
+            message.setdefault("tool_calls", None)
+            choice["message"] = message
+            choices.append(choice)
+
+    # Fallback to ensure choices is never empty
+    if not choices:
+        choices.append({
+            "index": 0,
+            "message": {
+                "role": "assistant",
+                "content": "Empty or unrecognized completion response from provider.",
+                "tool_calls": None,
+            },
+            "finish_reason": "stop",
+        })
+
     completion["choices"] = choices
     completion.setdefault("usage", {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0})
     return _namespace(completion)

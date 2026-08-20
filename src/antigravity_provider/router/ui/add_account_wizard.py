@@ -35,6 +35,10 @@ class AddAccountWizard(HubModal):
 
         self._show_step_1_provider()
 
+    def destroy(self):
+        self._polling_active = False
+        super().destroy()
+
     def _clear_body(self):
         for w in self.body.winfo_children():
             w.destroy()

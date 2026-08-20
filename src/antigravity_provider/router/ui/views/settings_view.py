@@ -48,6 +48,17 @@ class SettingsView(ctk.CTkFrame):
 
     def _save_settings(self):
         try:
+            if hasattr(self, "aff_sw"):
+                self.settings["session_affinity"] = bool(self.aff_sw.get())
+            if hasattr(self, "fo_sw"):
+                self.settings["auto_failover"] = bool(self.fo_sw.get())
+            if hasattr(self, "fo_menu"):
+                self.settings["failover_attempts"] = str(self.fo_menu.get())
+            if hasattr(self, "ret_sw"):
+                self.settings["auto_return_primary"] = bool(self.ret_sw.get())
+            if hasattr(self, "mon_sw"):
+                self.settings["auto_monitoring"] = bool(self.mon_sw.get())
+
             self.settings_file.parent.mkdir(parents=True, exist_ok=True)
             self.settings_file.write_text(json.dumps(self.settings, indent=2), encoding="utf-8")
         except Exception:
@@ -75,25 +86,25 @@ class SettingsView(ctk.CTkFrame):
         r1 = ctk.CTkFrame(c1, fg_color="transparent")
         r1.pack(fill="x", padx=16, pady=4)
         ctk.CTkLabel(r1, text="Сессионная привязка (Session Affinity)", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-        aff_sw = ctk.CTkSwitch(r1, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
-        aff_sw.pack(side="right")
+        self.aff_sw = ctk.CTkSwitch(r1, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
+        self.aff_sw.pack(side="right")
         if self.settings.get("session_affinity"):
-            aff_sw.select()
+            self.aff_sw.select()
 
         # Auto Failover switch
         r2 = ctk.CTkFrame(c1, fg_color="transparent")
         r2.pack(fill="x", padx=16, pady=4)
         ctk.CTkLabel(r2, text="Автоматический Failover при исчерпании квот", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-        fo_sw = ctk.CTkSwitch(r2, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
-        fo_sw.pack(side="right")
+        self.fo_sw = ctk.CTkSwitch(r2, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
+        self.fo_sw.pack(side="right")
         if self.settings.get("auto_failover"):
-            fo_sw.select()
+            self.fo_sw.select()
 
         # Failover Attempts
         r3 = ctk.CTkFrame(c1, fg_color="transparent")
         r3.pack(fill="x", padx=16, pady=(4, 12))
         ctk.CTkLabel(r3, text="Лимит попыток failover на запрос", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-        fo_menu = ctk.CTkOptionMenu(
+        self.fo_menu = ctk.CTkOptionMenu(
             r3,
             values=["1", "2", "3", "4", "5"],
             width=80,
@@ -102,8 +113,8 @@ class SettingsView(ctk.CTkFrame):
             button_color=Theme.ACCENT,
             text_color=Theme.TEXT_PRIMARY,
         )
-        fo_menu.set(str(self.settings.get("failover_attempts", "3")))
-        fo_menu.pack(side="right")
+        self.fo_menu.set(str(self.settings.get("failover_attempts", "3")))
+        self.fo_menu.pack(side="right")
 
         # ── 2. Recovery & Monitoring ──
         c2 = HubCard(scroll, border_color=Theme.BORDER, fg_color=Theme.SURFACE)
@@ -113,18 +124,18 @@ class SettingsView(ctk.CTkFrame):
         r4 = ctk.CTkFrame(c2, fg_color="transparent")
         r4.pack(fill="x", padx=16, pady=4)
         ctk.CTkLabel(r4, text="Возвращаться на основной аккаунт после сброса квоты", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-        ret_sw = ctk.CTkSwitch(r4, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
-        ret_sw.pack(side="right")
+        self.ret_sw = ctk.CTkSwitch(r4, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
+        self.ret_sw.pack(side="right")
         if self.settings.get("auto_return_primary"):
-            ret_sw.select()
+            self.ret_sw.select()
 
         r5 = ctk.CTkFrame(c2, fg_color="transparent")
         r5.pack(fill="x", padx=16, pady=(4, 12))
         ctk.CTkLabel(r5, text="Автоматический фоновый мониторинг здоровья", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-        mon_sw = ctk.CTkSwitch(r5, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
-        mon_sw.pack(side="right")
+        self.mon_sw = ctk.CTkSwitch(r5, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
+        self.mon_sw.pack(side="right")
         if self.settings.get("auto_monitoring"):
-            mon_sw.select()
+            self.mon_sw.select()
 
         # ── 3. Updates & Release Channel ──
         c_upd = HubCard(scroll, border_color=Theme.BORDER, fg_color=Theme.SURFACE)

@@ -8,8 +8,13 @@ Enforces:
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 import pytest
+
+REPO_SRC = Path(__file__).resolve().parent.parent / "src"
+if str(REPO_SRC) not in sys.path or sys.path[0] != str(REPO_SRC):
+    sys.path.insert(0, str(REPO_SRC))
 
 
 @pytest.fixture(autouse=True)

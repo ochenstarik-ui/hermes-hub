@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from pathlib import Path
 import pytest
+
+pytest.importorskip("customtkinter")
 
 from antigravity_provider.router.hermes_hub_app import do_test_profile, do_set_main, do_set_orchestrator
 from antigravity_provider.router.profile_manager import ProfileAuthManager

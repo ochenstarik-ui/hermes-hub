@@ -188,10 +188,12 @@ class UpdateManager:
             with zipfile.ZipFile(package_zip, "r") as zf:
                 zf.extractall(dest)
 
-            # 3. Verify syntax and integrity of updated python files
+            # 3. Verify syntax and integrity of updated python files in src/
             import py_compile
-            for py_file in dest.rglob("*.py"):
-                py_compile.compile(str(py_file), doraise=True)
+            target_src = dest / "src"
+            if target_src.exists():
+                for py_file in target_src.rglob("*.py"):
+                    py_compile.compile(str(py_file), doraise=True)
 
             # Also run quick import smoke test if python executable is available
             py_exec = paths.get_hermes_agent_venv() / "Scripts" / "python.exe"

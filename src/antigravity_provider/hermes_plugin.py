@@ -37,6 +37,20 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
             role = kwargs.get("role") or request.get("role")
             session_id = kwargs.get("session_id") or request.get("session_id")
             completion = engine.route_request(request, role=role, session_id=session_id)
+            if isinstance(completion, dict) and "error" in completion and not completion.get("choices"):
+                err = completion.get("error")
+                err_msg = err.get("message") if isinstance(err, dict) else str(err)
+                completion = {
+                    "model": str(request.get("model") or DEFAULT_MODEL),
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": {"role": "assistant", "content": f"Antigravity error: {err_msg}"},
+                            "finish_reason": "stop",
+                        }
+                    ],
+                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                }
             return openai_completion_object(completion)
     except Exception as router_exc:
         logger.debug("Router invocation fell back to default provider: %s", router_exc)
@@ -46,6 +60,20 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
         return next_call(request) if callable(next_call) else request
     try:
         completion = agy_generate(request)
+        if isinstance(completion, dict) and "error" in completion and not completion.get("choices"):
+            err = completion.get("error")
+            err_msg = err.get("message") if isinstance(err, dict) else str(err)
+            completion = {
+                "model": str(request.get("model") or DEFAULT_MODEL),
+                "choices": [
+                    {
+                        "index": 0,
+                        "message": {"role": "assistant", "content": f"Antigravity error: {err_msg}"},
+                        "finish_reason": "stop",
+                    }
+                ],
+                "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            }
     except Exception as exc:
         logger.exception("agy_generate raised: %s", exc)
         completion = {

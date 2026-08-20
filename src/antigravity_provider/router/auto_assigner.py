@@ -59,6 +59,37 @@ DEFAULT_SLOT_ROLES = {
 }
 
 
+CANONICAL_ROLE_MAP = {
+    "orchestrator": "orchestrator",
+    "orchestrator_primary": "orchestrator",
+    "orchestrator_fallback": "orchestrator",
+    "главный оркестратор": "orchestrator",
+    "резервный оркестратор": "orchestrator",
+    "coder": "coder-primary",
+    "coder_1": "coder-primary",
+    "coder-1": "coder-primary",
+    "coder-primary": "coder-primary",
+    "кодер 1": "coder-primary",
+    "coder_2": "coder-secondary",
+    "coder-2": "coder-secondary",
+    "coder-secondary": "coder-secondary",
+    "кодер 2": "coder-secondary",
+    "reviewer": "reviewer",
+    "ревьюер": "reviewer",
+    "research": "research",
+    "researcher": "research",
+    "исследователь": "research",
+    "fast": "fast",
+    "fast_agent": "fast",
+    "быстрый агент": "fast",
+    "general": "fast",
+    "universal_subagent": "fast",
+    "универсальный субагент": "fast",
+    "tester": "fast",
+    "тестировщик": "fast",
+}
+
+
 class AutoAssigner:
     """Manages team view structure, auto-slot allocation, and duplicate checking."""
 
@@ -172,13 +203,19 @@ class AutoAssigner:
 
     @staticmethod
     def assign_profile_to_role(profile_id: str, role_name: str, is_primary: bool = True) -> Tuple[bool, str]:
-        """Assign a profile to a specified logical role, updating fallback chains and persisting config."""
+        """Assign a profile to a canonical router role, updating fallback chains and persisting config."""
         config = load_router_config()
         pcfg = config.get_profile(profile_id)
         if not pcfg:
             return False, f"Профиль '{profile_id}' не найден"
 
-        rpolicy = config.get_role_policy(role_name)
+        clean_role = role_name.strip().lower()
+        canonical_role = CANONICAL_ROLE_MAP.get(clean_role, clean_role)
+
+        if canonical_role not in config.roles:
+            return False, f"Неизвестная роль маршрутизатора: '{role_name}'"
+
+        rpolicy = config.roles[canonical_role]
         chain = list(rpolicy.preferred_chain)
         if profile_id in chain:
             chain.remove(profile_id)
@@ -189,13 +226,13 @@ class AutoAssigner:
             chain.append(profile_id)
 
         rpolicy.preferred_chain = chain
-        config.roles[role_name] = rpolicy
+        config.roles[canonical_role] = rpolicy
         save_router_config(config)
-        return True, f"Профиль '{profile_id}' назначен на роль '{role_name}' ({'основной' if is_primary else 'резервный'})"
+        return True, f"Профиль '{profile_id}' назначен на роль '{canonical_role}' ({'основной' if is_primary else 'резервный'})"
 
     @staticmethod
     def auto_assign_all() -> Dict[str, Any]:
-        """Automatically distribute all authenticated profiles across logical roles."""
+        """Automatically distribute all authenticated profiles across canonical router roles."""
         config = load_router_config()
         authenticated_profiles = []
         for pid, pcfg in config.profiles.items():
@@ -206,10 +243,10 @@ class AutoAssigner:
                 authenticated_profiles.append((pid, pcfg))
 
         changes = []
-        roles_order = ["orchestrator", "coder", "reviewer", "researcher", "tester", "general"]
+        canonical_roles_order = ["orchestrator", "coder-primary", "coder-secondary", "reviewer", "research", "fast"]
         for idx, (pid, pcfg) in enumerate(authenticated_profiles):
-            target_role = roles_order[idx % len(roles_order)]
-            ok, msg = AutoAssigner.assign_profile_to_role(pid, target_role, is_primary=(idx < len(roles_order)))
+            target_role = canonical_roles_order[idx % len(canonical_roles_order)]
+            ok, msg = AutoAssigner.assign_profile_to_role(pid, target_role, is_primary=(idx < len(canonical_roles_order)))
             if ok:
                 changes.append({"profile_id": pid, "role": target_role, "message": msg})
 
