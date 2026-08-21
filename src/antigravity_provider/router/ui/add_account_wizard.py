@@ -48,6 +48,7 @@ class AddAccountWizard(HubModal):
         # Session tracking
         self.oauth_session_id: Optional[str] = None
         self.oauth_url: Optional[str] = None
+        self.oauth_port: Optional[int] = None
 
         self.codex_session_id: Optional[str] = None
         self.codex_url: Optional[str] = None
@@ -83,6 +84,7 @@ class AddAccountWizard(HubModal):
             except Exception:
                 pass
             self.oauth_session_id = None
+            self.oauth_port = None
 
         if self.codex_session_id:
             try:
@@ -340,9 +342,10 @@ class AddAccountWizard(HubModal):
     def _init_antigravity_oauth(self):
         try:
             from antigravity_provider.router.profile_oauth import start_profile_oauth
-            session_id, auth_url = start_profile_oauth(self.target_slot)
+            session_id, auth_url, port = start_profile_oauth(self.target_slot)
             self.oauth_session_id = session_id
             self.oauth_url = auth_url
+            self.oauth_port = port
 
             self.oauth_url_entry.delete(0, "end")
             self.oauth_url_entry.insert(0, auth_url)

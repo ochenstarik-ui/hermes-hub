@@ -233,7 +233,7 @@ def start_oauth(req: StartOAuthRequest) -> Dict[str, Any]:
         raise HTTPException(status_code=400, detail="Нет свободных слотов для Antigravity аккаунтов")
 
     try:
-        session_id, auth_url = start_profile_oauth(profile_id)
+        session_id, auth_url, _port = start_profile_oauth(profile_id)
         display_name, _, _ = AutoAssigner.get_display_name_and_role(profile_id)
         return {
             "success": True,
