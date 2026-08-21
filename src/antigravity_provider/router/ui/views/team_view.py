@@ -76,6 +76,11 @@ class AgentCardWidget(HubCard):
         )
         self.identity_lbl.pack(anchor="w")
 
+        self.quota_lbl = ctk.CTkLabel(
+            self.line4, text="Квота: Н/Д", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED
+        )
+        self.quota_lbl.pack(anchor="w", pady=(Theme.SPACE_XS, 0))
+
         # ── Line 5: Role Tag Pills ──
         self.line5 = ctk.CTkFrame(self, fg_color="transparent")
         self.line5.pack(fill="x", padx=14, pady=(4, 6))
@@ -161,8 +166,21 @@ class AgentCardWidget(HubCard):
         else:
             self.prov_lbl.configure(text=a.provider_display_name, text_color=Theme.TEXT_MUTED)
 
-        # AgentViewModel has account identity, but no active-session or quota fields.
         self.identity_lbl.configure(text=a.account_identity or "Аккаунт: Н/Д")
+        quota_color = (
+            Theme.STATUS_HEALTHY
+            if a.active_quota_status == "healthy"
+            else (
+                Theme.STATUS_WARNING
+                if a.active_quota_status == "warning"
+                else Theme.STATUS_ERROR
+                if a.active_quota_status == "exhausted"
+                else Theme.TEXT_MUTED
+            )
+        )
+        quota_label = a.active_quota_label or "Н/Д"
+        session = f" • сессия {a.session_id}" if a.session_id else ""
+        self.quota_lbl.configure(text=f"Квота: {quota_label}{session}", text_color=quota_color)
 
         # Pills
         self.pill1_lbl.configure(text=a.role_id)

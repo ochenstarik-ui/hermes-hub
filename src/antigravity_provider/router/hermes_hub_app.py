@@ -437,8 +437,9 @@ class HermesHubApp(ctk.CTk):
             snap = HubStateStore.get().get_snapshot()
             readiness = snapshot_or_readiness
 
+        freshness = "⚠ Данные устарели" if snap.is_stale else f"Snapshot #{snap.seq}"
         self.status_left.configure(
-            text=f"Аккаунты: {readiness.accounts_connected_count}/{readiness.total_accounts} | Роли: {readiness.roles_ready_count}/{readiness.total_roles} | Провайдеры: {readiness.providers_ready_count}/{readiness.total_providers} | Обновлено: {time.strftime('%H:%M:%S')}"
+            text=f"{freshness} | Аккаунты: {readiness.accounts_connected_count}/{readiness.total_accounts} | Роли: {readiness.roles_ready_count}/{readiness.total_roles} | Провайдеры: {readiness.providers_ready_count}/{readiness.total_providers} | Обновлено: {time.strftime('%H:%M:%S')}"
         )
 
         r_color = (

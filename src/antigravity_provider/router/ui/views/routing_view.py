@@ -48,17 +48,30 @@ class RoutingRoleWidget(HubCard):
                 self._nodes.pop(profile_id).destroy()
         for index, node in enumerate(pipeline.nodes):
             rank = "Основной" if index == 0 else f"Резерв {index}"
-            subtitle = f"{node.provider_display_name} • {node.model}"
+            identity = f" • {node.account_identity}" if node.account_identity else ""
+            subtitle = f"{node.provider} • {node.model}{identity}"
             widget = self._nodes.get(node.profile_id)
             if widget is None:
                 widget = RouteTargetWidget(self.chain, rank, node.display_name, subtitle)
                 self._nodes[node.profile_id] = widget
-            widget.update_target(rank, node.display_name, subtitle, "active" if node.is_active else node.status)
+            widget.update_target(
+                rank,
+                node.display_name,
+                subtitle,
+                "active" if node.is_active else node.status,
+                node.quota_status,
+                node.failover_reason,
+            )
             widget.grid(row=0, column=index, padx=Theme.SPACE_XS, pady=Theme.SPACE_SM, sticky="nsew")
             self.chain.grid_columnconfigure(index, weight=1)
         active = next((node for node in pipeline.nodes if node.is_active), None)
+        reasons = [node.failover_reason for node in pipeline.nodes if node.failover_reason]
         self.footer.configure(
-            text=(f"Активен: {active.display_name} • причина переключения: Н/Д" if active else "Активный узел: Н/Д")
+            text=(
+                f"Активен: {active.display_name} • причина: {'; '.join(reasons) if reasons else 'Н/Д'}"
+                if active
+                else "Активный узел: Н/Д"
+            )
         )
 
 
