@@ -41,7 +41,7 @@ class AgentCardWidget(HubCard):
         self.role_lbl = ctk.CTkLabel(self.line1, text="—", font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY)
         self.role_lbl.pack(side="left")
 
-        self.orch_pill = ctk.CTkFrame(self.line1, fg_color="#3D3522", corner_radius=Theme.RADIUS_SM)
+        self.orch_pill = ctk.CTkFrame(self.line1, fg_color=Theme.ACCENT_DIM, corner_radius=Theme.RADIUS_SM)
         self.orch_pill_lbl = ctk.CTkLabel(
             self.orch_pill, text="👑 ЛИДЕР РОУТЕРА", font=Theme.font_micro(), text_color=Theme.ACCENT
         )
@@ -160,9 +160,9 @@ class AgentCardWidget(HubCard):
         elif "opencode" in prov:
             self.prov_lbl.configure(text="OpenCode Go", text_color=Theme.PROVIDER_OPENCODE)
         elif "claude" in prov or "anthropic" in prov:
-            self.prov_lbl.configure(text="Claude", text_color="#d97706")
+            self.prov_lbl.configure(text="Claude", text_color=Theme.PROVIDER_CLAUDE)
         elif "grok" in prov or "xai" in prov:
-            self.prov_lbl.configure(text="Grok", text_color="#3b82f6")
+            self.prov_lbl.configure(text="Grok", text_color=Theme.PROVIDER_GROK)
         else:
             self.prov_lbl.configure(text=a.provider_display_name, text_color=Theme.TEXT_MUTED)
 

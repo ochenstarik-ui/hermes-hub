@@ -1,4 +1,5 @@
 """Hermes Hub — Asset and Icon Manager with Provider Icon Caching."""
+
 from __future__ import annotations
 
 import os
@@ -14,6 +15,7 @@ try:
     import customtkinter as ctk
 except ImportError:
     import unittest.mock as _mock
+
     ctk = _mock.MagicMock()
 
 
@@ -71,7 +73,21 @@ class AssetManager:
         if logo_path.exists():
             try:
                 pil_img = Image.open(logo_path).convert("RGBA")
-                return ctk.CTkImage(light_image=pil_img, dark_image=pil_img, size=size)
+                from antigravity_provider.router.ui.theme import Theme
+
+                transparent = pil_img.copy()
+                pixels = []
+                gold = tuple(int(Theme.ACCENT[index : index + 2], 16) for index in (1, 3, 5))
+                tint_gold = Theme.current_scheme in {"dark", "hybrid"}
+                for red, green, blue, alpha in transparent.getdata():
+                    if red > 238 and green > 238 and blue > 232:
+                        pixels.append((red, green, blue, 0))
+                    elif tint_gold:
+                        pixels.append((*gold, alpha))
+                    else:
+                        pixels.append((red, green, blue, alpha))
+                transparent.putdata(pixels)
+                return ctk.CTkImage(light_image=transparent, dark_image=transparent, size=size)
             except Exception:
                 return None
         return None

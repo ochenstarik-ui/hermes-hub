@@ -92,16 +92,16 @@ class HubCard(ctk.CTkFrame):
         master: Any,
         corner_radius: int = Theme.RADIUS_MD,
         border_width: int = 1,
-        border_color: str = Theme.BORDER,
-        fg_color: str = Theme.SURFACE,
+        border_color: Optional[str] = None,
+        fg_color: Optional[str] = None,
         **kwargs,
     ):
         super().__init__(
             master=master,
             corner_radius=corner_radius,
             border_width=border_width,
-            border_color=border_color,
-            fg_color=fg_color,
+            border_color=border_color or Theme.BORDER,
+            fg_color=fg_color or Theme.SURFACE,
             **kwargs,
         )
 
@@ -257,19 +257,19 @@ class HubSectionHeader(ctk.CTkFrame):
 class HubStatusBadge(ctk.CTkFrame):
     """Status pill with dot and localized label for all normalized health states."""
 
-    STATUS_MAP = {
-        "healthy": (Theme.STATUS_HEALTHY, "Работает"),
-        "quota_low": (Theme.STATUS_WARNING, "Квота заканчивается"),
-        "quota_exhausted": (Theme.STATUS_ERROR, "Квота исчерпана"),
-        "cooldown": (Theme.STATUS_WARNING, "Ожидание сброса"),
-        "rate_limited": (Theme.STATUS_WARNING, "Лимит запросов"),
-        "not_configured": (Theme.TEXT_MUTED, "Аккаунт не добавлен"),
-        "auth_required": (Theme.STATUS_AUTH_REQUIRED, "Требуется вход"),
-        "auth_expired": (Theme.STATUS_AUTH_REQUIRED, "Требуется повторная авторизация"),
-        "disabled": (Theme.STATUS_DISABLED, "Отключён"),
-        "cold_spare": (Theme.TEXT_MUTED, "Холодный резерв"),
-        "unhealthy": (Theme.STATUS_ERROR, "Ошибка"),
-        "not_tested": (Theme.TEXT_MUTED, "Не проверен"),
+    STATUS_LABELS = {
+        "healthy": "Работает",
+        "quota_low": "Квота заканчивается",
+        "quota_exhausted": "Квота исчерпана",
+        "cooldown": "Ожидание сброса",
+        "rate_limited": "Лимит запросов",
+        "not_configured": "Аккаунт не добавлен",
+        "auth_required": "Требуется вход",
+        "auth_expired": "Требуется повторная авторизация",
+        "disabled": "Отключён",
+        "cold_spare": "Холодный резерв",
+        "unhealthy": "Ошибка",
+        "not_tested": "Не проверен",
     }
 
     def __init__(self, master: Any, status_key: str, **kwargs):
@@ -295,7 +295,8 @@ class HubStatusBadge(ctk.CTkFrame):
 
     def set_status(self, status_key: str, label: Optional[str] = None) -> None:
         clean_key = (status_key or "unknown").lower().replace("-", "_")
-        color, default_label = self.STATUS_MAP.get(clean_key, (Theme.TEXT_MUTED, status_key or "Н/Д"))
+        default_label = self.STATUS_LABELS.get(clean_key, status_key or "Н/Д")
+        color = _semantic_color(clean_key)
         self.dot.configure(text_color=color)
         self.label.configure(text=label or default_label)
 
@@ -513,9 +514,9 @@ def _semantic_color(status: str) -> str:
     key = (status or "unknown").lower().replace("-", "_")
     if key in {"healthy", "active", "authenticated", "online", "ready"}:
         return Theme.COLOR_POSITIVE
-    if key in {"warning", "quota_low", "cooldown", "reserve", "rate_limited"}:
+    if key in {"warning", "quota_low", "cooldown", "reserve", "rate_limited", "auth_required", "auth_expired"}:
         return Theme.COLOR_CAUTION
-    if key in {"error", "unhealthy", "quota_exhausted", "offline", "auth_expired"}:
+    if key in {"error", "unhealthy", "quota_exhausted", "offline"}:
         return Theme.COLOR_NEGATIVE
     return Theme.COLOR_NEUTRAL
 
@@ -582,7 +583,7 @@ class EllipsizedLabel(ctk.CTkLabel):
 class _TextBadge(ctk.CTkFrame):
     """Small neutral badge used for plans and metadata, not health."""
 
-    def __init__(self, master: Any, text: str, text_color: str = Theme.TEXT_SECONDARY, **kwargs):
+    def __init__(self, master: Any, text: str, text_color: Optional[str] = None, **kwargs):
         super().__init__(
             master=master,
             height=Theme.HEIGHT_BADGE,
@@ -592,7 +593,12 @@ class _TextBadge(ctk.CTkFrame):
             corner_radius=Theme.RADIUS_PILL,
             **kwargs,
         )
-        self.label = ctk.CTkLabel(self, text=text, font=Theme.font_micro(), text_color=text_color)
+        self.label = ctk.CTkLabel(
+            self,
+            text=text,
+            font=Theme.font_micro(),
+            text_color=text_color or Theme.TEXT_SECONDARY,
+        )
         self.label.pack(padx=Theme.SPACE_SM, pady=Theme.SPACE_XS)
 
     def set_text(self, text: str) -> None:
@@ -839,6 +845,13 @@ class RouteTargetWidget(HubCard):
 class AccountCardWidget(HubCard):
     """Keyed account card whose quota buckets are updated without rebuilding the card."""
 
+    MANAGEMENT_ACTIONS = (
+        ("test", "⚡ Тест"),
+        ("set_main", "★ Основной"),
+        ("set_orchestrator", "♛ Оркестратор"),
+        ("assign_role", "Назначить роль"),
+    )
+
     def __init__(
         self,
         master: Any,
@@ -883,15 +896,31 @@ class AccountCardWidget(HubCard):
         )
         self.actions = ctk.CTkFrame(self.details, fg_color="transparent")
         self.actions.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_SM, Theme.CARD_PAD_Y))
+        self.action_buttons: Dict[str, ActionButton] = {}
+        management = ctk.CTkFrame(self.actions, fg_color="transparent")
+        management.pack(fill="x", pady=(0, Theme.SPACE_XS))
+        for index, (action, label) in enumerate(self.MANAGEMENT_ACTIONS):
+            button = ActionButton(
+                management,
+                text=label,
+                variant="secondary" if index < 2 else "ghost",
+                height=Theme.HEIGHT_BTN_SM,
+                command=lambda action_name=action: self._trigger(action_name),
+            )
+            button.grid(row=index // 2, column=index % 2, padx=Theme.SPACE_XS, pady=Theme.SPACE_XS, sticky="ew")
+            management.grid_columnconfigure(index % 2, weight=1)
+            self.action_buttons[action] = button
+        utility = ctk.CTkFrame(self.actions, fg_color="transparent")
+        utility.pack(fill="x")
         ActionButton(
-            self.actions,
+            utility,
             text="Обновить",
             variant="secondary",
             width=86,
             command=lambda: self._trigger("refresh_account"),
         ).pack(side="left")
         ActionButton(
-            self.actions,
+            utility,
             text="Удалить",
             variant="ghost",
             width=72,

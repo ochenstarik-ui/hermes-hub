@@ -47,6 +47,7 @@ from antigravity_provider.router.profile_manager import ProfileAuthManager
 from antigravity_provider.router.auto_assigner import AutoAssigner
 from antigravity_provider.router.adapters import get_adapter
 from antigravity_provider import paths
+from antigravity_provider.version import __version__
 
 from antigravity_provider.router.ui.theme import Theme
 from antigravity_provider.router.ui.assets import AssetManager
@@ -69,8 +70,19 @@ from antigravity_provider.router.ui.views.health_view import HealthView
 from antigravity_provider.router.ui.views.logs_view import LogsView
 from antigravity_provider.router.ui.views.settings_view import SettingsView
 from antigravity_provider.router.ui.views.about_view import AboutView
+from antigravity_provider.router.ui.views.analytics_view import AnalyticsView
+from antigravity_provider.router.ui.views.quotas_view import QuotasView
 
 logger = logging.getLogger("hermes.hub.gui")
+
+
+def _load_saved_theme() -> str:
+    settings_file = paths.get_hermes_home() / "hub_settings.json"
+    try:
+        settings = json.loads(settings_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return "dark"
+    return str(settings.get("theme", "dark"))
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -166,12 +178,13 @@ def do_save_settings(settings: Dict[str, Any]) -> Tuple[bool, str]:
 
 class HermesHubApp(ctk.CTk):
     def __init__(self):
+        self._theme_name = Theme.apply_scheme(_load_saved_theme())
+        ctk.set_appearance_mode("dark" if self._theme_name == "dark" else "light")
         super().__init__()
         self.title("Hermes Hub")
         self.geometry("1380x880")
         self.minsize(1100, 700)
 
-        ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
         self.configure(fg_color=Theme.BG_WINDOW)
 
@@ -219,9 +232,9 @@ class HermesHubApp(ctk.CTk):
 
         # Top Centered Brand Logo
         brand_container = ctk.CTkFrame(self.sidebar, fg_color="transparent")
-        brand_container.pack(fill="x", padx=16, pady=(20, 14))
+        brand_container.pack(fill="x", padx=Theme.SPACE_MD, pady=(Theme.SPACE_LG, Theme.SPACE_SM))
 
-        logo_img = AssetManager.get().get_logo_image(size=(72, 72))
+        logo_img = AssetManager.get().get_logo_image(size=(58, 58))
         if logo_img:
             logo_lbl = ctk.CTkLabel(brand_container, image=logo_img, text="")
             logo_lbl.pack(anchor="center", pady=(0, 6))
@@ -229,72 +242,136 @@ class HermesHubApp(ctk.CTk):
         ctk.CTkLabel(
             brand_container, text="HERMES HUB", font=Theme.font_title_hero(), text_color=Theme.TEXT_ACCENT
         ).pack(anchor="center")
-        ctk.CTkLabel(
-            brand_container, text="Control Center", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED
-        ).pack(anchor="center")
-
-        # Divider
-        ctk.CTkFrame(self.sidebar, height=1, fg_color=Theme.BORDER).pack(fill="x", padx=14, pady=(6, 12))
+        ctk.CTkFrame(self.sidebar, height=1, fg_color=Theme.BORDER_ACCENT).pack(
+            fill="x", padx=Theme.SPACE_MD, pady=(Theme.SPACE_XS, Theme.SPACE_SM)
+        )
 
         # Nav Items with clean Fluent glyphs
         self._nav_items = [
             ("overview", "Обзор", "⌂"),
-            ("team", "Команда", "👥"),
-            ("accounts", "Аккаунты", "🔍"),
-            ("routing", "Маршрутизация", "🔀"),
-            ("providers", "Провайдеры", "🌐"),
-            ("health", "Состояние системы", "🛡️"),
-            ("logs", "Журнал событий", "📜"),
-            ("settings", "Настройки", "⚙️"),
-            ("about", "О программе", "ℹ️"),
+            ("team", "Команда", "♙"),
+            ("accounts", "Аккаунты", "◎"),
+            ("routing", "Маршрутизация", "⌘"),
+            ("providers", "Провайдеры", "◉"),
+            ("quotas", "Квоты и лимиты", "▥"),
+            ("analytics", "Аналитика", "⌁"),
+            ("health", "Состояние", "◇"),
+            ("logs", "Журнал событий", "▤"),
+            ("settings", "Настройки", "⚙"),
+            ("about", "О программе", "ⓘ"),
         ]
 
+        self.nav_frame = ctk.CTkScrollableFrame(
+            self.sidebar,
+            fg_color="transparent",
+            corner_radius=0,
+            scrollbar_fg_color=Theme.BG_SIDEBAR,
+            scrollbar_button_color=Theme.BG_SIDEBAR,
+            scrollbar_button_hover_color=Theme.BORDER_HOVER,
+        )
+        self.nav_frame.pack(fill="both", expand=True)
         self._nav_buttons: Dict[str, ctk.CTkButton] = {}
         for key, label, icon in self._nav_items:
             btn = ctk.CTkButton(
-                self.sidebar,
+                self.nav_frame,
                 text=f"  {icon}  {label}",
                 font=Theme.font_body(),
                 height=Theme.HEIGHT_NAV_ITEM,
                 fg_color="transparent",
-                hover_color=Theme.SURFACE_HOVER,
-                text_color=Theme.TEXT_PRIMARY,
+                hover_color=Theme.SIDEBAR_HOVER,
+                text_color=Theme.SIDEBAR_TEXT,
                 anchor="w",
                 corner_radius=Theme.RADIUS_SM,
                 command=lambda k=key: self._show_view(k),
             )
-            btn.pack(fill="x", padx=12, pady=2)
+            btn.pack(fill="x", padx=Theme.SPACE_SM, pady=1)
             self._nav_buttons[key] = btn
 
-        # Refresh button at bottom of sidebar
-        refresh_btn = HubButton(
+        self.sidebar_version = ctk.CTkLabel(
             self.sidebar,
-            text="🔄  Обновить",
-            variant="secondary",
-            height=38,
-            command=self._refresh_data,
+            text=f"Hermes Hub v{__version__}",
+            font=Theme.font_micro(),
+            text_color=Theme.SIDEBAR_MUTED,
         )
-        refresh_btn.pack(side="bottom", fill="x", padx=14, pady=16)
+        self.sidebar_version.pack(side="bottom", pady=(0, Theme.SPACE_SM))
+        user_card = ctk.CTkFrame(
+            self.sidebar,
+            fg_color=Theme.SIDEBAR_SELECTED,
+            border_width=1,
+            border_color=Theme.BORDER,
+            corner_radius=Theme.RADIUS_MD,
+        )
+        user_card.pack(side="bottom", fill="x", padx=Theme.SPACE_SM, pady=Theme.SPACE_SM)
+        ctk.CTkLabel(
+            user_card,
+            text="AD",
+            width=30,
+            height=30,
+            corner_radius=15,
+            fg_color=Theme.ACCENT,
+            text_color=Theme.TEXT_ON_ACCENT,
+            font=Theme.font_badge_bold(),
+        ).pack(side="left", padx=Theme.SPACE_SM, pady=Theme.SPACE_SM)
+        ctk.CTkLabel(
+            user_card,
+            text="Administrator\nОсновная команда",
+            justify="left",
+            font=Theme.font_micro(),
+            text_color=Theme.SIDEBAR_TEXT,
+        ).pack(side="left")
 
-        # ── Status Bar (Bottom) ──
-        self.statusbar = ctk.CTkFrame(self, height=Theme.HEIGHT_STATUSBAR, fg_color=Theme.BG_STATUSBAR, corner_radius=0)
-        self.statusbar.pack(side="bottom", fill="x")
+        # ── Global top bar ──
+        self.statusbar = ctk.CTkFrame(self, height=Theme.HEIGHT_HEADER, fg_color=Theme.BG_HEADER, corner_radius=0)
+        self.statusbar.pack(side="top", fill="x")
+        self.statusbar.pack_propagate(False)
 
         self.status_left = ctk.CTkLabel(
             self.statusbar,
-            text="Аккаунты: ... | Роли: ... | Обновлено: ...",
-            font=Theme.font_micro(),
-            text_color=Theme.TEXT_MUTED,
+            text="● Состояние загружается",
+            font=Theme.font_caption(),
+            text_color=Theme.STATUS_HEALTHY,
         )
-        self.status_left.pack(side="left", padx=16)
+        self.status_left.pack(side="left", padx=Theme.SPACE_LG)
+
+        self.global_search = ctk.CTkEntry(
+            self.statusbar,
+            placeholder_text="Поиск по агентам, аккаунтам, задачам…     Ctrl + K",
+            width=360,
+            height=Theme.HEIGHT_INPUT,
+            fg_color=Theme.SURFACE,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.global_search.pack(side="left", padx=Theme.SPACE_MD)
+        self.global_search.bind("<Return>", self._run_global_search)
+        self.bind_all("<Control-k>", self._focus_global_search)
+
+        self.add_account_button = HubButton(
+            self.statusbar,
+            text="+  Добавить аккаунт",
+            variant="primary",
+            command=lambda: self._handle_action("add_account", {}),
+        )
+        self.add_account_button.pack(side="right", padx=(Theme.SPACE_XS, Theme.SPACE_LG))
+        for text, command in (
+            ("⚙", lambda: self._show_view("settings")),
+            ("?", lambda: self._show_view("about")),
+            ("♧", lambda: self._show_view("logs")),
+        ):
+            HubButton(
+                self.statusbar,
+                text=text,
+                variant="ghost",
+                width=Theme.HEIGHT_BTN_MD,
+                command=command,
+            ).pack(side="right", padx=Theme.SPACE_XS)
 
         self.status_right = ctk.CTkLabel(
             self.statusbar,
-            text="● Hermes работает",
+            text="Snapshot: Н/Д",
             font=Theme.font_micro(),
-            text_color=Theme.STATUS_HEALTHY,
+            text_color=Theme.TEXT_MUTED,
         )
-        self.status_right.pack(side="right", padx=16)
 
         # ── Main Content Area ──
         self.content = ctk.CTkFrame(self, fg_color=Theme.BG_WINDOW, corner_radius=0)
@@ -303,6 +380,20 @@ class HermesHubApp(ctk.CTk):
         # Pre-instantiate all views so switching is 100% instant (0-15 ms)
         for key, _, _ in self._nav_items:
             self._views[key] = self._create_view(key)
+
+    def _focus_global_search(self, _event=None) -> str:
+        self.global_search.focus_set()
+        return "break"
+
+    def _run_global_search(self, _event=None) -> str:
+        query = self.global_search.get().strip()
+        self._show_view("accounts")
+        accounts = self._views.get("accounts")
+        if accounts and hasattr(accounts, "search"):
+            accounts.search.delete(0, "end")
+            accounts.search.insert(0, query)
+            accounts._set_search(query)
+        return "break"
 
     def _create_view(self, view_name: str) -> ctk.CTkFrame:
         """Create view widget instance."""
@@ -321,12 +412,16 @@ class HermesHubApp(ctk.CTk):
             return ProvidersView(self.content, app_state={}, on_action=self._handle_action)
         elif view_name == "routing":
             return RoutingView(self.content, on_action=self._handle_action)
+        elif view_name == "quotas":
+            return QuotasView(self.content)
+        elif view_name == "analytics":
+            return AnalyticsView(self.content)
         elif view_name == "health":
             return HealthView(self.content, app_state={}, on_refresh=self._refresh_data)
         elif view_name == "logs":
             return LogsView(self.content)
         elif view_name == "settings":
-            return SettingsView(self.content, on_action=self._handle_action)
+            return SettingsView(self.content, on_action=self._handle_action, theme_name=self._theme_name)
         elif view_name == "about":
             return AboutView(self.content)
         else:
@@ -342,7 +437,7 @@ class HermesHubApp(ctk.CTk):
         for key, btn in self._nav_buttons.items():
             if key == view_name:
                 btn.configure(
-                    fg_color=Theme.SURFACE_SELECTED,
+                    fg_color=Theme.SIDEBAR_SELECTED,
                     text_color=Theme.TEXT_ACCENT,
                     border_width=1,
                     border_color=Theme.BORDER_ACCENT,
@@ -350,7 +445,7 @@ class HermesHubApp(ctk.CTk):
             else:
                 btn.configure(
                     fg_color="transparent",
-                    text_color=Theme.TEXT_PRIMARY,
+                    text_color=Theme.SIDEBAR_TEXT,
                     border_width=0,
                 )
 
@@ -374,6 +469,7 @@ class HermesHubApp(ctk.CTk):
                     except Exception as ex:
                         logger.warning("Error in lazy view update for %s: %s", view_name, ex)
                 self._view_generations[view_name] = snap.generation
+            self._update_auxiliary_data(target_view)
 
         # Instrument tab switch latency
         el_ms = round((time.time() - t0) * 1000, 2)
@@ -439,15 +535,18 @@ class HermesHubApp(ctk.CTk):
 
         freshness = "⚠ Данные устарели" if snap.is_stale else f"Snapshot #{snap.seq}"
         self.status_left.configure(
-            text=f"{freshness} | Аккаунты: {readiness.accounts_connected_count}/{readiness.total_accounts} | Роли: {readiness.roles_ready_count}/{readiness.total_roles} | Провайдеры: {readiness.providers_ready_count}/{readiness.total_providers} | Обновлено: {time.strftime('%H:%M:%S')}"
+            text=f"● {readiness.title_ru}",
+            text_color=Theme.STATUS_HEALTHY
+            if readiness.state == "healthy"
+            else Theme.STATUS_WARNING
+            if readiness.state in ("limited", "degraded")
+            else Theme.STATUS_ERROR,
         )
 
-        r_color = (
-            Theme.STATUS_HEALTHY
-            if readiness.state == "healthy"
-            else (Theme.STATUS_WARNING if readiness.state in ("limited", "degraded") else Theme.STATUS_ERROR)
+        self.status_right.configure(
+            text=f"{freshness} • {readiness.accounts_connected_count} аккаунтов • {readiness.roles_ready_count} ролей",
+            text_color=Theme.STATUS_WARNING if snap.is_stale else Theme.TEXT_MUTED,
         )
-        self.status_right.configure(text=f"● {readiness.title_ru}", text_color=r_color)
 
         # Update ONLY the currently visible view (others are updated lazily on tab switch)
         curr_view = self._views.get(self._current_view)
@@ -457,6 +556,15 @@ class HermesHubApp(ctk.CTk):
             except Exception as ex:
                 logger.warning("Error updating current view %s: %s", self._current_view, ex)
             self._view_generations[self._current_view] = snap.generation
+            self._update_auxiliary_data(curr_view)
+
+    @staticmethod
+    def _update_auxiliary_data(view: Any) -> None:
+        if hasattr(view, "update_events"):
+            try:
+                view.update_events(EventLogService.get().get_events(limit=20))
+            except Exception as ex:
+                logger.warning("Error updating event presentation: %s", ex)
 
     def _on_data_error(self, error: str):
         if self._shutting_down:
@@ -517,9 +625,16 @@ class HermesHubApp(ctk.CTk):
         elif action == "edit_route":
             self._show_toast("Редактор цепочки использует кнопки и селекторы; drag-and-drop отключён.")
         elif action == "save_settings":
+
+            def _settings_saved(result: Tuple[bool, str]) -> None:
+                requested_theme = str(data.get("theme", self._theme_name))
+                if requested_theme != self._theme_name:
+                    self._apply_theme(requested_theme)
+                self._show_toast(f"✅ {result[1]}")
+
             self._run_in_thread(
                 lambda: do_save_settings(data),
-                on_success=lambda result: self._show_toast(f"✅ {result[1]}"),
+                on_success=_settings_saved,
             )
         elif action == "check_updates":
             from antigravity_provider.updater import UpdateManager
@@ -592,6 +707,19 @@ class HermesHubApp(ctk.CTk):
             msg = f"✕ Ошибка теста: {result.get('error', 'Неизвестная ошибка')}"
         self._show_toast(msg)
 
+    def _apply_theme(self, scheme: str) -> None:
+        """Apply all palette tokens by rebuilding presentation widgets in place."""
+        current_view = self._current_view
+        self._theme_name = Theme.apply_scheme(scheme)
+        ctk.set_appearance_mode("dark" if self._theme_name == "dark" else "light")
+        for child in list(self.winfo_children()):
+            child.destroy()
+        self._views.clear()
+        self._view_generations.clear()
+        self.configure(fg_color=Theme.BG_WINDOW)
+        self._build_layout()
+        self._show_view(current_view)
+
     def _run_in_thread(self, func, on_success=None, on_error=None):
         def _worker():
             if self._shutting_down:
@@ -627,7 +755,12 @@ class HermesHubApp(ctk.CTk):
 
         readiness = HubStateStore.get().get_snapshot().readiness
         self.status_left.configure(
-            text=f"Аккаунты: {readiness.accounts_connected_count}/{readiness.total_accounts} | Роли: {readiness.roles_ready_count}/{readiness.total_roles} | Провайдеры: {readiness.providers_ready_count}/{readiness.total_providers} | Обновлено: {time.strftime('%H:%M:%S')}"
+            text=f"● {readiness.title_ru}",
+            text_color=Theme.STATUS_HEALTHY
+            if readiness.state == "healthy"
+            else Theme.STATUS_WARNING
+            if readiness.state in ("limited", "degraded")
+            else Theme.STATUS_ERROR,
         )
 
     def _on_close(self):

@@ -12,7 +12,13 @@ from antigravity_provider.version import CHANNEL, __version__
 
 
 class SettingsView(ctk.CTkFrame):
-    def __init__(self, master: Any, on_action: Optional[Callable] = None, **kwargs):
+    def __init__(
+        self,
+        master: Any,
+        on_action: Optional[Callable] = None,
+        theme_name: str = "dark",
+        **kwargs,
+    ):
         super().__init__(master=master, fg_color="transparent", **kwargs)
         self.on_action = on_action
         SectionHeader(
@@ -24,6 +30,24 @@ class SettingsView(ctk.CTkFrame):
         ).pack(fill="x", padx=Theme.PAGE_PAD_X, pady=(Theme.PAGE_PAD_Y, Theme.SPACE_SM))
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         scroll.pack(fill="both", expand=True, padx=Theme.PAGE_PAD_X, pady=(0, Theme.PAGE_PAD_Y))
+        appearance = self._section(scroll, "Оформление")
+        theme_row = ctk.CTkFrame(appearance, fg_color="transparent")
+        theme_row.pack(fill="x", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_SM)
+        ctk.CTkLabel(
+            theme_row,
+            text="Цветовая схема",
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(side="left")
+        self.theme = ctk.CTkOptionMenu(
+            theme_row,
+            values=list(Theme.SCHEME_LABELS.values()),
+            fg_color=Theme.SURFACE_MUTED,
+            button_color=Theme.SECONDARY,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.theme.set(Theme.SCHEME_LABELS.get(theme_name, Theme.SCHEME_LABELS["dark"]))
+        self.theme.pack(side="right")
         routing = self._section(scroll, "Маршрутизация и отказоустойчивость")
         self.affinity = self._switch(routing, "Сессионная привязка", True)
         self.failover = self._switch(routing, "Автоматический failover", True)
@@ -81,6 +105,10 @@ class SettingsView(ctk.CTkFrame):
         if not self.on_action:
             return
         intervals = {"Выкл": 0, "1 мин": 60, "5 мин": 300, "10 мин": 600, "30 мин": 1800}
+        theme_key = next(
+            (key for key, label in Theme.SCHEME_LABELS.items() if label == self.theme.get()),
+            "dark",
+        )
         self.on_action(
             "save_settings",
             {
@@ -89,5 +117,6 @@ class SettingsView(ctk.CTkFrame):
                 "prefer_same_account_model_fallback": bool(self.same_account.get()),
                 "quota_refresh_interval_label": self.interval.get(),
                 "quota_refresh_interval_sec": intervals.get(self.interval.get(), 300),
+                "theme": theme_key,
             },
         )

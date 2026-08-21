@@ -9,6 +9,7 @@ Supports 5 AI Providers:
 
 Includes multi-account profile isolation, duplicate detection, and auto-assignment to router roles.
 """
+
 from __future__ import annotations
 
 import json
@@ -80,6 +81,7 @@ class AddAccountWizard(HubModal):
         if self.oauth_session_id:
             try:
                 from antigravity_provider.router.profile_oauth import cancel_oauth_session
+
                 cancel_oauth_session(self.oauth_session_id)
             except Exception:
                 pass
@@ -89,6 +91,7 @@ class AddAccountWizard(HubModal):
         if self.codex_session_id:
             try:
                 from antigravity_provider.router.codex_oauth import cancel_codex_oauth_session
+
                 cancel_codex_oauth_session(self.codex_session_id)
             except Exception:
                 pass
@@ -97,6 +100,7 @@ class AddAccountWizard(HubModal):
         if self.claude_session_id:
             try:
                 from antigravity_provider.router.claude_oauth import cancel_claude_oauth_session
+
                 cancel_claude_oauth_session(self.claude_session_id)
             except Exception:
                 pass
@@ -105,6 +109,7 @@ class AddAccountWizard(HubModal):
         if self.grok_session_id:
             try:
                 from antigravity_provider.router.grok_oauth import cancel_grok_oauth_session
+
                 cancel_grok_oauth_session(self.grok_session_id)
             except Exception:
                 pass
@@ -129,10 +134,10 @@ class AddAccountWizard(HubModal):
 
         providers = [
             ("antigravity", "Google Antigravity", "OAuth 2.0 (Google Account)", Theme.ACCENT),
-            ("openai-codex", "OpenAI Codex", "OAuth (ChatGPT) или API Key", "#10a37f"),
-            ("claude", "Claude (Anthropic)", "OAuth (Claude Pro/Max) или API Key", "#d97706"),
-            ("grok", "Grok (xAI)", "OAuth (SuperGrok) или API Key", "#3b82f6"),
-            ("opencode-go", "OpenCode Go", "API Key / Subscription", "#8b5cf6"),
+            ("openai-codex", "OpenAI Codex", "OAuth (ChatGPT) или API Key", Theme.PROVIDER_CODEX),
+            ("claude", "Claude (Anthropic)", "OAuth (Claude Pro/Max) или API Key", Theme.PROVIDER_CLAUDE),
+            ("grok", "Grok (xAI)", "OAuth (SuperGrok) или API Key", Theme.PROVIDER_GROK),
+            ("opencode-go", "OpenCode Go", "API Key / Subscription", Theme.PROVIDER_GENERIC),
         ]
 
         self.provider_var = ctk.StringVar(value=self.selected_provider)
@@ -193,7 +198,9 @@ class AddAccountWizard(HubModal):
         self._clear_body()
         self.title_lbl.configure(text="Шаг 2 из 4: Авторизация учетной записи")
 
-        self.target_slot = AutoAssigner.find_free_slot(self.selected_provider) or f"{self.selected_provider[:3]}-spare-1"
+        self.target_slot = (
+            AutoAssigner.find_free_slot(self.selected_provider) or f"{self.selected_provider[:3]}-spare-1"
+        )
 
         if self.selected_provider == "antigravity":
             self._build_antigravity_oauth_flow()
@@ -342,6 +349,7 @@ class AddAccountWizard(HubModal):
     def _init_antigravity_oauth(self):
         try:
             from antigravity_provider.router.profile_oauth import start_profile_oauth
+
             session_id, auth_url, port = start_profile_oauth(self.target_slot)
             self.oauth_session_id = session_id
             self.oauth_url = auth_url
@@ -381,6 +389,7 @@ class AddAccountWizard(HubModal):
             return
 
         from antigravity_provider.router.profile_oauth import get_oauth_session
+
         session = get_oauth_session(self.oauth_session_id)
         if not session:
             self.oauth_status_lbl.configure(text="❌ Сессия не найдена", text_color=Theme.STATUS_ERROR)
@@ -399,6 +408,7 @@ class AddAccountWizard(HubModal):
 
     def _poll_antigravity_oauth(self):
         from antigravity_provider.router.profile_oauth import get_oauth_session
+
         for _ in range(300):
             if not self._polling_active:
                 return
@@ -418,7 +428,9 @@ class AddAccountWizard(HubModal):
                 return
             elif status in ("error", "failed", "cancelled"):
                 err_msg = getattr(session, "error_msg", None) or "Авторизация не удалась"
-                self.after(0, lambda m=err_msg: self.oauth_status_lbl.configure(text=f"❌ {m}", text_color=Theme.STATUS_ERROR))
+                self.after(
+                    0, lambda m=err_msg: self.oauth_status_lbl.configure(text=f"❌ {m}", text_color=Theme.STATUS_ERROR)
+                )
                 return
 
     # ─────────────────────────────────────────────────────────────
@@ -585,6 +597,7 @@ class AddAccountWizard(HubModal):
     def _init_codex_oauth(self):
         try:
             from antigravity_provider.router.codex_oauth import start_codex_oauth, get_codex_oauth_session
+
             session_id, url, code = start_codex_oauth(self.target_slot)
             self.codex_session_id = session_id
             self.codex_url = url
@@ -637,6 +650,7 @@ class AddAccountWizard(HubModal):
             return
 
         from antigravity_provider.router.codex_oauth import get_codex_oauth_session
+
         session = get_codex_oauth_session(self.codex_session_id)
         if not session:
             self.codex_status_lbl.configure(text="❌ Сессия не найдена", text_color=Theme.STATUS_ERROR)
@@ -655,6 +669,7 @@ class AddAccountWizard(HubModal):
 
     def _poll_codex_oauth(self):
         from antigravity_provider.router.codex_oauth import get_codex_oauth_session
+
         for _ in range(900):
             if not self._polling_active:
                 return
@@ -689,7 +704,7 @@ class AddAccountWizard(HubModal):
             value="oauth",
             variable=self.claude_mode_var,
             font=Theme.font_body_bold(),
-            fg_color="#d97706",
+            fg_color=Theme.PROVIDER_CLAUDE,
             command=self._on_claude_mode_toggle,
         )
         rb1.pack(anchor="w", padx=4, pady=2)
@@ -700,7 +715,7 @@ class AddAccountWizard(HubModal):
             value="api_key",
             variable=self.claude_mode_var,
             font=Theme.font_body(),
-            fg_color="#d97706",
+            fg_color=Theme.PROVIDER_CLAUDE,
             command=self._on_claude_mode_toggle,
         )
         rb2.pack(anchor="w", padx=4, pady=2)
@@ -810,6 +825,7 @@ class AddAccountWizard(HubModal):
     def _init_claude_oauth(self):
         try:
             from antigravity_provider.router.claude_oauth import start_claude_oauth
+
             session_id, url = start_claude_oauth(self.target_slot)
             self.claude_session_id = session_id
             self.claude_url = url
@@ -836,6 +852,7 @@ class AddAccountWizard(HubModal):
             return
 
         from antigravity_provider.router.claude_oauth import get_claude_oauth_session
+
         session = get_claude_oauth_session(self.claude_session_id)
         if not session:
             self.claude_status_lbl.configure(text="❌ Сессия не найдена", text_color=Theme.STATUS_ERROR)
@@ -868,7 +885,7 @@ class AddAccountWizard(HubModal):
             value="oauth",
             variable=self.grok_mode_var,
             font=Theme.font_body_bold(),
-            fg_color="#3b82f6",
+            fg_color=Theme.PROVIDER_GROK,
             command=self._on_grok_mode_toggle,
         )
         rb1.pack(anchor="w", padx=4, pady=2)
@@ -879,7 +896,7 @@ class AddAccountWizard(HubModal):
             value="api_key",
             variable=self.grok_mode_var,
             font=Theme.font_body(),
-            fg_color="#3b82f6",
+            fg_color=Theme.PROVIDER_GROK,
             command=self._on_grok_mode_toggle,
         )
         rb2.pack(anchor="w", padx=4, pady=2)
@@ -930,7 +947,7 @@ class AddAccountWizard(HubModal):
             code_card,
             text="...",
             font=Theme.font_mono_bold(),
-            text_color="#3b82f6",
+            text_color=Theme.PROVIDER_GROK,
         )
         self.grok_code_lbl.pack(side="left", padx=(0, 8))
 
@@ -1016,6 +1033,7 @@ class AddAccountWizard(HubModal):
     def _init_grok_oauth(self):
         try:
             from antigravity_provider.router.grok_oauth import start_grok_oauth, get_grok_oauth_session
+
             session_id, url, code = start_grok_oauth(self.target_slot)
             self.grok_session_id = session_id
             self.grok_url = url
@@ -1068,6 +1086,7 @@ class AddAccountWizard(HubModal):
             return
 
         from antigravity_provider.router.grok_oauth import get_grok_oauth_session
+
         session = get_grok_oauth_session(self.grok_session_id)
         if not session:
             self.grok_status_lbl.configure(text="❌ Сессия не найдена", text_color=Theme.STATUS_ERROR)
@@ -1086,6 +1105,7 @@ class AddAccountWizard(HubModal):
 
     def _poll_grok_oauth(self):
         from antigravity_provider.router.grok_oauth import get_grok_oauth_session
+
         for _ in range(900):
             if not self._polling_active:
                 return
@@ -1114,20 +1134,68 @@ class AddAccountWizard(HubModal):
             mode_card = HubCard(self.body, fg_color="transparent")
             mode_card.pack(fill="x", pady=(0, 8))
             self.codex_mode_var = ctk.StringVar(value="api_key")
-            ctk.CTkRadioButton(mode_card, text="OAuth — OpenAI / ChatGPT", value="oauth", variable=self.codex_mode_var, font=Theme.font_body(), fg_color=Theme.ACCENT, command=self._on_codex_mode_toggle).pack(anchor="w", padx=4, pady=2)
-            ctk.CTkRadioButton(mode_card, text="API Key — OpenAI API (sk-...)", value="api_key", variable=self.codex_mode_var, font=Theme.font_body_bold(), fg_color=Theme.ACCENT, command=self._on_codex_mode_toggle).pack(anchor="w", padx=4, pady=2)
+            ctk.CTkRadioButton(
+                mode_card,
+                text="OAuth — OpenAI / ChatGPT",
+                value="oauth",
+                variable=self.codex_mode_var,
+                font=Theme.font_body(),
+                fg_color=Theme.ACCENT,
+                command=self._on_codex_mode_toggle,
+            ).pack(anchor="w", padx=4, pady=2)
+            ctk.CTkRadioButton(
+                mode_card,
+                text="API Key — OpenAI API (sk-...)",
+                value="api_key",
+                variable=self.codex_mode_var,
+                font=Theme.font_body_bold(),
+                fg_color=Theme.ACCENT,
+                command=self._on_codex_mode_toggle,
+            ).pack(anchor="w", padx=4, pady=2)
         elif self.selected_provider == "claude":
             mode_card = HubCard(self.body, fg_color="transparent")
             mode_card.pack(fill="x", pady=(0, 8))
             self.claude_mode_var = ctk.StringVar(value="api_key")
-            ctk.CTkRadioButton(mode_card, text="OAuth — Claude Pro/Max", value="oauth", variable=self.claude_mode_var, font=Theme.font_body(), fg_color="#d97706", command=self._on_claude_mode_toggle).pack(anchor="w", padx=4, pady=2)
-            ctk.CTkRadioButton(mode_card, text="API Key — Anthropic API (sk-ant-...)", value="api_key", variable=self.claude_mode_var, font=Theme.font_body_bold(), fg_color="#d97706", command=self._on_claude_mode_toggle).pack(anchor="w", padx=4, pady=2)
+            ctk.CTkRadioButton(
+                mode_card,
+                text="OAuth — Claude Pro/Max",
+                value="oauth",
+                variable=self.claude_mode_var,
+                font=Theme.font_body(),
+                fg_color=Theme.PROVIDER_CLAUDE,
+                command=self._on_claude_mode_toggle,
+            ).pack(anchor="w", padx=4, pady=2)
+            ctk.CTkRadioButton(
+                mode_card,
+                text="API Key — Anthropic API (sk-ant-...)",
+                value="api_key",
+                variable=self.claude_mode_var,
+                font=Theme.font_body_bold(),
+                fg_color=Theme.PROVIDER_CLAUDE,
+                command=self._on_claude_mode_toggle,
+            ).pack(anchor="w", padx=4, pady=2)
         elif self.selected_provider == "grok":
             mode_card = HubCard(self.body, fg_color="transparent")
             mode_card.pack(fill="x", pady=(0, 8))
             self.grok_mode_var = ctk.StringVar(value="api_key")
-            ctk.CTkRadioButton(mode_card, text="OAuth — xAI / SuperGrok", value="oauth", variable=self.grok_mode_var, font=Theme.font_body(), fg_color="#3b82f6", command=self._on_grok_mode_toggle).pack(anchor="w", padx=4, pady=2)
-            ctk.CTkRadioButton(mode_card, text="API Key — xAI API (xai-...)", value="api_key", variable=self.grok_mode_var, font=Theme.font_body_bold(), fg_color="#3b82f6", command=self._on_grok_mode_toggle).pack(anchor="w", padx=4, pady=2)
+            ctk.CTkRadioButton(
+                mode_card,
+                text="OAuth — xAI / SuperGrok",
+                value="oauth",
+                variable=self.grok_mode_var,
+                font=Theme.font_body(),
+                fg_color=Theme.PROVIDER_GROK,
+                command=self._on_grok_mode_toggle,
+            ).pack(anchor="w", padx=4, pady=2)
+            ctk.CTkRadioButton(
+                mode_card,
+                text="API Key — xAI API (xai-...)",
+                value="api_key",
+                variable=self.grok_mode_var,
+                font=Theme.font_body_bold(),
+                fg_color=Theme.PROVIDER_GROK,
+                command=self._on_grok_mode_toggle,
+            ).pack(anchor="w", padx=4, pady=2)
 
         prompt_map = {
             "openai-codex": "Введите ключ OpenAI API (sk-...):",
@@ -1274,25 +1342,38 @@ class AddAccountWizard(HubModal):
         # Identity line
         id_row = ctk.CTkFrame(card, fg_color="transparent")
         id_row.pack(fill="x", padx=14, pady=2)
-        ctk.CTkLabel(id_row, text="Идентификатор:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(side="left")
-        ctk.CTkLabel(id_row, text=self.discovered_identity or "—", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY).pack(side="right")
+        ctk.CTkLabel(id_row, text="Идентификатор:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(
+            side="left"
+        )
+        ctk.CTkLabel(
+            id_row, text=self.discovered_identity or "—", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY
+        ).pack(side="right")
 
         # Plan line
         plan_row = ctk.CTkFrame(card, fg_color="transparent")
         plan_row.pack(fill="x", padx=14, pady=2)
-        ctk.CTkLabel(plan_row, text="Тариф:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(side="left")
-        ctk.CTkLabel(plan_row, text=self.discovered_plan or "Тариф: неизвестен", font=Theme.font_body_bold(), text_color=Theme.ACCENT).pack(side="right")
+        ctk.CTkLabel(plan_row, text="Тариф:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(
+            side="left"
+        )
+        ctk.CTkLabel(
+            plan_row,
+            text=self.discovered_plan or "Тариф: неизвестен",
+            font=Theme.font_body_bold(),
+            text_color=Theme.ACCENT,
+        ).pack(side="right")
 
         # Status line
         stat_row = ctk.CTkFrame(card, fg_color="transparent")
         stat_row.pack(fill="x", padx=14, pady=2)
-        ctk.CTkLabel(stat_row, text="Статус проверки:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(side="left")
+        ctk.CTkLabel(
+            stat_row, text="Статус проверки:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY
+        ).pack(side="left")
         stat_lbl = "✓ Успешно авторизован" if self.is_verified else "Подключен (без проверки)"
         stat_col = Theme.STATUS_HEALTHY if self.is_verified else Theme.STATUS_WARNING
         ctk.CTkLabel(stat_row, text=stat_lbl, font=Theme.font_body_bold(), text_color=stat_col).pack(side="right")
 
         if dup_profile:
-            warn_card = HubCard(self.body, border_color=Theme.STATUS_WARNING, fg_color="#2A2215")
+            warn_card = HubCard(self.body, border_color=Theme.STATUS_WARNING, fg_color=Theme.ACCENT_DIM)
             warn_card.pack(fill="x", pady=6)
             ctk.CTkLabel(
                 warn_card,
@@ -1338,13 +1419,19 @@ class AddAccountWizard(HubModal):
 
         r_row = ctk.CTkFrame(card, fg_color="transparent")
         r_row.pack(fill="x", padx=14, pady=4)
-        ctk.CTkLabel(r_row, text="Роль агента:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(side="left")
+        ctk.CTkLabel(r_row, text="Роль агента:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(
+            side="left"
+        )
         ctk.CTkLabel(r_row, text=disp_name, font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(side="right")
 
         s_row = ctk.CTkFrame(card, fg_color="transparent")
         s_row.pack(fill="x", padx=14, pady=4)
-        ctk.CTkLabel(s_row, text="Внутренний слот:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(side="left")
-        ctk.CTkLabel(s_row, text=self.target_slot, font=Theme.font_mono(), text_color=Theme.TEXT_MUTED).pack(side="right")
+        ctk.CTkLabel(s_row, text="Внутренний слот:", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(
+            side="left"
+        )
+        ctk.CTkLabel(s_row, text=self.target_slot, font=Theme.font_mono(), text_color=Theme.TEXT_MUTED).pack(
+            side="right"
+        )
 
         ctk.CTkLabel(
             self.body,
@@ -1370,9 +1457,11 @@ class AddAccountWizard(HubModal):
             profile_id=self.target_slot,
         )
         if self.on_complete:
-            self.on_complete({
-                "provider": self.selected_provider,
-                "profile_id": self.target_slot,
-                "identity": self.discovered_identity,
-            })
+            self.on_complete(
+                {
+                    "provider": self.selected_provider,
+                    "profile_id": self.target_slot,
+                    "identity": self.discovered_identity,
+                }
+            )
         self.destroy()

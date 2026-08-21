@@ -1,4 +1,5 @@
 """Hermes Hub — Native Brand Splash Screen."""
+
 from __future__ import annotations
 
 import tkinter as tk
