@@ -168,12 +168,18 @@ class HubStateStore:
                 host_data = {"source": "host_measurement", "has_data": False}
 
             try:
-                from .session_affinity import LeaseManager
-                active_leases_total = LeaseManager.get().total_active_count()
-                active_leases_by_profile = LeaseManager.get().all_active_counts()
+                from .router_engine import get_router_engine
+                engine = get_router_engine()
+                active_leases_total = engine.leases.total_active_count()
+                active_leases_by_profile = engine.leases.all_active_counts()
             except Exception:
-                active_leases_total = 0
-                active_leases_by_profile = {}
+                try:
+                    from .session_affinity import LeaseManager
+                    active_leases_total = LeaseManager.get().total_active_count()
+                    active_leases_by_profile = LeaseManager.get().all_active_counts()
+                except Exception:
+                    active_leases_total = 0
+                    active_leases_by_profile = {}
 
             metrics = {
                 "generation": gen,

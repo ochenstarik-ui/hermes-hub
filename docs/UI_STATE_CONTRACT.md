@@ -262,13 +262,28 @@ Accessible at `HubSnapshot.metrics["host"]`:
 | `disk_percent` | `Optional[float]` | `psutil` | Root disk partition utilization percentage (`0.0` to `100.0`), or `None` if unavailable. |
 | `disk_used_gb` | `Optional[float]` | `psutil` | Used disk storage in gigabytes. |
 | `disk_total_gb` | `Optional[float]` | `psutil` | Total disk storage in gigabytes. |
-| `net_bytes_sent` | `Optional[int]` | `psutil` | Total network bytes sent since host boot. |
-| `net_bytes_recv` | `Optional[int]` | `psutil` | Total network bytes received since host boot. |
+| `net_speed_mbps` | `Optional[float]` | `psutil` | Live total network throughput in Megabits per second (Mbps) computed across sampling intervals, or `None` on initial sample. |
+| `net_sent_mbps` | `Optional[float]` | `psutil` | Live outbound network throughput in Megabits per second (Mbps). |
+| `net_recv_mbps` | `Optional[float]` | `psutil` | Live inbound network throughput in Megabits per second (Mbps). |
+| `net_bytes_sent` | `Optional[int]` | `psutil` | Cumulative bytes sent since host boot (raw counter). |
+| `net_bytes_recv` | `Optional[int]` | `psutil` | Cumulative bytes received since host boot (raw counter). |
+
+> **Measurement Note (CPU Warm-up):** The first CPU measurement is pre-warmed during service initialization to prevent cold-start `0.0%` artifacts. Subsequent measurements read the differential counters non-blockingly.
 
 ### 8.3 Active Calls Telemetry (`source: "own_measurement"`)
 
-- `HubSnapshot.metrics["active_calls_total"]`: `int` (Total ongoing concurrency leases managed across all profiles).
+- `HubSnapshot.metrics["active_calls_total"]`: `int` (Total ongoing concurrency leases managed across all profiles by `RouterEngine`).
 - `HubSnapshot.metrics["active_calls_by_profile"]`: `Dict[str, int]` (Active concurrency leases per profile ID).
 - `ProfileViewModel.active_leases`: `int` (Current number of active leases for this specific profile).
+
+---
+
+## 9. Configuration Preservation Status
+
+| Component | Status | Behavior & Details |
+|---|---|---|
+| **Header Comments & Structure** | **Supported** | All leading YAML comments, document banners, and blank lines before the first dictionary key (`existing_comments`) are preserved across file writes. |
+| **Inline Section Annotations** | **Partially Supported** | Inline dictionary comments (such as comments inside `profiles`, `roles`, or `pricing`) are normalized during canonical YAML serialization (`safe_dump`). |
+
 
 

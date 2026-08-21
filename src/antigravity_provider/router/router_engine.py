@@ -28,7 +28,7 @@ class RouterEngine:
         self.config = config or load_router_config()
         self.health = health or HealthTracker()
         self.affinity = affinity or SessionAffinityTracker(ttl_seconds=self.config.session_affinity_ttl_seconds)
-        self.leases = leases or LeaseManager()
+        self.leases = leases if leases is not None else LeaseManager.get()
 
     def reload_config(self) -> None:
         self.config = load_router_config()

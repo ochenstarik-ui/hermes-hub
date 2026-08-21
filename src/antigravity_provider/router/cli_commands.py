@@ -42,6 +42,8 @@ def print_router_status() -> int:
             precord = engine.health.get_or_create(pid)
 
             state_display = precord.overall_state
+            if precord.active_leases > 0:
+                state_display = f"{precord.overall_state} ({precord.active_leases} active)"
             reset_display = "-"
             if precord.overall_state != "healthy":
                 cooldown_remaining = max([int(f.reset_at - time.time()) for f in precord.families.values() if f.reset_at and f.reset_at > time.time()] or [0])
