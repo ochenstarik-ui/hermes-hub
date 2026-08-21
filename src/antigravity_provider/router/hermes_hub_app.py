@@ -234,13 +234,16 @@ class HermesHubApp(ctk.CTk):
         brand_container = ctk.CTkFrame(self.sidebar, fg_color="transparent")
         brand_container.pack(fill="x", padx=Theme.SPACE_MD, pady=(Theme.SPACE_LG, Theme.SPACE_SM))
 
-        logo_img = AssetManager.get().get_logo_image(size=(58, 58))
+        logo_img = AssetManager.get().get_logo_image(size=(78, 78))
         if logo_img:
             logo_lbl = ctk.CTkLabel(brand_container, image=logo_img, text="")
             logo_lbl.pack(anchor="center", pady=(0, 6))
 
         ctk.CTkLabel(
-            brand_container, text="HERMES HUB", font=Theme.font_title_hero(), text_color=Theme.TEXT_ACCENT
+            brand_container,
+            text="HERMES HUB",
+            font=(Theme.FONT_FAMILY_TITLE, 17, "bold"),
+            text_color=Theme.TEXT_ACCENT,
         ).pack(anchor="center")
         ctk.CTkFrame(self.sidebar, height=1, fg_color=Theme.BORDER_ACCENT).pack(
             fill="x", padx=Theme.SPACE_MD, pady=(Theme.SPACE_XS, Theme.SPACE_SM)
@@ -248,17 +251,17 @@ class HermesHubApp(ctk.CTk):
 
         # Nav Items with clean Fluent glyphs
         self._nav_items = [
-            ("overview", "Обзор", "⌂"),
-            ("team", "Команда", "♙"),
-            ("accounts", "Аккаунты", "◎"),
-            ("routing", "Маршрутизация", "⌘"),
-            ("providers", "Провайдеры", "◉"),
-            ("quotas", "Квоты и лимиты", "▥"),
-            ("analytics", "Аналитика", "⌁"),
-            ("health", "Состояние", "◇"),
-            ("logs", "Журнал событий", "▤"),
-            ("settings", "Настройки", "⚙"),
-            ("about", "О программе", "ⓘ"),
+            ("overview", "Обзор", "overview"),
+            ("team", "Команда", "team"),
+            ("accounts", "Аккаунты", "accounts"),
+            ("routing", "Маршрутизация", "routing"),
+            ("providers", "Провайдеры", "providers"),
+            ("quotas", "Квоты и лимиты", "quotas"),
+            ("analytics", "Аналитика", "analytics"),
+            ("health", "Состояние", "health"),
+            ("logs", "Журнал событий", "logs"),
+            ("settings", "Настройки", "settings"),
+            ("about", "О программе", "about"),
         ]
 
         self.nav_frame = ctk.CTkScrollableFrame(
@@ -272,9 +275,12 @@ class HermesHubApp(ctk.CTk):
         self.nav_frame.pack(fill="both", expand=True)
         self._nav_buttons: Dict[str, ctk.CTkButton] = {}
         for key, label, icon in self._nav_items:
+            icon_image = AssetManager.get().get_nav_icon(icon, size=19)
             btn = ctk.CTkButton(
                 self.nav_frame,
-                text=f"  {icon}  {label}",
+                text=label,
+                image=icon_image,
+                compound="left",
                 font=Theme.font_body(),
                 height=Theme.HEIGHT_NAV_ITEM,
                 fg_color="transparent",
@@ -346,25 +352,26 @@ class HermesHubApp(ctk.CTk):
         self.global_search.bind("<Return>", self._run_global_search)
         self.bind_all("<Control-k>", self._focus_global_search)
 
+        for icon_name, command in (
+            ("settings", lambda: self._show_view("settings")),
+            ("about", lambda: self._show_view("about")),
+            ("logs", lambda: self._show_view("logs")),
+        ):
+            HubButton(
+                self.statusbar,
+                text="",
+                image=AssetManager.get().get_nav_icon(icon_name, size=18),
+                variant="ghost",
+                width=Theme.HEIGHT_BTN_MD,
+                command=command,
+            ).pack(side="right", padx=Theme.SPACE_XS)
         self.add_account_button = HubButton(
             self.statusbar,
             text="+  Добавить аккаунт",
             variant="primary",
             command=lambda: self._handle_action("add_account", {}),
         )
-        self.add_account_button.pack(side="right", padx=(Theme.SPACE_XS, Theme.SPACE_LG))
-        for text, command in (
-            ("⚙", lambda: self._show_view("settings")),
-            ("?", lambda: self._show_view("about")),
-            ("♧", lambda: self._show_view("logs")),
-        ):
-            HubButton(
-                self.statusbar,
-                text=text,
-                variant="ghost",
-                width=Theme.HEIGHT_BTN_MD,
-                command=command,
-            ).pack(side="right", padx=Theme.SPACE_XS)
+        self.add_account_button.pack(side="right", padx=(Theme.SPACE_XS, Theme.SPACE_MD))
 
         self.status_right = ctk.CTkLabel(
             self.statusbar,
@@ -719,6 +726,9 @@ class HermesHubApp(ctk.CTk):
         self.configure(fg_color=Theme.BG_WINDOW)
         self._build_layout()
         self._show_view(current_view)
+        from antigravity_provider.router.state_store import HubStateStore
+
+        self._on_data_loaded(HubStateStore.get().get_snapshot())
 
     def _run_in_thread(self, func, on_success=None, on_error=None):
         def _worker():

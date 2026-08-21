@@ -84,6 +84,16 @@ def test_approved_mockup_numbers_are_not_shipped_as_placeholders() -> None:
 
 
 @pytest.mark.unit
+def test_approved_logo_and_consistent_sidebar_icon_system_are_wired() -> None:
+    assert Path("assets/branding/logo/logo_approved.png").is_file()
+    assets_source = Path("src/antigravity_provider/router/ui/assets.py").read_text(encoding="utf-8")
+    app_source = Path("src/antigravity_provider/router/hermes_hub_app.py").read_text(encoding="utf-8")
+    assert 'self.logo_dir / "logo_approved.png"' in assets_source
+    assert "def get_nav_icon" in assets_source
+    assert "get_nav_icon(icon, size=19)" in app_source
+
+
+@pytest.mark.unit
 def test_apply_scheme_updates_shared_semantic_aliases() -> None:
     original = Theme.current_scheme
     try:

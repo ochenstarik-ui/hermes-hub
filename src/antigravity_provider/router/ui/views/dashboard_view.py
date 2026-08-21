@@ -1,103 +1,329 @@
-"""Approved Hermes Hub overview layout backed only by contract data."""
+"""Approved Hermes Hub overview, visually aligned with the B5 reference."""
 
 from __future__ import annotations
 
+import tkinter as tk
 from typing import Any, Callable, Dict, Iterable, Optional
 
 import customtkinter as ctk
 
 from antigravity_provider.router.state_store import HubSnapshot
+from antigravity_provider.router.ui.assets import AssetManager
 from antigravity_provider.router.ui.components import HubCard
 from antigravity_provider.router.ui.theme import Theme
 
 
-class _FlowCard(HubCard):
-    def __init__(self, master: Any, **kwargs):
-        kwargs.setdefault("corner_radius", Theme.RADIUS_MD)
-        kwargs.setdefault("border_color", Theme.BORDER)
-        kwargs.setdefault("height", 76)
-        super().__init__(master, **kwargs)
-        self.pack_propagate(False)
-        self.title = ctk.CTkLabel(self, text="", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY)
-        self.title.pack(anchor="w", padx=Theme.SPACE_SM, pady=(Theme.SPACE_SM, 0))
-        self.subtitle = ctk.CTkLabel(self, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
-        self.subtitle.pack(anchor="w", padx=Theme.SPACE_SM, pady=2)
-        self.meta = ctk.CTkLabel(self, text="", font=Theme.font_micro(), text_color=Theme.TEXT_SECONDARY)
-        self.meta.pack(anchor="w", padx=Theme.SPACE_SM, pady=(0, Theme.SPACE_SM))
+class _Sparkline(ctk.CTkFrame):
+    """Tiny chart built only from values observed during this UI session."""
 
-    def update_card(self, title: str, subtitle: str, meta: str, status: str = "unknown") -> None:
-        self.title.configure(text=title)
-        self.subtitle.configure(text=subtitle)
-        self.meta.configure(text=meta)
-        colors = {
-            "healthy": Theme.STATUS_HEALTHY,
-            "warning": Theme.STATUS_WARNING,
-            "error": Theme.STATUS_ERROR,
-            "active": Theme.BORDER_ACCENT,
-        }
-        self.configure(border_color=colors.get(status, Theme.BORDER))
+    def __init__(self, master: Any, width: int = 58, height: int = 18):
+        super().__init__(master, width=width, height=height, fg_color="transparent")
+        self.pack_propagate(False)
+        self._width, self._height = width, height
+        self._values: list[float] = []
+        self.canvas = tk.Canvas(self, width=width, height=height, bg=Theme.SURFACE, highlightthickness=0, bd=0)
+        self.canvas.pack(fill="both", expand=True)
+
+    def update_value(self, value: Optional[float]) -> None:
+        if value is not None:
+            self._values.append(float(value))
+            self._values = self._values[-18:]
+        self.canvas.delete("all")
+        if not self._values:
+            self.canvas.create_line(3, self._height - 4, self._width - 3, self._height - 4, fill=Theme.BORDER_SUBTLE)
+            return
+        values = self._values if len(self._values) > 1 else [self._values[0], self._values[0]]
+        low, high = min(values), max(values)
+        span = max(high - low, max(abs(high), 1.0) * 0.08)
+        points: list[float] = []
+        for index, current in enumerate(values):
+            points.extend(
+                (
+                    3 + index * (self._width - 6) / max(len(values) - 1, 1),
+                    self._height - 3 - ((current - low) / span) * (self._height - 7),
+                )
+            )
+        self.canvas.create_line(*points, fill=Theme.STATUS_HEALTHY, width=1.4, smooth=True)
 
 
 class _KpiCard(HubCard):
-    def __init__(self, master: Any, title: str, value: str, subtext: str, icon: str):
-        super().__init__(master, corner_radius=Theme.RADIUS_SM)
-        header = ctk.CTkFrame(self, fg_color="transparent")
-        header.pack(fill="x", padx=Theme.SPACE_SM, pady=(Theme.SPACE_SM, 0))
-        ctk.CTkLabel(header, text=icon, font=Theme.font_micro(), text_color=Theme.TEXT_ACCENT).pack(side="left")
-        ctk.CTkLabel(header, text=title.upper(), font=Theme.font_micro(), text_color=Theme.TEXT_MUTED).pack(
-            side="left", padx=Theme.SPACE_XS
+    def __init__(self, master: Any, title: str, value: str, subtext: str):
+        super().__init__(master, corner_radius=Theme.RADIUS_SM, height=62)
+        self.grid_propagate(False)
+        self.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(self, text=title, font=Theme.font_micro(), text_color=Theme.TEXT_SECONDARY).grid(
+            row=0, column=0, columnspan=3, sticky="w", padx=10, pady=(7, 0)
         )
-        value_row = ctk.CTkFrame(self, fg_color="transparent")
-        value_row.pack(fill="x", padx=Theme.SPACE_SM, pady=(0, Theme.SPACE_SM))
-        self.val_label = ctk.CTkLabel(value_row, text=value, font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY)
-        self.val_label.pack(side="left")
-        self.sub_label = ctk.CTkLabel(value_row, text=subtext, font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
-        self.sub_label.pack(side="right")
+        self.val_label = ctk.CTkLabel(self, text=value, font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY)
+        self.val_label.grid(row=1, column=0, sticky="w", padx=10, pady=(0, 6))
+        self.sub_label = ctk.CTkLabel(self, text=subtext, font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
+        self.sub_label.grid(row=1, column=1, sticky="e", padx=(2, 5), pady=(0, 6))
+        self.spark = _Sparkline(self, width=48, height=16)
+        self.spark.grid(row=1, column=2, sticky="e", padx=(0, 7), pady=(0, 5))
+
+    def set_metric(self, value: str, subtext: str, numeric: Optional[float] = None) -> None:
+        self.val_label.configure(text=value)
+        self.sub_label.configure(text=subtext)
+        self.spark.update_value(numeric)
+
+
+class _EndpointCard(HubCard):
+    """Compact provider/agent card with brand icon and a real quota bar."""
+
+    def __init__(self, master: Any):
+        super().__init__(master, corner_radius=Theme.RADIUS_MD, height=76)
+        self.pack_propagate(False)
+        self.icon = ctk.CTkLabel(self, text="◇", width=38, font=Theme.font_heading(), text_color=Theme.TEXT_ACCENT)
+        self.icon.pack(side="left", padx=(8, 5))
+        text = ctk.CTkFrame(self, fg_color="transparent")
+        text.pack(side="left", fill="both", expand=True, pady=3)
+        self.title = ctk.CTkLabel(text, text="", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY)
+        self.title.pack(anchor="w")
+        self.subtitle = ctk.CTkLabel(text, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
+        self.subtitle.pack(anchor="w", pady=(0, 1))
+        self.status = ctk.CTkLabel(text, text="", font=Theme.font_micro(), text_color=Theme.STATUS_HEALTHY)
+        self.status.pack(anchor="w")
+        quota = ctk.CTkFrame(self, fg_color="transparent", width=58)
+        quota.pack(side="right", fill="y", padx=(3, 8), pady=8)
+        quota.pack_propagate(False)
+        self.quota_label = ctk.CTkLabel(quota, text="Н/Д", font=Theme.font_micro(), text_color=Theme.TEXT_SECONDARY)
+        self.quota_label.pack(anchor="e")
+        self.progress = ctk.CTkProgressBar(
+            quota, height=4, corner_radius=2, progress_color=Theme.STATUS_HEALTHY, fg_color=Theme.SURFACE_MUTED
+        )
+        self.progress.pack(fill="x", pady=(5, 0))
+        self.progress.set(0)
+
+    def update_card(
+        self,
+        provider_key: str,
+        title: str,
+        subtitle: str,
+        status_text: str,
+        quota_text: str,
+        quota_percent: Optional[float],
+        status: str,
+    ) -> None:
+        image = AssetManager.get().get_provider_image(provider_key, size=(30, 30))
+        self.icon.configure(image=image, text="" if image else "◇")
+        self.icon.image = image
+        self.title.configure(text=title)
+        self.subtitle.configure(text=subtitle)
+        self.status.configure(text=f"●  {status_text}")
+        self.quota_label.configure(text=quota_text)
+        color = {
+            "healthy": Theme.STATUS_HEALTHY,
+            "warning": Theme.STATUS_WARNING,
+            "error": Theme.STATUS_ERROR,
+        }.get(status, Theme.STATUS_DISABLED)
+        self.status.configure(text_color=color)
+        self.configure(border_color=Theme.BORDER_ACCENT if status == "healthy" else Theme.BORDER)
+        self.progress.configure(progress_color=color)
+        self.progress.set(max(0.0, min(1.0, quota_percent / 100.0)) if quota_percent is not None else 0)
+
+
+class _OrchestratorNode(ctk.CTkFrame):
+    def __init__(self, master: Any):
+        super().__init__(master, width=174, height=150, fg_color="transparent")
+        self.pack_propagate(False)
+        self.circle = ctk.CTkFrame(
+            self,
+            width=96,
+            height=96,
+            corner_radius=48,
+            fg_color=Theme.BG_SIDEBAR if Theme.current_scheme != "light" else Theme.SURFACE,
+            border_width=2,
+            border_color=Theme.BORDER_ACCENT,
+        )
+        self.circle.pack(pady=(0, 3))
+        self.circle.pack_propagate(False)
+        logo = AssetManager.get().get_logo_image(size=(76, 76))
+        self.logo = ctk.CTkLabel(
+            self.circle, image=logo, text="H" if logo is None else "", text_color=Theme.TEXT_ACCENT
+        )
+        self.logo.image = logo
+        self.logo.place(relx=0.5, rely=0.5, anchor="center")
+        ctk.CTkLabel(
+            self, text="Главный оркестратор", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY
+        ).pack()
+        self.subtitle = ctk.CTkLabel(self, text="Не назначен", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
+        self.subtitle.pack()
+        self.status = ctk.CTkLabel(self, text="●  Н/Д", font=Theme.font_micro(), text_color=Theme.STATUS_WARNING)
+        self.status.pack()
+
+    def update_node(self, subtitle: str, status_text: str, active: bool) -> None:
+        self.subtitle.configure(text=subtitle)
+        self.status.configure(
+            text=f"●  {status_text}", text_color=Theme.STATUS_HEALTHY if active else Theme.STATUS_WARNING
+        )
+
+
+class _RouteDiagram(ctk.CTkFrame):
+    """Responsive diagram with smooth connections behind native widgets."""
+
+    def __init__(self, master: Any):
+        super().__init__(master, height=330, fg_color="transparent")
+        self.pack_propagate(False)
+        self.canvas = tk.Canvas(self, bg=Theme.SURFACE, highlightthickness=0, bd=0)
+        self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
+        self.provider_slots = [ctk.CTkFrame(self, height=76, fg_color="transparent") for _ in range(3)]
+        self.agent_slots = [ctk.CTkFrame(self, height=76, fg_color="transparent") for _ in range(3)]
+        for index, slot in enumerate(self.provider_slots):
+            slot.place(relx=0.012, rely=0.02 + index * 0.29, relwidth=0.30)
+        for index, slot in enumerate(self.agent_slots):
+            slot.place(relx=0.71, rely=0.02 + index * 0.29, relwidth=0.278)
+        self.orchestrator = _OrchestratorNode(self)
+        self.orchestrator.place(relx=0.51, rely=0.46, anchor="center")
+        self.context = HubCard(self, corner_radius=Theme.RADIUS_MD, height=46)
+        self.context.place(relx=0.51, rely=0.91, relwidth=0.25, anchor="center")
+        ctk.CTkLabel(
+            self.context, text="▤  Хранилище контекста", font=Theme.font_caption(), text_color=Theme.TEXT_PRIMARY
+        ).pack(pady=(6, 0))
+        self.context_status = ctk.CTkLabel(
+            self.context, text="●  Состояние: Н/Д", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED
+        )
+        self.context_status.pack()
+        self._left_labels = ["", "", ""]
+        self._right_labels = ["", "", ""]
+        self.bind("<Configure>", self._redraw)
+
+    def set_labels(self, left: list[str], right: list[str]) -> None:
+        self._left_labels = (left + ["", "", ""])[:3]
+        self._right_labels = (right + ["", "", ""])[:3]
+        self._redraw()
+
+    def _redraw(self, _event: Any = None) -> None:
+        width, height = max(self.winfo_width(), 600), max(self.winfo_height(), 300)
+        self.canvas.delete("route")
+        center_x, center_y = width * 0.51, height * 0.40
+        left_x, right_x = width * 0.312, width * 0.71
+        ys = [height * (0.02 + index * 0.29) + 38 for index in range(3)]
+        for index, y_pos in enumerate(ys):
+            self.canvas.create_line(
+                left_x,
+                y_pos,
+                left_x + 44,
+                y_pos,
+                center_x - 78,
+                center_y,
+                center_x - 48,
+                center_y,
+                fill=Theme.BORDER_ACCENT,
+                width=1.35,
+                smooth=True,
+                arrow=tk.LAST,
+                tags="route",
+            )
+            self.canvas.create_text(
+                left_x + 50,
+                y_pos - 8,
+                text=self._left_labels[index],
+                fill=Theme.TEXT_SECONDARY,
+                font=(Theme.FONT_FAMILY_UI, 8),
+                anchor="w",
+                tags="route",
+            )
+            self.canvas.create_line(
+                center_x + 48,
+                center_y,
+                right_x - 34,
+                y_pos,
+                right_x,
+                y_pos,
+                fill=Theme.BORDER_ACCENT,
+                width=1.35,
+                smooth=True,
+                arrow=tk.LAST,
+                tags="route",
+            )
+            self.canvas.create_text(
+                right_x - 39,
+                y_pos - 8,
+                text=self._right_labels[index],
+                fill=Theme.TEXT_SECONDARY,
+                font=(Theme.FONT_FAMILY_UI, 8),
+                anchor="e",
+                tags="route",
+            )
+        self.canvas.create_line(
+            center_x,
+            center_y + 48,
+            center_x,
+            height * 0.83,
+            fill=Theme.BORDER_ACCENT,
+            width=1.2,
+            dash=(3, 3),
+            arrow=tk.LAST,
+            tags="route",
+        )
 
 
 class _StatusRow(ctk.CTkFrame):
     def __init__(self, master: Any):
-        super().__init__(master, fg_color="transparent")
-        self.dot = ctk.CTkLabel(self, text="●", width=14, font=Theme.font_micro())
+        super().__init__(master, fg_color="transparent", height=24)
+        self.pack_propagate(False)
+        self.dot = ctk.CTkLabel(self, text="●", width=12, font=Theme.font_micro())
         self.dot.pack(side="left")
-        self.title = ctk.CTkLabel(self, text="", font=Theme.font_caption(), text_color=Theme.TEXT_PRIMARY)
-        self.title.pack(side="left", padx=Theme.SPACE_XS)
-        self.detail = ctk.CTkLabel(self, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
+        self.title = ctk.CTkLabel(self, text="", font=Theme.font_micro(), text_color=Theme.TEXT_PRIMARY)
+        self.title.pack(side="left", padx=4)
+        self.detail = ctk.CTkLabel(self, text="", font=Theme.font_micro(), text_color=Theme.TEXT_SECONDARY)
         self.detail.pack(side="right")
 
     def update_row(self, title: str, detail: str, status: str) -> None:
         self.title.configure(text=title)
         self.detail.configure(text=detail)
-        color = (
-            Theme.STATUS_HEALTHY
-            if status == "healthy"
-            else Theme.STATUS_WARNING
-            if status == "warning"
-            else Theme.STATUS_ERROR
-            if status == "error"
-            else Theme.STATUS_DISABLED
+        self.dot.configure(
+            text_color={
+                "healthy": Theme.STATUS_HEALTHY,
+                "warning": Theme.STATUS_WARNING,
+                "error": Theme.STATUS_ERROR,
+            }.get(status, Theme.STATUS_DISABLED)
         )
-        self.dot.configure(text_color=color)
+
+
+class _SystemRow(ctk.CTkFrame):
+    def __init__(self, master: Any, title: str):
+        super().__init__(master, fg_color="transparent", height=25)
+        self.pack_propagate(False)
+        ctk.CTkLabel(
+            self, text=title, width=47, anchor="w", font=Theme.font_micro(), text_color=Theme.TEXT_SECONDARY
+        ).pack(side="left")
+        self.value = ctk.CTkLabel(
+            self, text="Н/Д", width=48, anchor="e", font=Theme.font_micro(), text_color=Theme.TEXT_PRIMARY
+        )
+        self.value.pack(side="left")
+        self.spark = _Sparkline(self, width=54, height=16)
+        self.spark.pack(side="right")
+
+    def update_metric(self, text: str, numeric: Optional[float]) -> None:
+        self.value.configure(text=text)
+        self.spark.update_value(numeric)
 
 
 class _EventRow(ctk.CTkFrame):
     def __init__(self, master: Any):
-        super().__init__(master, fg_color="transparent")
-        self.time = ctk.CTkLabel(self, width=58, text="", font=Theme.font_mono_sm(), text_color=Theme.TEXT_MUTED)
+        super().__init__(master, fg_color="transparent", height=23)
+        self.pack_propagate(False)
+        self.time = ctk.CTkLabel(self, width=58, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
         self.time.pack(side="left")
         self.dot = ctk.CTkLabel(self, width=18, text="●", font=Theme.font_micro())
         self.dot.pack(side="left")
-        self.message = ctk.CTkLabel(self, text="", anchor="w", font=Theme.font_caption(), text_color=Theme.TEXT_PRIMARY)
-        self.message.pack(side="left", fill="x", expand=True, padx=Theme.SPACE_XS)
+        self.category = ctk.CTkLabel(
+            self, width=112, text="", anchor="w", font=Theme.font_micro(), text_color=Theme.TEXT_PRIMARY
+        )
+        self.category.pack(side="left", padx=(0, 6))
+        self.message = ctk.CTkLabel(self, text="", anchor="w", font=Theme.font_micro(), text_color=Theme.TEXT_SECONDARY)
+        self.message.pack(side="left", fill="x", expand=True)
         self.tag = ctk.CTkLabel(
             self,
             text="",
+            width=82,
             font=Theme.font_micro(),
             text_color=Theme.TEXT_SECONDARY,
             fg_color=Theme.SURFACE_MUTED,
             corner_radius=Theme.RADIUS_PILL,
         )
-        self.tag.pack(side="right", padx=Theme.SPACE_XS)
+        self.tag.pack(side="right")
 
     def update_event(self, event: Any) -> None:
         level = str(getattr(event, "level", "info"))
@@ -106,14 +332,16 @@ class _EventRow(ctk.CTkFrame):
             "warning": Theme.STATUS_WARNING,
             "error": Theme.STATUS_ERROR,
         }.get(level, Theme.STATUS_INFO)
+        category = str(getattr(event, "category", "system"))
         self.time.configure(text=str(getattr(event, "timestamp", "Н/Д")))
         self.dot.configure(text_color=color)
+        self.category.configure(text=category.replace("_", " ").title())
         self.message.configure(text=str(getattr(event, "message", "Событие без описания")))
-        self.tag.configure(text=f"  {getattr(event, 'category', 'system')}  ")
+        self.tag.configure(text=category)
 
 
 class DashboardView(ctk.CTkFrame):
-    """Dense overview matching the approved composition without fictional metrics."""
+    """Dense overview following the approved dashboard composition."""
 
     def __init__(
         self,
@@ -126,162 +354,156 @@ class DashboardView(ctk.CTkFrame):
         super().__init__(master=master, fg_color="transparent", **kwargs)
         self.on_navigate = on_navigate
         self.on_action = on_action
-        self._provider_cards: Dict[str, _FlowCard] = {}
-        self._agent_cards: Dict[str, _FlowCard] = {}
+        self._provider_cards: Dict[str, _EndpointCard] = {}
+        self._agent_cards: Dict[str, _EndpointCard] = {}
         self._provider_status_rows: Dict[str, _StatusRow] = {}
         self._event_rows: list[_EventRow] = []
         self._build()
 
     def _build(self) -> None:
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
-        self.scroll.pack(fill="both", expand=True, padx=Theme.PAGE_PAD_X, pady=Theme.PAGE_PAD_Y)
-
+        self.scroll.pack(fill="both", expand=True, padx=Theme.PAGE_PAD_X, pady=(8, 10))
         self.snapshot_freshness = ctk.CTkLabel(
             self.scroll,
-            text="Snapshot: Н/Д",
+            text="●  Система загружается",
             font=Theme.font_micro(),
-            text_color=Theme.TEXT_MUTED,
+            text_color=Theme.STATUS_HEALTHY,
             anchor="w",
         )
-        self.snapshot_freshness.pack(fill="x", pady=(0, Theme.SPACE_XS))
+        # Kept as a presentation-state probe for tests/accessibility; the same
+        # status is rendered once in the global header, as in the approved mockup.
 
         self.metrics = ctk.CTkFrame(self.scroll, fg_color="transparent")
-        self.metrics.pack(fill="x", pady=(0, Theme.SPACE_SM))
+        self.metrics.pack(fill="x", pady=(0, 8))
         for column in range(5):
-            self.metrics.grid_columnconfigure(column, weight=1)
-        self.quota_metric = _KpiCard(self.metrics, "Квоты", "Н/Д", "нет измерения", icon="◔")
-        self.calls_metric = _KpiCard(self.metrics, "Вызовы", "Н/Д", "измерения", icon="◎")
-        self.agents_metric = _KpiCard(self.metrics, "Агенты онлайн", "0/0", "готовые роли", icon="◇")
-        self.latency_metric = _KpiCard(self.metrics, "Время отклика", "Н/Д", "P50", icon="⌁")
-        self.failover_metric = _KpiCard(self.metrics, "Переключения", "Н/Д", "failover", icon="⇄")
+            self.metrics.grid_columnconfigure(column, weight=1, uniform="kpi")
+        self.quota_metric = _KpiCard(self.metrics, "Квота сегодня", "Н/Д", "нет измерения")
+        self.calls_metric = _KpiCard(self.metrics, "Вызовы", "Н/Д", "активно: 0")
+        self.agents_metric = _KpiCard(self.metrics, "Агенты онлайн", "0/0", "готовые роли")
+        self.latency_metric = _KpiCard(self.metrics, "Время отклика", "Н/Д", "P50")
+        self.failover_metric = _KpiCard(self.metrics, "Переключения", "Н/Д", "failover")
         for index, metric in enumerate(
             (self.quota_metric, self.calls_metric, self.agents_metric, self.latency_metric, self.failover_metric)
         ):
-            metric.grid(row=0, column=index, padx=Theme.SPACE_XS, sticky="nsew")
+            metric.grid(row=0, column=index, padx=(0 if index == 0 else 3, 0 if index == 4 else 3), sticky="nsew")
 
         body = ctk.CTkFrame(self.scroll, fg_color="transparent")
         body.pack(fill="x")
         body.grid_columnconfigure(0, weight=4)
         body.grid_columnconfigure(1, weight=1)
-
-        route_card = HubCard(body)
-        route_card.grid(row=0, column=0, sticky="nsew", padx=(0, Theme.SPACE_SM))
+        route_card = HubCard(body, height=370)
+        route_card.grid(row=0, column=0, sticky="nsew", padx=(0, 8))
+        route_card.grid_propagate(False)
         ctk.CTkLabel(
-            route_card,
-            text="Маршрутизация запросов",
-            font=Theme.font_heading(),
-            text_color=Theme.TEXT_PRIMARY,
-        ).pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.CARD_PAD_Y, Theme.SPACE_SM))
-        flow = ctk.CTkFrame(route_card, fg_color="transparent")
-        flow.pack(fill="both", expand=True, padx=Theme.CARD_PAD_X, pady=(0, Theme.CARD_PAD_Y))
-        flow.grid_columnconfigure(0, weight=3)
-        flow.grid_columnconfigure(1, weight=1)
-        flow.grid_columnconfigure(2, weight=3)
-        flow.grid_columnconfigure(3, weight=1)
-        flow.grid_columnconfigure(4, weight=3)
-        self.provider_column = ctk.CTkFrame(flow, fg_color="transparent")
-        self.provider_column.grid(row=0, column=0, sticky="nsew")
-        ctk.CTkLabel(flow, text="→", font=Theme.font_metric(), text_color=Theme.TEXT_ACCENT).grid(row=0, column=1)
-        self.orchestrator_card = _FlowCard(flow, border_color=Theme.BORDER_ACCENT)
-        self.orchestrator_card.grid(row=0, column=2, sticky="ew", padx=Theme.SPACE_XS)
-        ctk.CTkLabel(flow, text="→", font=Theme.font_metric(), text_color=Theme.TEXT_ACCENT).grid(row=0, column=3)
-        self.agent_column = ctk.CTkFrame(flow, fg_color="transparent")
-        self.agent_column.grid(row=0, column=4, sticky="nsew")
-        self.context_card = _FlowCard(flow)
-        self.context_card.grid(row=1, column=2, sticky="ew", padx=Theme.SPACE_XS, pady=(Theme.SPACE_SM, 0))
-        self.context_card.update_card("Хранилище контекста", "Постоянная память", "Состояние: Н/Д")
+            route_card, text="Маршрутизация запросов", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY
+        ).pack(anchor="w", padx=10, pady=(8, 0))
+        self.route_diagram = _RouteDiagram(route_card)
+        self.route_diagram.pack(fill="both", expand=True, padx=6, pady=(2, 6))
 
-        self.realtime = HubCard(body)
+        self.realtime = HubCard(body, height=370)
         self.realtime.grid(row=0, column=1, sticky="nsew")
+        self.realtime.grid_propagate(False)
         ctk.CTkLabel(
             self.realtime,
             text="Статус в реальном времени",
-            font=Theme.font_heading(),
+            font=Theme.font_body_bold(),
             text_color=Theme.TEXT_PRIMARY,
-        ).pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.CARD_PAD_Y, Theme.SPACE_SM))
+        ).pack(anchor="w", padx=10, pady=(8, 5))
         ctk.CTkLabel(self.realtime, text="ПРОВАЙДЕРЫ", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED).pack(
-            anchor="w", padx=Theme.CARD_PAD_X
+            anchor="w", padx=10
         )
         self.provider_status = ctk.CTkFrame(self.realtime, fg_color="transparent")
-        self.provider_status.pack(fill="x", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_XS)
+        self.provider_status.pack(fill="x", padx=10, pady=(2, 5))
+        ctk.CTkFrame(self.realtime, height=1, fg_color=Theme.BORDER_SUBTLE).pack(fill="x", padx=10, pady=3)
         ctk.CTkLabel(
             self.realtime, text="СИСТЕМНЫЕ ПОКАЗАТЕЛИ", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED
-        ).pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_SM, 0))
-        self.host_metrics = ctk.CTkLabel(
-            self.realtime,
-            text="CPU       Н/Д\nПамять   Н/Д\nДиск       Н/Д\nСеть       Н/Д",
-            justify="left",
-            anchor="w",
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_SECONDARY,
+        ).pack(anchor="w", padx=10, pady=(2, 1))
+        systems = ctk.CTkFrame(self.realtime, fg_color="transparent")
+        systems.pack(fill="x", padx=10)
+        self.system_rows = {
+            "cpu": _SystemRow(systems, "CPU"),
+            "memory": _SystemRow(systems, "Память"),
+            "disk": _SystemRow(systems, "Диск"),
+            "network": _SystemRow(systems, "Сеть"),
+        }
+        for row in self.system_rows.values():
+            row.pack(fill="x")
+        ctk.CTkFrame(self.realtime, height=1, fg_color=Theme.BORDER_SUBTLE).pack(fill="x", padx=10, pady=4)
+        ctk.CTkLabel(self.realtime, text="ТЕКУЩАЯ НАГРУЗКА", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED).pack(
+            anchor="w", padx=10
         )
-        self.host_metrics.pack(fill="x", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_SM)
-        ctk.CTkLabel(
-            self.realtime,
-            text="Локальные измерения • psutil",
-            wraplength=210,
-            justify="left",
-            font=Theme.font_micro(),
-            text_color=Theme.TEXT_MUTED,
-        ).pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(0, Theme.CARD_PAD_Y))
+        load = ctk.CTkFrame(self.realtime, fg_color="transparent")
+        load.pack(fill="x", padx=10, pady=(2, 0))
+        self.load_rows = {key: _StatusRow(load) for key in ("active", "failovers", "errors")}
+        for row in self.load_rows.values():
+            row.pack(fill="x")
 
         self.events_card = HubCard(self.scroll)
-        self.events_card.pack(fill="x", pady=(Theme.SPACE_SM, 0))
+        self.events_card.pack(fill="x", pady=(8, 0))
+        events_header = ctk.CTkFrame(self.events_card, fg_color="transparent")
+        events_header.pack(fill="x", padx=10, pady=(7, 3))
         ctk.CTkLabel(
-            self.events_card,
-            text="Последние события",
-            font=Theme.font_heading(),
-            text_color=Theme.TEXT_PRIMARY,
-        ).pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.CARD_PAD_Y, Theme.SPACE_XS))
+            events_header, text="Последние события", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY
+        ).pack(side="left")
+        ctk.CTkButton(
+            events_header,
+            text="Все события  →",
+            width=82,
+            height=22,
+            fg_color="transparent",
+            hover_color=Theme.SURFACE_HOVER,
+            text_color=Theme.TEXT_ACCENT,
+            font=Theme.font_micro(),
+            command=lambda: self.on_navigate("logs") if self.on_navigate else None,
+        ).pack(side="right")
         self.events_body = ctk.CTkFrame(self.events_card, fg_color="transparent")
-        self.events_body.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(0, Theme.CARD_PAD_Y))
+        self.events_body.pack(fill="x", padx=10, pady=(0, 7))
         self.events_empty = ctk.CTkLabel(
-            self.events_body,
-            text="События: Н/Д",
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_MUTED,
+            self.events_body, text="События: Н/Д", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED
         )
-        self.events_empty.pack(anchor="w", pady=Theme.SPACE_SM)
+        self.events_empty.pack(anchor="w", pady=5)
 
     @staticmethod
-    def _quota_text(snapshot: HubSnapshot, provider_id: str) -> str:
-        profiles = snapshot.profiles_by_provider.get(provider_id, [])
-        measured: list[float] = []
+    def _quota_measurement(snapshot: HubSnapshot, provider_id: Optional[str] = None) -> tuple[str, Optional[float]]:
+        profiles = snapshot.profiles_by_provider.get(provider_id, []) if provider_id else snapshot.all_profiles.values()
         for profile in profiles:
             quota = snapshot.quotas.get(profile.profile_id)
             if not quota or getattr(quota, "is_estimated", True):
                 continue
-            measured.extend(
-                float(bucket.remaining_percent) for bucket in quota.buckets if bucket.remaining_percent is not None
-            )
-        if not measured:
-            return "Квота: Н/Д"
-        return f"Корзины: {len(measured)} измерено"
+            for bucket in quota.buckets:
+                if bucket.remaining_percent is not None:
+                    return f"{bucket.remaining_percent:.0f}%", float(bucket.remaining_percent)
+        return "Н/Д", None
 
     @staticmethod
-    def _sync_cards(
-        container: Any,
-        cache: Dict[str, _FlowCard],
-        items: Iterable[tuple[str, str, str, str, str]],
+    def _sync_endpoint_cards(
+        slots: list[Any],
+        cache: Dict[str, _EndpointCard],
+        items: Iterable[tuple[str, str, str, str, str, str, Optional[float], str]],
     ) -> None:
-        prepared = list(items)
+        prepared = list(items)[:3]
         live = {key for key, *_rest in prepared}
         for key in list(cache):
             if key not in live:
                 cache.pop(key).destroy()
-        for index, (key, title, subtitle, meta, status) in enumerate(prepared):
+        for index, item in enumerate(prepared):
+            key, provider_key, title, subtitle, status_text, quota_text, quota_percent, status = item
             card = cache.get(key)
             if card is None:
-                card = _FlowCard(container)
+                card = _EndpointCard(slots[index])
+                card.pack(fill="both", expand=True)
                 cache[key] = card
-            card.update_card(title, subtitle, meta, status)
-            card.pack(fill="x", pady=Theme.SPACE_XS)
+            card.update_card(provider_key, title, subtitle, status_text, quota_text, quota_percent, status)
 
     def update_data(self, snapshot: Optional[HubSnapshot] = None) -> None:
         if not isinstance(snapshot, HubSnapshot):
             return
         self.snapshot_freshness.configure(
-            text=f"{'⚠ данные устарели' if snapshot.is_stale else '● данные актуальны'} • snapshot #{snapshot.seq}",
+            text=(
+                f"⚠  Данные устарели • snapshot #{snapshot.seq}"
+                if snapshot.is_stale
+                else f"●  Система работает штатно • snapshot #{snapshot.seq}"
+            ),
             text_color=Theme.STATUS_WARNING if snapshot.is_stale else Theme.STATUS_HEALTHY,
         )
         readiness = snapshot.readiness
@@ -290,53 +512,54 @@ class DashboardView(ctk.CTkFrame):
         provider_telemetry = dict(telemetry.get("by_provider") or {})
         role_telemetry = dict(telemetry.get("by_role") or {})
         has_telemetry = bool(telemetry.get("has_data"))
-        self.calls_metric.val_label.configure(text=str(global_telemetry.get("total_calls")) if has_telemetry else "Н/Д")
-        self.latency_metric.val_label.configure(
-            text=f"{global_telemetry['latency_p50_ms']:.0f} мс"
-            if has_telemetry and global_telemetry.get("latency_p50_ms") is not None
-            else "Н/Д"
-        )
-        self.failover_metric.val_label.configure(
-            text=str(global_telemetry.get("failovers_count")) if has_telemetry else "Н/Д"
-        )
+        total_calls = global_telemetry.get("total_calls") if has_telemetry else None
+        latency = global_telemetry.get("latency_p50_ms") if has_telemetry else None
+        failovers = global_telemetry.get("failovers_count") if has_telemetry else None
         active_calls = snapshot.metrics.get("active_calls_total")
-        self.calls_metric.sub_label.configure(
-            text=f"активно: {active_calls}" if isinstance(active_calls, int) else "own_measurement"
+        quota_text, quota_percent = self._quota_measurement(snapshot)
+        self.quota_metric.set_metric(
+            quota_text, "реальная корзина" if quota_percent is not None else "нет измерения", quota_percent
         )
-        self.agents_metric.val_label.configure(text=f"{readiness.roles_ready_count}/{readiness.total_roles}")
-        measured_buckets = sum(
-            1
-            for quota in snapshot.quotas.values()
-            if not getattr(quota, "is_estimated", True)
-            for bucket in quota.buckets
-            if bucket.remaining_percent is not None
+        self.calls_metric.set_metric(
+            str(total_calls) if total_calls is not None else "Н/Д",
+            f"активно: {active_calls}" if isinstance(active_calls, int) else "Н/Д",
+            float(total_calls) if total_calls is not None else None,
         )
-        self.quota_metric.val_label.configure(text=str(measured_buckets) if measured_buckets else "Н/Д")
-        self.quota_metric.sub_label.configure(text="измеренных корзин" if measured_buckets else "нет измерения")
+        self.agents_metric.set_metric(
+            f"{readiness.roles_ready_count}/{readiness.total_roles}",
+            "готовые роли",
+            float(readiness.roles_ready_count),
+        )
+        self.latency_metric.set_metric(
+            f"{latency:.0f} мс" if latency is not None else "Н/Д",
+            "P50",
+            float(latency) if latency is not None else None,
+        )
+        self.failover_metric.set_metric(
+            str(failovers) if failovers is not None else "Н/Д",
+            "failover",
+            float(failovers) if failovers is not None else None,
+        )
 
         providers = list(snapshot.providers)[:3]
-
-        def provider_activity(provider_id: str, online: int, connected: int) -> str:
-            measured = dict(provider_telemetry.get(provider_id) or {})
-            share = measured.get("call_share")
-            calls = measured.get("total_calls")
-            if share is not None and calls is not None:
-                return f"{share:.0%} потока • {calls} вызовов"
-            return f"{online}/{connected} онлайн"
-
-        self._sync_cards(
-            self.provider_column,
+        self._sync_endpoint_cards(
+            self.route_diagram.provider_slots,
             self._provider_cards,
             (
                 (
                     provider.provider_id,
+                    provider.provider_id,
                     provider.provider_name,
-                    provider_activity(
-                        provider.provider_id,
-                        provider.online_count,
-                        provider.connected_count,
+                    next(
+                        (
+                            profile.preferred_models[0]
+                            for profile in snapshot.profiles_by_provider.get(provider.provider_id, [])
+                            if profile.preferred_models
+                        ),
+                        "Модель: Н/Д",
                     ),
-                    self._quota_text(snapshot, provider.provider_id),
+                    "Онлайн" if provider.online_count else "Недоступен",
+                    *self._quota_measurement(snapshot, provider.provider_id),
                     "healthy" if provider.online_count else "warning",
                 )
                 for provider in providers
@@ -344,89 +567,102 @@ class DashboardView(ctk.CTkFrame):
         )
         orchestrator = next((agent for agent in snapshot.agents if agent.is_main_orchestrator), None)
         if orchestrator:
-            self.orchestrator_card.update_card(
-                "Главный оркестратор",
+            self.route_diagram.orchestrator.update_node(
                 f"{orchestrator.provider_display_name} • {orchestrator.model}",
-                f"{orchestrator.account_identity or 'Аккаунт: Н/Д'} • {orchestrator.status_label_ru}",
-                "active" if orchestrator.is_active else "warning",
+                "Онлайн" if orchestrator.is_active else orchestrator.status_label_ru,
+                orchestrator.is_active,
             )
         else:
-            self.orchestrator_card.update_card("Главный оркестратор", "Не назначен", "Аккаунт: Н/Д", "warning")
+            self.route_diagram.orchestrator.update_node("Не назначен", "Н/Д", False)
+
         agents = [agent for agent in snapshot.agents if not agent.is_main_orchestrator][:3]
-        self._sync_cards(
-            self.agent_column,
+        self._sync_endpoint_cards(
+            self.route_diagram.agent_slots,
             self._agent_cards,
             (
                 (
                     agent.role_id,
+                    agent.provider,
                     agent.role_name_ru,
                     f"{agent.provider_display_name} • {agent.model}",
-                    (
-                        f"{agent.active_quota_label or 'Квота: Н/Д'}"
-                        + (
-                            f" • {role_telemetry[agent.role_id]['total_calls']} вызовов"
-                            if role_telemetry.get(agent.role_id, {}).get("has_data")
-                            else ""
-                        )
-                    ),
+                    "Здорово" if agent.is_active else agent.status_label_ru,
+                    agent.active_quota_label or "Н/Д",
+                    None,
                     "healthy" if agent.is_active else "warning",
                 )
                 for agent in agents
             ),
         )
+        left_labels: list[str] = []
+        for provider in providers:
+            share = dict(provider_telemetry.get(provider.provider_id) or {}).get("call_share")
+            left_labels.append(f"{share:.0%}" if share is not None else "Н/Д")
+        right_labels: list[str] = []
+        for agent in agents:
+            measured = dict(role_telemetry.get(agent.role_id) or {})
+            calls = measured.get("total_calls") if measured.get("has_data") else None
+            right_labels.append(f"{calls} выз." if calls is not None else "Н/Д")
+        self.route_diagram.set_labels(left_labels, right_labels)
 
-        live_provider_ids = {provider.provider_id for provider in snapshot.providers}
+        live_provider_ids = {provider.provider_id for provider in providers}
         for provider_id in list(self._provider_status_rows):
             if provider_id not in live_provider_ids:
                 self._provider_status_rows.pop(provider_id).destroy()
-        for provider in snapshot.providers:
+        for provider in providers:
             row = self._provider_status_rows.get(provider.provider_id)
             if row is None:
                 row = _StatusRow(self.provider_status)
-                row.pack(fill="x", pady=Theme.SPACE_XS)
+                row.pack(fill="x")
                 self._provider_status_rows[provider.provider_id] = row
-            measured = dict(provider_telemetry.get(provider.provider_id) or {})
-            latency = measured.get("latency_p50_ms")
-            row.update_row(
-                provider.provider_name,
-                (
-                    f"{provider.online_count}/{provider.connected_count} • {latency:.0f} мс"
-                    if latency is not None
-                    else f"{provider.online_count}/{provider.connected_count}"
-                ),
-                "healthy" if provider.online_count else "warning",
+            provider_latency = dict(provider_telemetry.get(provider.provider_id) or {}).get("latency_p50_ms")
+            detail = (
+                f"{provider_latency:.0f} мс"
+                if provider_latency is not None
+                else f"{provider.online_count}/{provider.connected_count}"
             )
+            row.update_row(provider.provider_name, detail, "healthy" if provider.online_count else "warning")
 
         host = dict(snapshot.metrics.get("host") or {})
-        if host.get("has_data"):
-            network_total = sum(
-                value for value in (host.get("net_bytes_sent"), host.get("net_bytes_recv")) if isinstance(value, int)
-            )
-            network_text = f"{network_total / (1024 * 1024):.0f} МБ" if network_total else "Н/Д"
-            self.host_metrics.configure(
-                text=(
-                    f"CPU       {host.get('cpu_percent', 'Н/Д')}%\n"
-                    f"Память   {host.get('memory_percent', 'Н/Д')}%\n"
-                    f"Диск       {host.get('disk_percent', 'Н/Д')}%\n"
-                    f"Сеть       {network_text}"
-                )
-            )
-        else:
-            self.host_metrics.configure(text="CPU       Н/Д\nПамять   Н/Д\nДиск       Н/Д\nСеть       Н/Д")
+        host_available = bool(host.get("has_data"))
+        cpu = host.get("cpu_percent") if host_available else None
+        memory = host.get("memory_percent") if host_available else None
+        disk = host.get("disk_percent") if host_available else None
+        network_total = sum(
+            value for value in (host.get("net_bytes_sent"), host.get("net_bytes_recv")) if isinstance(value, int)
+        )
+        network_mb = network_total / (1024 * 1024) if network_total else None
+        self.system_rows["cpu"].update_metric(f"{cpu:.0f}%" if cpu is not None else "Н/Д", cpu)
+        self.system_rows["memory"].update_metric(f"{memory:.0f}%" if memory is not None else "Н/Д", memory)
+        self.system_rows["disk"].update_metric(f"{disk:.0f}%" if disk is not None else "Н/Д", disk)
+        self.system_rows["network"].update_metric(
+            f"{network_mb:.0f} МБ" if network_mb is not None else "Н/Д", network_mb
+        )
+        error_rate = global_telemetry.get("error_rate") if has_telemetry else None
+        self.load_rows["active"].update_row(
+            "Активные вызовы", str(active_calls) if isinstance(active_calls, int) else "Н/Д", "healthy"
+        )
+        self.load_rows["failovers"].update_row(
+            "Переключения", str(failovers) if failovers is not None else "Н/Д", "warning"
+        )
+        self.load_rows["errors"].update_row(
+            "Доля ошибок",
+            f"{error_rate:.1%}" if error_rate is not None else "Н/Д",
+            "error" if error_rate else "healthy",
+        )
 
     def update_events(self, events: Iterable[Any]) -> None:
         items = list(events)[:5]
         while len(self._event_rows) < len(items):
             row = _EventRow(self.events_body)
-            row.pack(fill="x", pady=Theme.SPACE_XS)
+            row.pack(fill="x", pady=1)
             self._event_rows.append(row)
         for index, row in enumerate(self._event_rows):
             if index < len(items):
                 row.update_event(items[index])
-                row.pack(fill="x", pady=Theme.SPACE_XS)
+                row.pack(fill="x", pady=1)
             else:
                 row.pack_forget()
         if items:
             self.events_empty.pack_forget()
         else:
-            self.events_empty.pack(anchor="w", pady=Theme.SPACE_SM)
+            self.events_empty.pack(anchor="w", pady=5)

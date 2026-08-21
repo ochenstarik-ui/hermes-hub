@@ -15,6 +15,8 @@ FINAL_SHA: `git rev-parse codex/mockup-redesign` в момент handoff. Точ
 - Выбор темы сохраняется в `hub_settings.json`; приложение применяет его при следующем запуске.
 - Общий каркас соответствует макету: брендовая левая панель, прокручиваемая навигация, пользователь и версия снизу, глобальная верхняя строка с состоянием, `Ctrl + K`, добавлением аккаунта и служебными действиями.
 - Dashboard: пять компактных KPI, провайдеры → оркестратор → роли, правая панель состояния, реальные события снизу.
+- Второй визуальный проход заменил прямоугольный центр круглым брендированным оркестратором, добавил плавные связи со стрелками и реальными подписями, provider logos, quota-bars, sparklines и табличную ленту событий.
+- Подключён утверждённый пользователем `logo_approved.png`; боковое меню и кнопки header используют единый рисуемый контурный набор иконок вместо разнородных Unicode-глифов.
 - После обновления контракта подключены реальные доли/число вызовов и P50 по провайдерам, вызовы по ролям, active calls и локальные CPU/RAM/disk/network.
 - Добавлены отдельные вкладки «Квоты и лимиты» и «Аналитика» на данных `HubSnapshot`/`TelemetryService`.
 - Журнал получает реальные события через action layer приложения, поддерживает поиск и фильтр уровня.
@@ -29,6 +31,7 @@ FINAL_SHA: `git rev-parse codex/mockup-redesign` в момент handoff. Точ
 - `src/antigravity_provider/router/ui/components.py`
 - `src/antigravity_provider/router/ui/assets.py`
 - `src/antigravity_provider/router/ui/add_account_wizard.py`
+- `assets/branding/logo/logo_approved.png`
 - `src/antigravity_provider/router/ui/views/dashboard_view.py`
 - `src/antigravity_provider/router/ui/views/logs_view.py`
 - `src/antigravity_provider/router/ui/views/settings_view.py`
@@ -82,7 +85,7 @@ scale 1.50: search_right=781, add_right=971,  header_width=995
 | CPU, память, диск, сеть | Показываются реальные локальные измерения `psutil`; при недоступном `psutil` — `Н/Д`. |
 | Очереди задач | Блок исключён: подсистемы очередей в продукте нет. |
 | Раздел «Инциденты» | Не создан: вместо него используется реальный журнал с фильтром ошибок. |
-| Кривые соединения | В native CustomTkinter используются адаптивные направленные связи между тремя колонками; данные и порядок цепочки сохранены без canvas-зависимости. |
+| Кривые соединения | Реализованы адаптивные сглаженные линии со стрелками и подписями реальной доли/числа вызовов; при отсутствии telemetry показывается `Н/Д`. |
 | Версия `2.8.1` на макете | Показывается реальная версия пакета `0.1.1`. |
 
 ## Проверки
@@ -105,7 +108,7 @@ uv run --extra dev python -m pytest -q tests/test_ui_phase2_6.py
 uv run --extra dev python -m pytest -q tests/test_oauth_lifecycle.py::test_f_copy_before_open_browser
 ```
 
-Результаты: `243 passed, 2 skipped, 4 deselected`; `4 passed`; `1 passed`. Итог уникального набора: `248 passed, 2 skipped, 3 deselected`, ошибок нет.
+Результаты: `244 passed, 2 skipped, 4 deselected`; `4 passed`; `1 passed`. Итог уникального набора: `249 passed, 2 skipped, 3 deselected`, ошибок нет.
 
 ### Статика и release gate
 
