@@ -98,9 +98,20 @@ class SessionAffinityTracker:
 class LeaseManager:
     """Manages concurrent leases per profile to prevent process saturation."""
 
+    _instance: Optional[LeaseManager] = None
+    _instance_lock = threading.Lock()
+
     def __init__(self) -> None:
         self._lock = threading.RLock()
         self._active_leases: dict[str, int] = {}
+
+    @classmethod
+    def get(cls) -> LeaseManager:
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = cls()
+        return cls._instance
 
     def acquire(self, profile_id: str, max_concurrency: int = 1) -> bool:
         with self._lock:
@@ -119,3 +130,11 @@ class LeaseManager:
     def active_count(self, profile_id: str) -> int:
         with self._lock:
             return self._active_leases.get(profile_id, 0)
+
+    def total_active_count(self) -> int:
+        with self._lock:
+            return sum(self._active_leases.values())
+
+    def all_active_counts(self) -> dict[str, int]:
+        with self._lock:
+            return dict(self._active_leases)

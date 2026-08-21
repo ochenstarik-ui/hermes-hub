@@ -194,7 +194,13 @@ class HealthTracker:
         with self._lock:
             if profile_id not in self._profiles:
                 self._profiles[profile_id] = ProfileHealthRecord(profile_id=profile_id)
-            return self._profiles[profile_id]
+            rec = self._profiles[profile_id]
+            try:
+                from .session_affinity import LeaseManager
+                rec.active_leases = LeaseManager.get().active_count(profile_id)
+            except Exception:
+                pass
+            return rec
 
     def is_healthy(self, profile_id: str, model_name: Optional[str] = None) -> bool:
         """Check if profile (and specified model family) is healthy and ready for requests."""

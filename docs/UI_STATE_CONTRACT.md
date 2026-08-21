@@ -202,6 +202,7 @@ Callbacks receive `(event_name: str, payload: Any)`. All events carry active `ge
 | **Gap 10** | Scheduler async quota race | **Closed** | Scheduler triggers complete quota collection before invoking snapshot rebuild (`2035c14`). |
 | **Gap 11** | Stale response protection verification | **Closed** | `seq` recorded only on completion; late responses strictly dropped with test proof (`2035c14`). |
 | **Gap 12** | Empirical Call Telemetry & Metrics | **Closed (Self-Measured)** | `TelemetryService` captures real call latency, exact token usage reported in provider `usage`, failover events, and USD cost (when user pricing is defined). All metrics carry `source: "own_measurement"`. When no calls exist in the query window, values are `None` (`has_data=False`), never fake zeros (`antigravity/telemetry`). |
+| **Gap 13** | Host Hardware Indicators (`psutil`) | **Closed (Self-Measured)** | `HostMetricsService` captures real host CPU (%), RAM (MB/%), Disk (GB/%), and network I/O with `source: "host_measurement"` (`antigravity/dashboard-data`). |
 
 ---
 
@@ -212,21 +213,29 @@ The following constraints are active in the backend and must be strictly respect
 | Gap ID | Limitation | Constraint & UI Requirement |
 |---|---|---|
 | **Gap 4** | Shallow Immutability of Snapshot | `HubSnapshot` is defined with `dataclass(frozen=True)` which prevents attribute reassignments. However, contained lists and dictionaries remain standard mutable Python collections. **UI Constraint:** The UI must treat `HubSnapshot` and all nested view models as strictly read-only and must never mutate any collection or object in place. |
-| **Gap 13** | Unmeasurable Provider Internals & Host Hardware | The backend cannot measure external provider server RPS, SLA uptime percentages, or system host hardware (CPU/RAM/Disk/Network) as they are irrelevant to router logic. **UI Constraint:** The UI must display `Н/Д` (Нет данных) or hide these metric cards entirely. The UI must never generate fictional numbers or render mock graphs. |
+| **Gap 14** | External Provider Server Internals & SLA | The backend cannot measure external provider server-side RPS, external datacenter SLA uptime percentages, task priority queue subsystems, or scheduled maintenance windows (these concepts do not exist in Hermes Hub). **UI Constraint:** The UI must display `Н/Д` (Нет данных) or omit these cards. The UI must never generate fictional numbers or render mock graphs. |
 
 ---
 
-## 8. Telemetry & Empirical Metrics Contract
+## 8. Telemetry, Host Metrics, and Active Calls Contract
 
-The backend exposes real empirical metrics via `TelemetryService.get().get_aggregates(...)` and `HubSnapshot.metrics["telemetry"]`:
+The backend exposes real empirical metrics via `TelemetryService.get().get_breakdown(...)`, `HostMetricsService.collect()`, and `HubSnapshot.metrics`:
+
+### 8.1 Call Telemetry & Routing Distribution (`source: "own_measurement"`)
+
+Accessible at `HubSnapshot.metrics["telemetry"]`:
+- `global`: Overall `TelemetryAggregates` dictionary across all calls in the window (default 24h).
+- `by_provider`: `{provider_id: TelemetryAggregates}` including `call_share` (e.g. `0.45`, `0.35`, `0.20`), median latency `latency_p50_ms`, and `total_calls`.
+- `by_role`: `{role_id: TelemetryAggregates}` with `total_calls`, `latency_p50_ms`, and `total_tokens`.
 
 | Field | Type | Provenance | Description / Absence Behavior |
 |---|---|---|---|
-| `source` | `str` | `"own_measurement"` | Always identifies measurements taken by Hermes Hub router itself. |
+| `source` | `str` | `"own_measurement"` | Identifies measurements taken by Hermes Hub router itself. |
 | `has_data` | `bool` | Empirical | `True` if at least 1 router call occurred in the window; `False` if no calls recorded. |
 | `total_calls` | `int` | Empirical | Total number of invocation attempts in the window. |
 | `successful_calls` | `int` | Empirical | Count of successful invocations (including successful failovers). |
 | `failed_calls` | `int` | Empirical | Count of terminal failures. |
+| `call_share` | `Optional[float]` | Computed | Ratio of filtered calls to total window calls (`0.0` to `1.0`), or `None` if no calls in window. |
 | `error_rate` | `Optional[float]` | Computed | Ratio of failed calls to total calls (`0.0` to `1.0`), or `None` if `has_data=False`. |
 | `latency_p50_ms` | `Optional[float]` | Empirical | Median invocation latency in milliseconds, or `None` if `has_data=False`. |
 | `latency_p95_ms` | `Optional[float]` | Empirical | 95th percentile invocation latency in milliseconds, or `None` if `has_data=False`. |
@@ -237,4 +246,29 @@ The backend exposes real empirical metrics via `TelemetryService.get().get_aggre
 | `total_cost_usd` | `Optional[float]` | User Pricing | Computed USD cost based on user-configured `pricing` in `router_profiles.yaml`, or `None` if no pricing configured. |
 | `failovers_count` | `int` | Empirical | Number of failover switches from initial profile. |
 | `failover_reasons` | `Dict[str, int]` | Empirical | Histogram of failover triggers (`"quota_exhausted"`, `"rate_limited"`, `"auth_required"`, etc.). |
+
+### 8.2 Host System Metrics (`source: "host_measurement"`)
+
+Accessible at `HubSnapshot.metrics["host"]`:
+
+| Field | Type | Provenance | Description / Absence Behavior |
+|---|---|---|---|
+| `source` | `str` | `"host_measurement"` | Measured directly on the local machine via `psutil`. |
+| `has_data` | `bool` | Empirical | `True` if `psutil` data is available; `False` if unavailable or on error. |
+| `cpu_percent` | `Optional[float]` | `psutil` | Host CPU utilization percentage (`0.0` to `100.0`), or `None` if unavailable. |
+| `memory_percent` | `Optional[float]` | `psutil` | Host RAM utilization percentage (`0.0` to `100.0`), or `None` if unavailable. |
+| `memory_used_mb` | `Optional[float]` | `psutil` | Used physical memory in megabytes. |
+| `memory_total_mb` | `Optional[float]` | `psutil` | Total physical memory in megabytes. |
+| `disk_percent` | `Optional[float]` | `psutil` | Root disk partition utilization percentage (`0.0` to `100.0`), or `None` if unavailable. |
+| `disk_used_gb` | `Optional[float]` | `psutil` | Used disk storage in gigabytes. |
+| `disk_total_gb` | `Optional[float]` | `psutil` | Total disk storage in gigabytes. |
+| `net_bytes_sent` | `Optional[int]` | `psutil` | Total network bytes sent since host boot. |
+| `net_bytes_recv` | `Optional[int]` | `psutil` | Total network bytes received since host boot. |
+
+### 8.3 Active Calls Telemetry (`source: "own_measurement"`)
+
+- `HubSnapshot.metrics["active_calls_total"]`: `int` (Total ongoing concurrency leases managed across all profiles).
+- `HubSnapshot.metrics["active_calls_by_profile"]`: `Dict[str, int]` (Active concurrency leases per profile ID).
+- `ProfileViewModel.active_leases`: `int` (Current number of active leases for this specific profile).
+
 

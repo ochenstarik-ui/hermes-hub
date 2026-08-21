@@ -60,15 +60,16 @@ class TelemetryAggregates:
     total_calls: int
     successful_calls: int
     failed_calls: int
-    error_rate: Optional[float]          # 0.0 - 1.0 or None if total_calls == 0
-    latency_p50_ms: Optional[float]      # Median latency in ms or None if total_calls == 0
-    latency_p95_ms: Optional[float]      # 95th percentile latency in ms or None if total_calls == 0
-    latency_max_ms: Optional[float]      # Maximum latency in ms or None if total_calls == 0
-    total_prompt_tokens: Optional[int]   # Sum of reported prompt tokens or None if no token data
-    total_completion_tokens: Optional[int]
-    total_tokens: Optional[int]
-    total_cost_usd: Optional[float]      # Sum of calculated costs or None if no pricing available
-    failovers_count: int
+    call_share: Optional[float] = None   # Ratio of filtered calls to total window calls (0.0-1.0) or None
+    error_rate: Optional[float] = None   # 0.0 - 1.0 or None if total_calls == 0
+    latency_p50_ms: Optional[float] = None      # Median latency in ms or None if total_calls == 0
+    latency_p95_ms: Optional[float] = None      # 95th percentile latency in ms or None if total_calls == 0
+    latency_max_ms: Optional[float] = None      # Maximum latency in ms or None if total_calls == 0
+    total_prompt_tokens: Optional[int] = None   # Sum of reported prompt tokens or None if no token data
+    total_completion_tokens: Optional[int] = None
+    total_tokens: Optional[int] = None
+    total_cost_usd: Optional[float] = None      # Sum of calculated costs or None if no pricing available
+    failovers_count: int = 0
     failover_reasons: Dict[str, int] = field(default_factory=dict)
     source: str = "own_measurement"
     has_data: bool = True
@@ -290,10 +291,12 @@ class TelemetryService:
         cutoff = (now - window_seconds) if window_seconds is not None else 0.0
 
         with self._lock:
+            all_window_records = [r for r in self._buffer if r.timestamp >= cutoff]
+            total_window_calls = len(all_window_records)
+
             records = [
-                r for r in self._buffer
-                if r.timestamp >= cutoff
-                and (provider is None or r.provider == provider)
+                r for r in all_window_records
+                if (provider is None or r.provider == provider)
                 and (profile_id is None or r.profile_id == profile_id)
                 and (model is None or r.model == model)
                 and (role is None or r.role == role)
@@ -306,6 +309,7 @@ class TelemetryService:
                 total_calls=0,
                 successful_calls=0,
                 failed_calls=0,
+                call_share=None,
                 error_rate=None,
                 latency_p50_ms=None,
                 latency_p95_ms=None,
@@ -319,6 +323,8 @@ class TelemetryService:
                 source="own_measurement",
                 has_data=False,
             )
+
+        call_share = round(total_calls / total_window_calls, 4) if total_window_calls > 0 else None
 
         successful_calls = 0
         failed_calls = 0
@@ -368,6 +374,7 @@ class TelemetryService:
             total_calls=total_calls,
             successful_calls=successful_calls,
             failed_calls=failed_calls,
+            call_share=call_share,
             error_rate=error_rate,
             latency_p50_ms=round(p50, 1) if p50 is not None else None,
             latency_p95_ms=round(p95, 1) if p95 is not None else None,
@@ -381,6 +388,42 @@ class TelemetryService:
             source="own_measurement",
             has_data=True,
         )
+
+    def get_breakdown(
+        self,
+        window_seconds: Optional[int] = 86400,
+        known_providers: Optional[List[str]] = None,
+        known_roles: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """Generate structured telemetry breakdown for overall hub, per provider, and per role."""
+        global_aggs = self.get_aggregates(window_seconds=window_seconds)
+
+        providers = set(known_providers or ["antigravity", "openai-codex", "opencode-go"])
+        roles = set(known_roles or ["orchestrator", "coder-primary", "coder-secondary", "reviewer", "research", "fast"])
+
+        with self._lock:
+            for r in self._buffer:
+                if r.provider:
+                    providers.add(r.provider)
+                if r.role:
+                    roles.add(r.role)
+
+        by_provider = {}
+        for prov in sorted(providers):
+            by_provider[prov] = self.get_aggregates(window_seconds=window_seconds, provider=prov).to_dict()
+
+        by_role = {}
+        for role in sorted(roles):
+            by_role[role] = self.get_aggregates(window_seconds=window_seconds, role=role).to_dict()
+
+        return {
+            "global": global_aggs.to_dict(),
+            "by_provider": by_provider,
+            "by_role": by_role,
+            "window_seconds": window_seconds,
+            "source": "own_measurement",
+            "has_data": global_aggs.has_data,
+        }
 
     @staticmethod
     def _percentile(sorted_data: List[float], percent: int) -> Optional[float]:

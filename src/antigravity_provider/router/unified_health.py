@@ -94,6 +94,7 @@ class ProfileViewModel:
     plan_source: str = "unknown"
     quota_snapshot: Optional[Any] = None
     preferred_models: List[str] = field(default_factory=list)
+    active_leases: int = 0
 
 
 @dataclass
@@ -463,6 +464,7 @@ class UnifiedHealthService:
                     plan_source=ident.plan.source if is_authenticated else "unknown",
                     quota_snapshot=snap,
                     preferred_models=pcfg.preferred_models,
+                    active_leases=precord.active_leases,
                 )
 
                 result.setdefault(prov, []).append(vm)

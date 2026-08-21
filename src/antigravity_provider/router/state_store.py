@@ -151,10 +151,29 @@ class HubStateStore:
             gen = self._generation
             try:
                 from .telemetry_service import TelemetryService
-                telemetry_aggs = TelemetryService.get().get_aggregates()
-                telemetry_data = telemetry_aggs.to_dict()
+                known_provs = list(profiles_by_prov.keys())
+                known_roles = list(routing.keys())
+                telemetry_data = TelemetryService.get().get_breakdown(
+                    window_seconds=86400,
+                    known_providers=known_provs,
+                    known_roles=known_roles,
+                )
             except Exception:
                 telemetry_data = {"source": "own_measurement", "has_data": False}
+
+            try:
+                from .host_metrics import HostMetricsService
+                host_data = HostMetricsService.collect().to_dict()
+            except Exception:
+                host_data = {"source": "host_measurement", "has_data": False}
+
+            try:
+                from .session_affinity import LeaseManager
+                active_leases_total = LeaseManager.get().total_active_count()
+                active_leases_by_profile = LeaseManager.get().all_active_counts()
+            except Exception:
+                active_leases_total = 0
+                active_leases_by_profile = {}
 
             metrics = {
                 "generation": gen,
@@ -167,6 +186,9 @@ class HubStateStore:
                 "refresh_runs_total": self.refresh_runs_total,
                 "refresh_deduplicated_total": self.refresh_deduplicated_total,
                 "telemetry": telemetry_data,
+                "host": host_data,
+                "active_calls_total": active_leases_total,
+                "active_calls_by_profile": active_leases_by_profile,
             }
             snapshot = HubSnapshot(
                 generation=gen,
@@ -193,6 +215,18 @@ class HubStateStore:
         return snapshot
 
     def _build_empty_snapshot(self) -> HubSnapshot:
+        try:
+            from .host_metrics import HostMetricsService
+            host_data = HostMetricsService.collect().to_dict()
+        except Exception:
+            host_data = {"source": "host_measurement", "has_data": False}
+
+        try:
+            from .telemetry_service import TelemetryService
+            telemetry_data = TelemetryService.get().get_breakdown(window_seconds=86400)
+        except Exception:
+            telemetry_data = {"source": "own_measurement", "has_data": False}
+
         return HubSnapshot(
             generation=0,
             seq=0,
@@ -214,7 +248,14 @@ class HubStateStore:
             providers=[],
             routing={},
             quotas={},
-            metrics={},
+            metrics={
+                "generation": 0,
+                "seq": 0,
+                "telemetry": telemetry_data,
+                "host": host_data,
+                "active_calls_total": 0,
+                "active_calls_by_profile": {},
+            },
             is_stale=True,
         )
 
