@@ -631,6 +631,11 @@ class HermesHubApp(ctk.CTk):
             )
         elif action == "edit_route":
             self._show_toast("Редактор цепочки использует кнопки и селекторы; drag-and-drop отключён.")
+        elif action == "open_routing":
+            self._show_view("routing")
+            routing = self._views.get("routing")
+            if routing and hasattr(routing, "focus_role"):
+                routing.focus_role(data.get("role_id", ""))
         elif action == "save_settings":
 
             def _settings_saved(result: Tuple[bool, str]) -> None:

@@ -9,7 +9,7 @@ import customtkinter as ctk
 
 from antigravity_provider.router.state_store import HubSnapshot
 from antigravity_provider.router.ui.assets import AssetManager
-from antigravity_provider.router.ui.components import HubCard
+from antigravity_provider.router.ui.components import HubButton, HubCard
 from antigravity_provider.router.ui.theme import Theme
 
 
@@ -373,6 +373,28 @@ class DashboardView(ctk.CTkFrame):
         # Kept as a presentation-state probe for tests/accessibility; the same
         # status is rendered once in the global header, as in the approved mockup.
 
+        self.empty_state = HubCard(self.scroll, border_color=Theme.BORDER_ACCENT, fg_color=Theme.ACCENT_DIM)
+        empty_copy = ctk.CTkFrame(self.empty_state, fg_color="transparent")
+        empty_copy.pack(side="left", fill="x", expand=True, padx=14, pady=10)
+        ctk.CTkLabel(
+            empty_copy,
+            text="Подключите первый аккаунт",
+            font=Theme.font_heading(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(anchor="w")
+        ctk.CTkLabel(
+            empty_copy,
+            text="Hermes назначит профиль роли и покажет реальную квоту, модель и цепочку отказоустойчивости.",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+        ).pack(anchor="w", pady=(2, 0))
+        HubButton(
+            self.empty_state,
+            text="Добавить аккаунт",
+            variant="primary",
+            command=lambda: self.on_action("add_account", {}) if self.on_action else None,
+        ).pack(side="right", padx=12, pady=10)
+
         self.metrics = ctk.CTkFrame(self.scroll, fg_color="transparent")
         self.metrics.pack(fill="x", pady=(0, 8))
         for column in range(5):
@@ -507,6 +529,10 @@ class DashboardView(ctk.CTkFrame):
             text_color=Theme.STATUS_WARNING if snapshot.is_stale else Theme.STATUS_HEALTHY,
         )
         readiness = snapshot.readiness
+        if readiness.accounts_connected_count == 0:
+            self.empty_state.pack(fill="x", pady=(0, 8), before=self.metrics)
+        else:
+            self.empty_state.pack_forget()
         telemetry = dict(snapshot.metrics.get("telemetry") or {})
         global_telemetry = dict(telemetry.get("global") or {})
         provider_telemetry = dict(telemetry.get("by_provider") or {})
