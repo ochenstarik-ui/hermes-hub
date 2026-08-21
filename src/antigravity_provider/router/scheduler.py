@@ -277,7 +277,7 @@ class HermesRefreshScheduler:
 
             # Rebuild unified snapshot
             store = HubStateStore.get()
-            store.refresh(force_scan=True, seq=store.next_seq())
+            store.refresh(force_scan=True, seq=seq)
 
             with self._lock:
                 task.last_success_at = time.time()

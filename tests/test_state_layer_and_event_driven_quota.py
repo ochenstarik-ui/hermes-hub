@@ -156,3 +156,60 @@ def test_antigravity_claude_vs_gemini_quota_bucket_isolation():
 
     assert snap.is_model_available("claude-3-7-sonnet") is False
     assert snap.is_model_available("gemini-2.5-pro") is True
+
+
+@pytest.mark.unit
+def test_route_and_agent_delta_events():
+    """Verify apply_delta_route_changed publishes EVENT_ROUTING_UPDATED and EVENT_AGENT_UPDATED."""
+    bus = EventBus.get()
+    store = HubStateStore.get()
+
+    route_events = []
+    agent_events = []
+
+    def _on_route(name, payload):
+        route_events.append(payload)
+
+    def _on_agent(name, payload):
+        agent_events.append(payload)
+
+    bus.subscribe(EVENT_ROUTING_UPDATED, _on_route)
+    bus.subscribe("AGENT_UPDATED", _on_agent)
+
+    try:
+        store.apply_delta_route_changed("coder-primary", "ag-w1", failover_reason="Testing failover")
+        assert len(route_events) >= 1
+        assert route_events[-1]["role_id"] == "coder-primary"
+        assert route_events[-1]["failover_reason"] == "Testing failover"
+        assert "generation" in route_events[-1]
+        assert "seq" in route_events[-1]
+
+        assert len(agent_events) >= 1
+        assert agent_events[-1]["role_id"] == "coder-primary"
+        assert agent_events[-1]["agent"].role_id == "coder-primary"
+    finally:
+        bus.unsubscribe(EVENT_ROUTING_UPDATED, _on_route)
+        bus.unsubscribe("AGENT_UPDATED", _on_agent)
+
+
+@pytest.mark.unit
+def test_plan_source_and_pipeline_node_enrichment():
+    """Verify ProfileViewModel.plan_source and PipelineNode fields (account_identity, failover_reason)."""
+    service = UnifiedHealthService.get()
+    snap = HubStateStore.get().refresh(force_scan=False)
+
+    for p in snap.all_profiles.values():
+        assert hasattr(p, "plan_source")
+        assert p.plan_source in ("provider_api", "jwt_claim", "provider_auth", "inferred", "unknown")
+
+    for agent in snap.agents:
+        assert hasattr(agent, "active_quota_status")
+        assert hasattr(agent, "active_quota_label")
+        assert hasattr(agent, "session_id")
+
+    for pipeline in snap.routing.values():
+        for node in pipeline.nodes:
+            assert hasattr(node, "account_identity")
+            assert hasattr(node, "quota_status")
+            assert hasattr(node, "failover_reason")
+

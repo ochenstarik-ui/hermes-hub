@@ -79,7 +79,7 @@ class ProfileViewModel:
     primary_role: Optional[str]
     is_main_account: bool
     is_main_orchestrator: bool
-    auth_state: str  # AUTHENTICATED | AUTH_REQUIRED | AUTH_EXPIRED
+    auth_state: str  # AUTHENTICATED | AUTH_REQUIRED | AUTH_EXPIRED | NOT_CONFIGURED
     health_state: str
     health_label_ru: str
     model_states: Dict[str, ModelFamilyHealth]
@@ -91,6 +91,7 @@ class ProfileViewModel:
     email: str = ""
     plan: str = "Тариф: неизвестен"
     plan_code: str = "UNKNOWN"
+    plan_source: str = "unknown"
     quota_snapshot: Optional[Any] = None
     preferred_models: List[str] = field(default_factory=list)
 
@@ -112,6 +113,9 @@ class AgentViewModel:
     is_active: bool
     is_main_orchestrator: bool
     cooldown_remaining_sec: int = 0
+    session_id: Optional[str] = None
+    active_quota_status: str = "healthy"
+    active_quota_label: str = ""
 
 
 @dataclass
@@ -124,6 +128,9 @@ class PipelineNode:
     status_label_ru: str
     is_active: bool
     cooldown_remaining_sec: int = 0
+    account_identity: str = ""
+    quota_status: str = "healthy"
+    failover_reason: Optional[str] = None
 
 
 @dataclass
@@ -453,6 +460,7 @@ class UnifiedHealthService:
                     email=ident.email or "",
                     plan=ident.plan.display_name if is_authenticated else "Тариф: неизвестен",
                     plan_code=ident.plan.code if is_authenticated else "UNKNOWN",
+                    plan_source=ident.plan.source if is_authenticated else "unknown",
                     quota_snapshot=snap,
                     preferred_models=pcfg.preferred_models,
                 )
@@ -607,6 +615,18 @@ class UnifiedHealthService:
                         break
 
             if active_pvm:
+                model_name = active_pvm.preferred_models[0] if active_pvm.preferred_models else "default"
+                active_quota_st = "healthy"
+                active_quota_lbl = "Доступна"
+                if active_pvm.quota_snapshot:
+                    bucket = active_pvm.quota_snapshot.get_bucket_for_model(model_name)
+                    if bucket:
+                        active_quota_st = bucket.status
+                        active_quota_lbl = bucket.formatted_remaining()
+                elif active_pvm.health_state == STATUS_QUOTA_EXHAUSTED:
+                    active_quota_st = "exhausted"
+                    active_quota_lbl = "Исчерпана (429)"
+
                 agents.append(AgentViewModel(
                     role_id=rname,
                     role_name_ru=rname_ru,
@@ -615,7 +635,7 @@ class UnifiedHealthService:
                     assigned_display_name=active_pvm.display_name,
                     provider=active_pvm.provider,
                     provider_display_name=active_pvm.provider_display_name,
-                    model=active_pvm.preferred_models[0] if active_pvm.preferred_models else "default",
+                    model=model_name,
                     account_identity=active_pvm.account_identity,
                     routing_position=active_pos,
                     status=active_pvm.health_state,
@@ -623,6 +643,9 @@ class UnifiedHealthService:
                     is_active=(active_pvm.health_state == STATUS_HEALTHY),
                     is_main_orchestrator=(rname == "orchestrator"),
                     cooldown_remaining_sec=active_pvm.cooldown_remaining_sec,
+                    session_id=None,
+                    active_quota_status=active_quota_st,
+                    active_quota_label=active_quota_lbl,
                 ))
 
         return agents
@@ -688,13 +711,38 @@ class UnifiedHealthService:
         for rname, rpol in config.roles.items():
             nodes: List[PipelineNode] = []
             active_pid = ""
-
             for pid in rpol.preferred_chain:
                 pvm = self._cached_profiles.get(pid)
+                if pvm and pvm.health_state == STATUS_HEALTHY:
+                    active_pid = pid
+                    break
+
+            for idx, pid in enumerate(rpol.preferred_chain):
+                pvm = self._cached_profiles.get(pid)
                 if pvm:
-                    is_act = (pvm.health_state == STATUS_HEALTHY) and (not active_pid)
-                    if is_act:
-                        active_pid = pid
+                    is_act = (pid == active_pid)
+                    failover_reason = None
+                    if not is_act and active_pid and pid in rpol.preferred_chain:
+                        active_idx = rpol.preferred_chain.index(active_pid)
+                        if idx < active_idx:
+                            if pvm.health_state == STATUS_QUOTA_EXHAUSTED:
+                                failover_reason = "Исчерпана квота (429)"
+                            elif pvm.health_state in (STATUS_AUTH_REQUIRED, STATUS_AUTH_EXPIRED):
+                                failover_reason = "Требуется авторизация"
+                            elif pvm.health_state == STATUS_DISABLED:
+                                failover_reason = "Отключён"
+                            else:
+                                failover_reason = f"Недоступен ({pvm.health_label_ru})"
+
+                    quota_st = "healthy"
+                    if pvm.quota_snapshot:
+                        bucket = pvm.quota_snapshot.get_bucket_for_model(
+                            pvm.preferred_models[0] if pvm.preferred_models else "default"
+                        )
+                        if bucket:
+                            quota_st = bucket.status
+                    elif pvm.health_state == STATUS_QUOTA_EXHAUSTED:
+                        quota_st = "exhausted"
 
                     nodes.append(PipelineNode(
                         profile_id=pid,
@@ -705,6 +753,9 @@ class UnifiedHealthService:
                         status_label_ru=pvm.health_label_ru,
                         is_active=is_act,
                         cooldown_remaining_sec=pvm.cooldown_remaining_sec,
+                        account_identity=pvm.account_identity,
+                        quota_status=quota_st,
+                        failover_reason=failover_reason,
                     ))
 
             pipelines[rname] = RolePipeline(
