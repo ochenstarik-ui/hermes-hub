@@ -19,6 +19,7 @@ from antigravity_provider.router.event_bus import (
     EVENT_ACCOUNT_AUTH_CHANGED,
     EVENT_QUOTA_UPDATED,
     EVENT_ROUTING_UPDATED,
+    EVENT_AGENT_UPDATED,
     EVENT_SYSTEM_READINESS_CHANGED,
     EVENT_REFRESH_STARTED,
     EVENT_REFRESH_COMPLETED,
@@ -376,3 +377,85 @@ class HubStateStore:
                 "seq": updated.seq,
             },
         )
+
+    def apply_delta_route_changed(
+        self,
+        role_id: str,
+        active_profile_id: Optional[str] = None,
+        failover_reason: Optional[str] = None,
+    ) -> None:
+        """Apply targeted route change and publish EVENT_ROUTING_UPDATED and EVENT_AGENT_UPDATED."""
+        uh_service = UnifiedHealthService.get()
+        routing = uh_service.get_routing_pipelines()
+        agents = uh_service.get_agent_view_models()
+        readiness = uh_service.get_system_readiness()
+
+        with self._lock:
+            current = self._current_snapshot or self._build_empty_snapshot()
+            self._generation += 1
+            seq = self.next_seq()
+            self._latest_applied_seq = seq
+            updated = replace(
+                current,
+                generation=self._generation,
+                seq=seq,
+                timestamp=time.time(),
+                routing=routing,
+                agents=agents,
+                readiness=readiness,
+            )
+            self._current_snapshot = updated
+
+        pipeline = updated.get_role_pipeline(role_id)
+        EventBus.get().publish(
+            EVENT_ROUTING_UPDATED,
+            {
+                "role_id": role_id,
+                "active_profile_id": active_profile_id or (pipeline.active_profile_id if pipeline else None),
+                "pipeline": pipeline,
+                "failover_reason": failover_reason,
+                "generation": updated.generation,
+                "seq": updated.seq,
+            },
+        )
+        agent = next((a for a in agents if a.role_id == role_id), None)
+        if agent:
+            EventBus.get().publish(
+                EVENT_AGENT_UPDATED,
+                {
+                    "role_id": role_id,
+                    "agent": agent,
+                    "generation": updated.generation,
+                    "seq": updated.seq,
+                },
+            )
+
+    def apply_delta_agent_updated(self, role_id: str) -> None:
+        """Publish updated agent view model for a specific role."""
+        uh_service = UnifiedHealthService.get()
+        agents = uh_service.get_agent_view_models()
+        agent = next((a for a in agents if a.role_id == role_id), None)
+        if agent:
+            with self._lock:
+                current = self._current_snapshot or self._build_empty_snapshot()
+                self._generation += 1
+                seq = self.next_seq()
+                self._latest_applied_seq = seq
+                updated = replace(
+                    current,
+                    generation=self._generation,
+                    seq=seq,
+                    timestamp=time.time(),
+                    agents=agents,
+                )
+                self._current_snapshot = updated
+
+            EventBus.get().publish(
+                EVENT_AGENT_UPDATED,
+                {
+                    "role_id": role_id,
+                    "agent": agent,
+                    "generation": updated.generation,
+                    "seq": updated.seq,
+                },
+            )
