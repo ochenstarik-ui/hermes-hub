@@ -62,10 +62,11 @@ def test_update_data_guard_rejects_non_snapshot(view_path: Path) -> None:
     source = view_path.read_text(encoding="utf-8")
     if "def update_data" not in source or "snapshot" not in source:
         pytest.skip("view has no snapshot-driven update_data")
-    if "HubStateStore.get().get_snapshot()" not in source:
-        pytest.skip("view does not read the snapshot store")
-
+    # Views are pure renderers now: they either fall back to the store or return
+    # early. Either way the guard must reject anything that is not a snapshot —
+    # `snapshot is None` alone lets a legacy app_state dict through, which is
+    # what crashed the app on launch.
     assert "isinstance(snapshot, HubSnapshot)" in source, (
-        f"{view_path.name}: update_data guards with `snapshot is None` only. "
-        "A legacy dict passes that check and then fails on attribute access."
+        f"{view_path.name}: update_data does not guard with isinstance(snapshot, HubSnapshot). "
+        "A legacy dict would pass a `snapshot is None` check and then fail on attribute access."
     )
