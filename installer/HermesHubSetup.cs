@@ -453,6 +453,7 @@ namespace HermesHubSetup
 
         private static void RegisterInWindowsUninstall()
         {
+            if (Environment.GetEnvironmentVariable("HERMES_HUB_NO_REGISTRY") == "1") return;
             try
             {
                 string keyPath = @"Software\Microsoft\Windows\CurrentVersion\Uninstall\HermesHub";
@@ -476,6 +477,7 @@ namespace HermesHubSetup
 
         private static void UnregisterFromWindowsUninstall()
         {
+            if (Environment.GetEnvironmentVariable("HERMES_HUB_NO_REGISTRY") == "1") return;
             try
             {
                 Registry.CurrentUser.DeleteSubKeyTree(@"Software\Microsoft\Windows\CurrentVersion\Uninstall\HermesHub", false);

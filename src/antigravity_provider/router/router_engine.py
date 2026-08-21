@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from .adapters import get_adapter
 from .adapters.base_adapter import ErrorCategory
 from .health_tracker import HealthTracker, extract_model_family
+from .profile_manager import ProfileAuthManager
 from .router_config import RolePolicy, RouterConfig, RouterProfileConfig, load_router_config
 from .session_affinity import LeaseManager, SessionAffinityTracker
 
@@ -114,6 +115,7 @@ class RouterEngine:
                     candidate_profiles.append(pid)
 
         failover_trail: list[dict[str, Any]] = []
+        evaluated_candidates: list[dict[str, Any]] = []
         attempts = 0
         if auto_failover:
             configured_attempts = hub_settings.get("failover_attempts", role_policy.max_failover_attempts)
@@ -130,7 +132,21 @@ class RouterEngine:
                 break
 
             pconfig = self.config.get_profile(pid)
-            if not pconfig or not pconfig.enabled:
+            if not pconfig:
+                evaluated_candidates.append({
+                    "profile_id": pid,
+                    "provider": "unknown",
+                    "status": "skipped",
+                    "reason": "Profile configuration not found",
+                })
+                continue
+            if not pconfig.enabled:
+                evaluated_candidates.append({
+                    "profile_id": pid,
+                    "provider": pconfig.provider,
+                    "status": "skipped",
+                    "reason": "Profile is disabled (cold spare)",
+                })
                 continue
 
             # Model selection with capability evaluation & same-account fallback support
@@ -185,13 +201,19 @@ class RouterEngine:
                         chosen_model = m_cand
                         break
             elif self.health.is_healthy(pid, None):
-                chosen_model = requested_model or "default"
+                chosen_model = requested_model or (scored_candidates[0][1] if scored_candidates else "default")
 
             if not chosen_model:
                 failover_trail.append({
                     "profile_id": pid,
                     "provider": pconfig.provider,
                     "status": "skipped_unhealthy",
+                })
+                evaluated_candidates.append({
+                    "profile_id": pid,
+                    "provider": pconfig.provider,
+                    "status": "rejected",
+                    "reason": "All models in quota exhaustion or cooldown",
                 })
                 continue
 
@@ -203,6 +225,12 @@ class RouterEngine:
                     "profile_id": pid,
                     "provider": pconfig.provider,
                     "status": "skipped_concurrency_limit",
+                })
+                evaluated_candidates.append({
+                    "profile_id": pid,
+                    "provider": pconfig.provider,
+                    "status": "rejected",
+                    "reason": f"Concurrency limit reached ({pconfig.max_concurrency}/{pconfig.max_concurrency} active leases)",
                 })
                 continue
 
@@ -236,6 +264,16 @@ class RouterEngine:
                 self.health.mark_success(pid, exec_request.get("model"))
                 self.leases.release(pid)
 
+                # Record successful evaluation in matrix
+                evaluated_candidates.append({
+                    "profile_id": pid,
+                    "provider": pconfig.provider,
+                    "status": "selected",
+                    "reason": f"Selected for execution with model '{exec_request.get('model')}'",
+                    "score": scored_candidates[0][0] if scored_candidates else 0.5,
+                    "models_evaluated": [m[1] for m in scored_candidates],
+                })
+
                 # Set / update session affinity
                 if target_session and affinity_enabled:
                     self.affinity.set_affinity(target_session, target_role, pid, exec_request.get("model"))
@@ -248,7 +286,8 @@ class RouterEngine:
                     "selected_profile_id": pid,
                     "selected_provider": pconfig.provider,
                     "selected_model": exec_request.get("model"),
-                    "decision_rationale": f"Matched capability requirements for role '{target_role}' with health score.",
+                    "decision_rationale": f"Selected '{pid}' ({pconfig.provider}) for role '{target_role}'. Matched capabilities {role_reqs.required_capabilities}.",
+                    "evaluation_matrix": evaluated_candidates,
                 }
 
                 # Attach router telemetry
@@ -325,6 +364,12 @@ class RouterEngine:
                     "category": err_class.category,
                     "error": err_class.message[:200],
                 })
+                evaluated_candidates.append({
+                    "profile_id": pid,
+                    "provider": pconfig.provider,
+                    "status": "failed",
+                    "reason": f"Execution failed ({err_class.category}): {err_class.message[:150]}",
+                })
 
                 try:
                     from antigravity_provider.router.unified_health import EventLogService
@@ -342,6 +387,16 @@ class RouterEngine:
 
         # All attempts in chain failed
         summary_errors = "; ".join(f"[{t.get('profile_id')}]: {t.get('error', t.get('status'))}" for t in failover_trail)
+        selection_trace = {
+            "role": target_role,
+            "required_capabilities": role_reqs.required_capabilities,
+            "candidates_evaluated": len(candidate_profiles),
+            "selected_profile_id": None,
+            "selected_provider": None,
+            "selected_model": None,
+            "decision_rationale": f"All {attempts} candidate profiles failed or were rejected.",
+            "evaluation_matrix": evaluated_candidates,
+        }
         try:
             from antigravity_provider.router.unified_health import EventLogService
             EventLogService.get().log(
@@ -375,6 +430,7 @@ class RouterEngine:
             ],
             "router_error": True,
             "failover_trail": failover_trail,
+            "selection_trace": selection_trace,
         }
 
 

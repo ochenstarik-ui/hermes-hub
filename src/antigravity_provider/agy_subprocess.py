@@ -126,6 +126,7 @@ def discover_models() -> dict[str, str]:
             timeout=20,
             encoding="utf-8",
             errors="replace",
+            env=build_safe_subprocess_env(),
         )
         raw = result.stdout.strip()
         if not raw:
@@ -391,24 +392,69 @@ def _strip_tool_call_blocks(text: str) -> str:
 # Safe environment (no hermes secrets in subprocess)
 # ---------------------------------------------------------------------------
 
-_STRIP_PATTERNS = (
-    "hermes_api",
-    "hermes_secret",
-    "anthropic_api",
-    "openai_api",
-    "openrouter_api",
-    "google_api_key",
+SAFE_SYSTEM_ENV_VARS: set[str] = {
+    # Windows standard environment
+    "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATH", "PATHEXT",
+    "TEMP", "TMP", "LOCALAPPDATA", "APPDATA", "PROGRAMDATA", "PROGRAMFILES",
+    "PROGRAMFILES(X86)", "COMMONPROGRAMFILES", "COMMONPROGRAMFILES(X86)",
+    "USERPROFILE", "HOME", "HOMEDRIVE", "HOMEPATH",
+    "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "PROCESSOR_IDENTIFIER",
+    "OS", "COMPUTERNAME", "LOGONSERVER", "USERDOMAIN", "USERNAME",
+    # Unix standard environment
+    "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES",
+    "TMPDIR", "TERM", "PWD",
+    # Networking & Proxy & SSL certificates
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
+    "http_proxy", "https_proxy", "no_proxy", "all_proxy",
+    "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS",
+    # Specific toolchain overrides (non-secret)
+    "AGY_EXE_PATH", "AGY_CONFIG_PATH", "HERMES_HOME", "HERMES_HUB_DEV_MODE",
+    "NODE_OPTIONS", "PYTHONUTF8", "PYTHONIOENCODING",
+}
+
+BLOCKED_SECRET_PATTERNS: tuple[str, ...] = (
+    "api_key", "token", "secret", "auth", "password", "bearer", "private_key",
+    "openai", "codex", "anthropic", "claude", "deepseek", "opencode", "xai", "grok",
+    "hermes_api", "hermes_secret", "google_api_key", "gemini_api",
 )
 
 
+def build_safe_subprocess_env(
+    base_env: dict[str, str] | None = None,
+    allow_extra_keys: set[str] | list[str] | None = None,
+    overrides: dict[str, str] | None = None,
+) -> dict[str, str]:
+    """Construct an explicitly isolated and sanitized environment dictionary for child subprocesses.
+
+    Copies ONLY explicitly permitted system variables from base_env (defaulting to os.environ),
+    strips out any provider API keys or secrets, and applies explicit overrides.
+    """
+    src = os.environ if base_env is None else base_env
+    allow = set(k.upper() for k in SAFE_SYSTEM_ENV_VARS)
+    if allow_extra_keys:
+        allow.update(k.upper() for k in allow_extra_keys)
+
+    clean_env: dict[str, str] = {}
+    for k, v in src.items():
+        k_upper = k.upper()
+        k_lower = k.lower()
+        if k_upper in allow:
+            # Strip secret-bearing keys even if matching an allow pattern unless explicitly in allow_extra_keys
+            if not allow_extra_keys or k not in allow_extra_keys:
+                if any(pat in k_lower for pat in BLOCKED_SECRET_PATTERNS):
+                    continue
+            clean_env[k] = v
+
+    if overrides:
+        for k, v in overrides.items():
+            clean_env[k] = str(v)
+
+    return clean_env
+
+
 def _safe_env() -> dict[str, str]:
-    """Copy ``os.environ`` with provider API keys stripped out."""
-    env = dict(os.environ)
-    for key in list(env):
-        lower = key.lower()
-        if any(pat in lower for pat in _STRIP_PATTERNS):
-            del env[key]
-    return env
+    """Backward-compatible wrapper for build_safe_subprocess_env."""
+    return build_safe_subprocess_env()
 
 
 # ---------------------------------------------------------------------------
@@ -501,7 +547,7 @@ def agy_generate(
             timeout=timeout + 30,
             encoding="utf-8",
             errors="replace",
-            env=custom_env or os.environ,
+            env=custom_env if custom_env is not None else build_safe_subprocess_env(),
         )
     except subprocess.TimeoutExpired:
         return _error_completion(model_raw, "agy subprocess timed out")

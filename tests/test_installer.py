@@ -51,6 +51,7 @@ def test_silent_installer_execution_with_hermes(tmp_path):
     env["LOCALAPPDATA"] = str(tmp_path / "localappdata")
     env["APPDATA"] = str(tmp_path / "appdata")
     env["USERPROFILE"] = str(tmp_path / "user")
+    env["HERMES_HUB_NO_REGISTRY"] = "1"
 
     res = subprocess.run([str(SETUP_EXE), "/silent"], env=env, capture_output=True, text=True)
     assert res.returncode == 0, f"Expected returncode 0, got {res.returncode}. Stderr: {res.stderr}"

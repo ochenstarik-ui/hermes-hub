@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 from ...agy_subprocess import (
     _find_agy_exe,
     agy_generate,
+    build_safe_subprocess_env,
     discover_models,
 )
 from ..exceptions import (
@@ -40,11 +41,14 @@ class AntigravityAdapter(BaseProviderAdapter):
 
     def invoke(self, profile: RouterProfileConfig, request: Dict[str, Any]) -> Dict[str, Any]:
         profile_dir = get_profile_env_dir(profile.profile_id)
-        custom_env = dict(os.environ)
-        # Isolate USERPROFILE and HOME so agy processes do not collide on locks or cache
-        custom_env["USERPROFILE"] = str(profile_dir)
-        custom_env["HOME"] = str(profile_dir)
-        custom_env["HOMEPATH"] = str(profile_dir)
+        # Isolate USERPROFILE and HOME while strictly stripping non-Antigravity provider secrets
+        custom_env = build_safe_subprocess_env(
+            overrides={
+                "USERPROFILE": str(profile_dir),
+                "HOME": str(profile_dir),
+                "HOMEPATH": str(profile_dir),
+            }
+        )
 
         # If profile specifies a preferred model and request has generic or no model
         req = dict(request)
