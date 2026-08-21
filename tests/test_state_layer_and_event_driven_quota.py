@@ -213,3 +213,20 @@ def test_plan_source_and_pipeline_node_enrichment():
             assert hasattr(node, "quota_status")
             assert hasattr(node, "failover_reason")
 
+
+@pytest.mark.unit
+def test_snapshot_is_stale_policy():
+    """Verify is_stale policy: fresh on creation, stale on bootstrap and after 300s TTL."""
+    store = HubStateStore()
+    empty = store._build_empty_snapshot()
+    assert empty.is_stale is True
+
+    fresh = store.refresh(force_scan=False)
+    assert fresh.is_stale is False
+
+    # Simulate aged snapshot
+    from dataclasses import replace
+    store._current_snapshot = replace(fresh, timestamp=time.time() - 301.0)
+    cached = store.get_snapshot()
+    assert cached.is_stale is True
+

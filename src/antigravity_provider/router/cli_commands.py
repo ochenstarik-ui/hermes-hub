@@ -15,6 +15,12 @@ from antigravity_provider.router.router_engine import RouterEngine, get_router_e
 from antigravity_provider.router.adapters import get_adapter
 from antigravity_provider.router.profile_manager import ProfileAuthManager, mask_email, mask_id
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 
 def print_router_status() -> int:
     """Print pool and health status of all profiles and role chains."""
@@ -225,6 +231,38 @@ def simulate_quota_cli(profile_id: str, model_family: Optional[str] = None, dura
     return 0
 
 
+def print_diagnostics_cli() -> int:
+    """Print comprehensive diagnostic table for all profiles with provider, identity, auth, quota state and data source."""
+    from antigravity_provider.router.unified_health import UnifiedHealthService
+    uh_service = UnifiedHealthService.get()
+    profiles_by_prov = uh_service.scan_all(force=True)
+
+    print("=" * 115)
+    print("HERMES HUB — DIAGNOSTIC & HEALTH MATRIX")
+    print("=" * 115)
+    print(f"{'PROFILE':<18} | {'PROVIDER':<15} | {'IDENTITY':<26} | {'AUTH':<14} | {'QUOTA STATE':<16} | {'DATA SOURCE'}")
+    print("-" * 115)
+
+    for prov, profs in sorted(profiles_by_prov.items()):
+        for p in profs:
+            ident = p.account_identity
+            if len(ident) > 25:
+                ident = ident[:22] + "..."
+
+            quota_st = p.health_state
+            if p.quota_snapshot:
+                quota_source = p.quota_snapshot.source
+                if p.quota_snapshot.is_estimated:
+                    quota_source += " (estimated)"
+            else:
+                quota_source = "unconfigured"
+
+            print(f"{p.profile_id:<18} | {p.provider:<15} | {ident:<26} | {p.auth_state:<14} | {quota_st:<16} | {quota_source}")
+
+    print("-" * 115)
+    return 0
+
+
 def clear_cooldown_cli(profile_id: Optional[str] = None) -> int:
     """Clear cooldowns and quota simulations."""
     engine = get_router_engine()
@@ -242,6 +280,9 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     # status
     subparsers.add_parser("status", help="Show pool and health status of all provider profiles")
+
+    # diag
+    subparsers.add_parser("diag", help="Show full diagnostic table (identity, auth, quota state, data source)")
 
     # policy
     subparsers.add_parser("policy", help="Show role fallback chains and policies")
@@ -297,6 +338,8 @@ def main(argv: Optional[list[str]] = None) -> int:
         return 0
     elif args.subcommand == "status":
         return print_router_status()
+    elif args.subcommand == "diag":
+        return print_diagnostics_cli()
     elif args.subcommand == "policy":
         return print_routing_policy()
     elif args.subcommand == "profile":

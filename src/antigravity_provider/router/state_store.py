@@ -105,6 +105,8 @@ class HubStateStore:
         """Return the current cached snapshot. Generates an initial snapshot if none exists."""
         with self._lock:
             if self._current_snapshot is not None:
+                if (time.time() - self._current_snapshot.timestamp > 300.0) and not self._current_snapshot.is_stale:
+                    self._current_snapshot = replace(self._current_snapshot, is_stale=True)
                 return self._current_snapshot
         return self.refresh(force_scan=False)
 

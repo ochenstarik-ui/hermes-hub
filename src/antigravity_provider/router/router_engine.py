@@ -264,6 +264,25 @@ class RouterEngine:
                         "selection_trace": selection_trace,
                     })
 
+                if failover_trail:
+                    prev_failed = failover_trail[-1]
+                    logger.warning(
+                        "Router failover for role '%s': switched from failed profile '%s' to '%s'",
+                        target_role,
+                        prev_failed.get("profile_id"),
+                        pid,
+                    )
+                    try:
+                        from antigravity_provider.router.unified_health import EventLogService
+                        EventLogService.get().log(
+                            category="routing",
+                            message=f"Успешное переключение роли '{target_role}': резервный профиль '{pid}'",
+                            details=f"Предыдущий профиль '{prev_failed.get('profile_id')}' не ответил: {prev_failed.get('error')}",
+                            level="info",
+                        )
+                    except Exception:
+                        pass
+
                 return response
 
             except Exception as exc:
@@ -307,11 +326,33 @@ class RouterEngine:
                     "error": err_class.message[:200],
                 })
 
+                try:
+                    from antigravity_provider.router.unified_health import EventLogService
+                    EventLogService.get().log(
+                        category="routing",
+                        message=f"Переключение маршрута для роли '{target_role}': сбой профиля '{pid}' ({pconfig.provider})",
+                        details=f"Причина: {err_class.message[:180]}",
+                        level="warning",
+                    )
+                except Exception:
+                    pass
+
                 # If non-fatal and more profiles remain in chain, continue loop (failover!)
                 continue
 
         # All attempts in chain failed
         summary_errors = "; ".join(f"[{t.get('profile_id')}]: {t.get('error', t.get('status'))}" for t in failover_trail)
+        try:
+            from antigravity_provider.router.unified_health import EventLogService
+            EventLogService.get().log(
+                category="routing",
+                message=f"Все маршруты для роли '{target_role}' исчерпаны ({attempts} попыток)",
+                details=summary_errors,
+                level="error",
+            )
+        except Exception:
+            pass
+
         return {
             "id": f"router-fail-{int(time.time())}",
             "object": "chat.completion",
