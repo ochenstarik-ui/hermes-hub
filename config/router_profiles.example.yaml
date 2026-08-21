@@ -229,3 +229,19 @@ profiles:
     capabilities: ["coder-fallback", "orchestrator", "coding", "reasoning"]
     preferred_models: ["kimi-k2.7-code", "deepseek-v4-pro", "qwen3.8-max"]
     max_concurrency: 3
+
+# Optional: User Model Pricing Table (USD per 1M tokens)
+# Telemetry will compute call cost in USD only if a model price is defined below.
+pricing:
+  gemini-2.5-pro:
+    input_cost_per_m: 1.25
+    output_cost_per_m: 5.00
+  gemini-2.5-flash:
+    input_cost_per_m: 0.15
+    output_cost_per_m: 0.60
+  gpt-4o:
+    input_cost_per_m: 2.50
+    output_cost_per_m: 10.00
+  claude-3-7-sonnet:
+    input_cost_per_m: 3.00
+    output_cost_per_m: 15.00

@@ -201,6 +201,7 @@ Callbacks receive `(event_name: str, payload: Any)`. All events carry active `ge
 | **Gap 9** | Canonical publishers for all declared events | **Closed** | Every declared event constant has a dedicated, verified publisher in `state_store.py` / `router_engine.py`. Dead event constants removed (`2035c14`). |
 | **Gap 10** | Scheduler async quota race | **Closed** | Scheduler triggers complete quota collection before invoking snapshot rebuild (`2035c14`). |
 | **Gap 11** | Stale response protection verification | **Closed** | `seq` recorded only on completion; late responses strictly dropped with test proof (`2035c14`). |
+| **Gap 12** | Empirical Call Telemetry & Metrics | **Closed (Self-Measured)** | `TelemetryService` captures real call latency, exact token usage reported in provider `usage`, failover events, and USD cost (when user pricing is defined). All metrics carry `source: "own_measurement"`. When no calls exist in the query window, values are `None` (`has_data=False`), never fake zeros (`antigravity/telemetry`). |
 
 ---
 
@@ -211,6 +212,29 @@ The following constraints are active in the backend and must be strictly respect
 | Gap ID | Limitation | Constraint & UI Requirement |
 |---|---|---|
 | **Gap 4** | Shallow Immutability of Snapshot | `HubSnapshot` is defined with `dataclass(frozen=True)` which prevents attribute reassignments. However, contained lists and dictionaries remain standard mutable Python collections. **UI Constraint:** The UI must treat `HubSnapshot` and all nested view models as strictly read-only and must never mutate any collection or object in place. |
-| **Gap 12** | Missing Network / SLA / Cost Metrics | The backend does not measure or calculate provider latency distributions, requests per second (RPS), error rate percentages, monetary cost metrics, or external provider SLA uptime percentages. **UI Constraint:** The UI must display `Н/Д` (Нет данных) or hide these metric cards entirely. The UI must never generate fictional numbers or place random mock graphs in dashboard/provider cards. |
+| **Gap 13** | Unmeasurable Provider Internals & Host Hardware | The backend cannot measure external provider server RPS, SLA uptime percentages, or system host hardware (CPU/RAM/Disk/Network) as they are irrelevant to router logic. **UI Constraint:** The UI must display `Н/Д` (Нет данных) or hide these metric cards entirely. The UI must never generate fictional numbers or render mock graphs. |
 
 ---
+
+## 8. Telemetry & Empirical Metrics Contract
+
+The backend exposes real empirical metrics via `TelemetryService.get().get_aggregates(...)` and `HubSnapshot.metrics["telemetry"]`:
+
+| Field | Type | Provenance | Description / Absence Behavior |
+|---|---|---|---|
+| `source` | `str` | `"own_measurement"` | Always identifies measurements taken by Hermes Hub router itself. |
+| `has_data` | `bool` | Empirical | `True` if at least 1 router call occurred in the window; `False` if no calls recorded. |
+| `total_calls` | `int` | Empirical | Total number of invocation attempts in the window. |
+| `successful_calls` | `int` | Empirical | Count of successful invocations (including successful failovers). |
+| `failed_calls` | `int` | Empirical | Count of terminal failures. |
+| `error_rate` | `Optional[float]` | Computed | Ratio of failed calls to total calls (`0.0` to `1.0`), or `None` if `has_data=False`. |
+| `latency_p50_ms` | `Optional[float]` | Empirical | Median invocation latency in milliseconds, or `None` if `has_data=False`. |
+| `latency_p95_ms` | `Optional[float]` | Empirical | 95th percentile invocation latency in milliseconds, or `None` if `has_data=False`. |
+| `latency_max_ms` | `Optional[float]` | Empirical | Maximum invocation latency in milliseconds, or `None` if `has_data=False`. |
+| `total_prompt_tokens` | `Optional[int]` | Provider `usage` | Sum of prompt tokens reported by providers, or `None` if no `usage` returned. |
+| `total_completion_tokens` | `Optional[int]` | Provider `usage` | Sum of completion tokens reported by providers, or `None` if no `usage` returned. |
+| `total_tokens` | `Optional[int]` | Provider `usage` | Sum of all tokens reported by providers, or `None` if no `usage` returned. |
+| `total_cost_usd` | `Optional[float]` | User Pricing | Computed USD cost based on user-configured `pricing` in `router_profiles.yaml`, or `None` if no pricing configured. |
+| `failovers_count` | `int` | Empirical | Number of failover switches from initial profile. |
+| `failover_reasons` | `Dict[str, int]` | Empirical | Histogram of failover triggers (`"quota_exhausted"`, `"rate_limited"`, `"auth_required"`, etc.). |
+

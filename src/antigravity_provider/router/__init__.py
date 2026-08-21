@@ -16,6 +16,7 @@ from .health_tracker import (
 )
 from .session_affinity import LeaseManager, SessionAffinityRecord, SessionAffinityTracker
 from .router_engine import RouterEngine, get_router_engine
+from .telemetry_service import TelemetryAggregates, TelemetryRecord, TelemetryService
 
 __all__ = [
     "RouterConfig",
@@ -37,4 +38,7 @@ __all__ = [
     "LeaseManager",
     "RouterEngine",
     "get_router_engine",
+    "TelemetryService",
+    "TelemetryRecord",
+    "TelemetryAggregates",
 ]

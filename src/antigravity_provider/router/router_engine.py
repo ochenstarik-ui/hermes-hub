@@ -274,6 +274,36 @@ class RouterEngine:
                     "models_evaluated": [m[1] for m in scored_candidates],
                 })
 
+                # Record in TelemetryService (extract usage ONLY if reported by provider)
+                prompt_tok = None
+                comp_tok = None
+                tot_tok = None
+                if isinstance(response, dict) and isinstance(response.get("usage"), dict):
+                    u = response["usage"]
+                    prompt_tok = u.get("prompt_tokens") or u.get("input_tokens")
+                    comp_tok = u.get("completion_tokens") or u.get("output_tokens")
+                    tot_tok = u.get("total_tokens")
+                    if tot_tok is None and prompt_tok is not None and comp_tok is not None:
+                        tot_tok = prompt_tok + comp_tok
+
+                try:
+                    from .telemetry_service import TelemetryService
+                    TelemetryService.get().record_call(
+                        role=target_role,
+                        profile_id=pid,
+                        provider=pconfig.provider,
+                        model=exec_request.get("model") or selected_model or "",
+                        outcome="failover" if failover_trail else "success",
+                        latency_seconds=elapsed,
+                        prompt_tokens=prompt_tok,
+                        completion_tokens=comp_tok,
+                        total_tokens=tot_tok,
+                        failover_count=attempts - 1,
+                        error_category=None,
+                    )
+                except Exception:
+                    pass
+
                 # Set / update session affinity
                 if target_session and affinity_enabled:
                     self.affinity.set_affinity(target_session, target_role, pid, exec_request.get("model"))
@@ -327,6 +357,26 @@ class RouterEngine:
             except Exception as exc:
                 self.leases.release(pid)
                 err_class = adapter.classify_error(exc)
+
+                # Record failed call in TelemetryService
+                try:
+                    from .telemetry_service import TelemetryService
+                    cat_name = err_class.category.value if hasattr(err_class.category, "value") else str(err_class.category)
+                    TelemetryService.get().record_call(
+                        role=target_role,
+                        profile_id=pid,
+                        provider=pconfig.provider,
+                        model=exec_request.get("model") or requested_model or "",
+                        outcome=cat_name,
+                        latency_seconds=time.time() - t0,
+                        prompt_tokens=None,
+                        completion_tokens=None,
+                        total_tokens=None,
+                        failover_count=len(failover_trail),
+                        error_category=cat_name,
+                    )
+                except Exception:
+                    pass
 
                 if err_class.category == ErrorCategory.QUOTA_EXHAUSTED:
                     self.health.mark_quota_exhausted(

@@ -44,6 +44,7 @@ class RouterConfig:
     session_affinity_ttl_seconds: int = 1800
     roles: dict[str, RolePolicy] = field(default_factory=dict)
     profiles: dict[str, RouterProfileConfig] = field(default_factory=dict)
+    pricing: dict[str, dict[str, float]] = field(default_factory=dict)
     raw_router_block: dict[str, Any] = field(default_factory=dict)
 
     def get_profile(self, profile_id: str) -> Optional[RouterProfileConfig]:
@@ -305,6 +306,16 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
                 default_model=rdata.get("default_model"),
             )
 
+        pricing_raw = data.get("pricing", {})
+        pricing: dict[str, dict[str, float]] = {}
+        if isinstance(pricing_raw, dict):
+            for m_name, p_entry in pricing_raw.items():
+                if isinstance(p_entry, dict):
+                    pricing[m_name] = {
+                        "input_cost_per_m": float(p_entry.get("input_cost_per_m", 0.0)),
+                        "output_cost_per_m": float(p_entry.get("output_cost_per_m", 0.0)),
+                    }
+
         enabled = bool(r_block.get("enabled", data.get("enabled", True)))
         default_role = str(r_block.get("default_role", data.get("default_role", "orchestrator")))
         max_failover = int(r_block.get("max_failover_attempts", data.get("max_failover_attempts", 3)))
@@ -325,6 +336,7 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
             session_affinity_ttl_seconds=session_ttl,
             roles=roles or get_default_router_config().roles,
             profiles=profiles or get_default_router_config().profiles,
+            pricing=pricing,
             raw_router_block=r_block,
         )
     except Exception as e:
@@ -389,6 +401,8 @@ def save_router_config(config: RouterConfig, config_path: Optional[Path] = None)
             "roles": roles_data,
             "profiles": profiles_data,
         }
+        if config.pricing:
+            data["pricing"] = config.pricing
 
         existing_comments = []
         if config_path.exists():

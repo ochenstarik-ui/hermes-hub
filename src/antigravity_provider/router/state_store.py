@@ -149,6 +149,13 @@ class HubStateStore:
             self._latest_applied_seq = request_seq
             self._generation += 1
             gen = self._generation
+            try:
+                from .telemetry_service import TelemetryService
+                telemetry_aggs = TelemetryService.get().get_aggregates()
+                telemetry_data = telemetry_aggs.to_dict()
+            except Exception:
+                telemetry_data = {"source": "own_measurement", "has_data": False}
+
             metrics = {
                 "generation": gen,
                 "seq": request_seq,
@@ -159,6 +166,7 @@ class HubStateStore:
                 ),
                 "refresh_runs_total": self.refresh_runs_total,
                 "refresh_deduplicated_total": self.refresh_deduplicated_total,
+                "telemetry": telemetry_data,
             }
             snapshot = HubSnapshot(
                 generation=gen,
