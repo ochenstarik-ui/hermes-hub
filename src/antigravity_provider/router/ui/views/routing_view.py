@@ -1,154 +1,93 @@
-"""Hermes Hub — Routing View with Reusable Pipeline & Node Widgets."""
+"""Keyed failover-chain view driven exclusively by RolePipeline objects."""
+
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
+
 import customtkinter as ctk
 
+from antigravity_provider.router.state_store import HubSnapshot
+from antigravity_provider.router.ui.components import ActionButton, HubCard, RouteTargetWidget, SectionHeader
 from antigravity_provider.router.ui.theme import Theme
-from antigravity_provider.router.ui.assets import AssetManager
-from antigravity_provider.router.ui.components import (
-    HubCard,
-    HubSectionHeader,
-)
-from antigravity_provider.router.unified_health import (
-    RolePipeline,
-    PipelineNode,
-    STATUS_HEALTHY,
-)
-from antigravity_provider.router.state_store import HubStateStore, HubSnapshot
-from antigravity_provider.router.event_bus import (
-    EventBus,
-    EVENT_ROUTING_UPDATED,
-)
+from antigravity_provider.router.unified_health import RolePipeline
 
 
 class RoutingRoleWidget(HubCard):
-    """Reusable visual pipeline widget for a specific role."""
-
-    def __init__(self, parent: Any, pipeline: RolePipeline, **kwargs):
-        super().__init__(parent, border_color=Theme.BORDER, fg_color=Theme.SURFACE, **kwargs)
+    def __init__(self, master: Any, pipeline: RolePipeline, on_action: Optional[Callable] = None, **kwargs):
+        super().__init__(master, **kwargs)
         self.pipeline = pipeline
-        self._build()
+        self.on_action = on_action
+        self._nodes: Dict[str, RouteTargetWidget] = {}
+        top = ctk.CTkFrame(self, fg_color="transparent")
+        top.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(Theme.CARD_PAD_Y, Theme.SPACE_SM))
+        self.title = ctk.CTkLabel(top, text="", font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY)
+        self.title.pack(side="left")
+        self.meta = ctk.CTkLabel(top, text="", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED)
+        self.meta.pack(side="left", padx=Theme.SPACE_SM)
+        ActionButton(
+            top,
+            text="Настроить",
+            variant="secondary",
+            width=90,
+            command=lambda: self.on_action and self.on_action("edit_route", {"role_id": self.pipeline.role_id}),
+        ).pack(side="right")
+        self.chain = ctk.CTkFrame(self, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
+        self.chain.pack(fill="x", padx=Theme.CARD_PAD_X)
+        self.footer = ctk.CTkLabel(self, text="", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY)
+        self.footer.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_SM, Theme.CARD_PAD_Y))
         self.update_from_pipeline(pipeline)
 
-    def _build(self):
-        # 1. Top row
-        self.top_row = ctk.CTkFrame(self, fg_color="transparent")
-        self.top_row.pack(fill="x", padx=16, pady=(14, 4))
-
-        self.title_lbl = ctk.CTkLabel(self.top_row, text="", font=Theme.font_heading(), text_color=Theme.TEXT_ACCENT)
-        self.title_lbl.pack(side="left")
-
-        self.role_id_lbl = ctk.CTkLabel(self.top_row, text="", font=Theme.font_mono_sm(), text_color=Theme.TEXT_MUTED)
-        self.role_id_lbl.pack(side="left", padx=(8, 0))
-
-        self.meta_top_lbl = ctk.CTkLabel(self.top_row, text="", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY)
-        self.meta_top_lbl.pack(side="right")
-
-        # 2. Visualizer Box
-        self.pipeline_box = ctk.CTkFrame(self, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
-        self.pipeline_box.pack(fill="x", padx=16, pady=6)
-
-        self.p_inner = ctk.CTkFrame(self.pipeline_box, fg_color="transparent")
-        self.p_inner.pack(fill="x", padx=12, pady=10)
-
-        # 3. Bottom status row
-        self.bottom_row = ctk.CTkFrame(self, fg_color="transparent")
-        self.bottom_row.pack(fill="x", padx=16, pady=(4, 12))
-
-        self.act_route_lbl = ctk.CTkLabel(self.bottom_row, text="", font=Theme.font_caption())
-        self.act_route_lbl.pack(side="left")
-
-        self.failover_lbl = ctk.CTkLabel(self.bottom_row, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
-        self.failover_lbl.pack(side="right")
-
-    def update_from_pipeline(self, pipe: RolePipeline) -> None:
-        self.pipeline = pipe
-
-        self.title_lbl.configure(text=pipe.role_name_ru)
-        self.role_id_lbl.configure(text=f"({pipe.role_id})")
-
-        affinity_str = "Session Affinity ON" if pipe.session_affinity else "Affinity OFF"
-        self.meta_top_lbl.configure(text=f"Модель: {pipe.default_model}  •  {affinity_str}")
-
-        # Update nodes inside p_inner
-        for w in self.p_inner.winfo_children():
-            w.destroy()
-
-        for idx, node in enumerate(pipe.nodes):
-            if idx > 0:
-                ctk.CTkLabel(self.p_inner, text=" ➔ ", font=("Segoe UI", 15, "bold"), text_color=Theme.TEXT_MUTED).pack(side="left", padx=4)
-
-            node_border = Theme.BORDER_ACCENT if node.is_active else Theme.BORDER
-            node_fg = Theme.DARK if node.is_active else Theme.SURFACE
-
-            node_card = HubCard(self.p_inner, border_color=node_border, fg_color=node_fg, corner_radius=Theme.RADIUS_SM)
-            node_card.pack(side="left", padx=2)
-
-            n_top = ctk.CTkFrame(node_card, fg_color="transparent")
-            n_top.pack(fill="x", padx=10, pady=(6, 2))
-
-            p_img = AssetManager.get().get_provider_image(node.provider, size=(16, 16))
-            if p_img:
-                ctk.CTkLabel(n_top, image=p_img, text="").pack(side="left", padx=(0, 4))
-
-            dot_col = Theme.STATUS_HEALTHY if node.status == STATUS_HEALTHY else Theme.STATUS_WARNING
-            ctk.CTkLabel(n_top, text="●", font=("Segoe UI", 11, "bold"), text_color=dot_col).pack(side="left", padx=(0, 4))
-            ctk.CTkLabel(n_top, text=node.display_name, font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-
-            rank_txt = "Primary" if idx == 0 else f"Fallback {idx}"
-            ctk.CTkLabel(node_card, text=f"{rank_txt} • {node.model}", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED).pack(padx=10, pady=(0, 6), anchor="w")
-
-        # Bottom Route Notice
-        act_str = f"Текущий активный маршрут: [{pipe.active_profile_id}]" if pipe.active_profile_id else "Все маршруты исчерпаны!"
-        act_col = Theme.TEXT_SECONDARY if pipe.active_profile_id else Theme.STATUS_ERROR
-        self.act_route_lbl.configure(text=act_str, text_color=act_col)
-        self.failover_lbl.configure(text=f"Максимум попыток failover: {pipe.max_failover}")
+    def update_from_pipeline(self, pipeline: RolePipeline) -> None:
+        self.pipeline = pipeline
+        self.title.configure(text=pipeline.role_name_ru)
+        affinity = "session affinity" if pipeline.session_affinity else "без affinity"
+        self.meta.configure(text=f"{pipeline.default_model} • {affinity}")
+        live = {node.profile_id for node in pipeline.nodes}
+        for profile_id in list(self._nodes):
+            if profile_id not in live:
+                self._nodes.pop(profile_id).destroy()
+        for index, node in enumerate(pipeline.nodes):
+            rank = "Основной" if index == 0 else f"Резерв {index}"
+            subtitle = f"{node.provider_display_name} • {node.model}"
+            widget = self._nodes.get(node.profile_id)
+            if widget is None:
+                widget = RouteTargetWidget(self.chain, rank, node.display_name, subtitle)
+                self._nodes[node.profile_id] = widget
+            widget.update_target(rank, node.display_name, subtitle, "active" if node.is_active else node.status)
+            widget.grid(row=0, column=index, padx=Theme.SPACE_XS, pady=Theme.SPACE_SM, sticky="nsew")
+            self.chain.grid_columnconfigure(index, weight=1)
+        active = next((node for node in pipeline.nodes if node.is_active), None)
+        self.footer.configure(
+            text=(f"Активен: {active.display_name} • причина переключения: Н/Д" if active else "Активный узел: Н/Д")
+        )
 
 
 class RoutingView(ctk.CTkFrame):
-    def __init__(self, master: Any, routing_data: Optional[Dict[str, Any]] = None, **kwargs):
+    def __init__(
+        self, master: Any, routing_data: Optional[Dict[str, Any]] = None, on_action: Optional[Callable] = None, **kwargs
+    ):
         super().__init__(master=master, fg_color="transparent", **kwargs)
-        self.routing_data = routing_data or {}
+        self.on_action = on_action
         self._role_widgets: Dict[str, RoutingRoleWidget] = {}
-        self._last_rendered_generation = 0
-
-        self._build()
-        self._subscribe_events()
-
-    def _subscribe_events(self):
-        EventBus.get().subscribe(EVENT_ROUTING_UPDATED, self._on_routing_event)
-
-    def _on_routing_event(self, event_name: str, payload: Any):
-        self.after(0, self.update_data)
-
-    def _build(self):
-        header = HubSectionHeader(
+        SectionHeader(
             self,
-            title="Маршрутизация и Цепочки Failover",
-            subtitle="Политики выбора провайдеров для ролей агентов, приоритеты и сессионная привязка",
-        )
-        header.pack(fill="x", padx=20, pady=(16, 12))
-
+            title="Маршрутизация",
+            subtitle="Основной → резерв 1 → резерв 2 → резерв 3; без выдуманных причин failover",
+        ).pack(fill="x", padx=Theme.PAGE_PAD_X, pady=(Theme.PAGE_PAD_Y, Theme.SPACE_SM))
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        self.scroll.pack(fill="both", expand=True, padx=15, pady=(0, 10))
+        self.scroll.pack(fill="both", expand=True, padx=Theme.PAGE_PAD_X, pady=(0, Theme.PAGE_PAD_Y))
 
-        self.update_data()
-
-    def update_data(self, snapshot: Optional[HubSnapshot] = None):
-        """Update routing view using cached snapshot and reusable role widgets."""
+    def update_data(self, snapshot: Optional[HubSnapshot] = None) -> None:
         if not isinstance(snapshot, HubSnapshot):
-            # A non-snapshot (e.g. a legacy app_state dict) must fall back
-            # to the store rather than crash the view.
-            snapshot = HubStateStore.get().get_snapshot()
-
-        self._last_rendered_generation = snapshot.generation
-        pipelines = snapshot.routing
-
-        for rname, pipe in pipelines.items():
-            if rname in self._role_widgets:
-                self._role_widgets[rname].update_from_pipeline(pipe)
-            else:
-                widget = RoutingRoleWidget(self.scroll, pipe)
-                widget.pack(fill="x", pady=6)
-                self._role_widgets[rname] = widget
+            return
+        live_roles = set(snapshot.routing)
+        for role_id in list(self._role_widgets):
+            if role_id not in live_roles:
+                self._role_widgets.pop(role_id).destroy()
+        for role_id, pipeline in snapshot.routing.items():
+            widget = self._role_widgets.get(role_id)
+            if widget is None:
+                widget = RoutingRoleWidget(self.scroll, pipeline, self.on_action)
+                widget.pack(fill="x", pady=Theme.SPACE_XS)
+                self._role_widgets[role_id] = widget
+            widget.update_from_pipeline(pipeline)

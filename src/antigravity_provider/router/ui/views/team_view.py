@@ -1,4 +1,5 @@
 """Hermes Hub — Team View (Команда агентов и Dashboard с Unified Health v3)."""
+
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, List, Optional
@@ -14,8 +15,6 @@ from antigravity_provider.router.ui.components import (
     HubStatusBadge,
 )
 from antigravity_provider.router.unified_health import (
-    UnifiedHealthService,
-    SystemReadiness,
     AgentViewModel,
     STATUS_HEALTHY,
     STATUS_QUOTA_LOW,
@@ -24,6 +23,7 @@ from antigravity_provider.router.unified_health import (
     STATUS_NOT_CONFIGURED,
     STATUS_AUTH_EXPIRED,
 )
+from antigravity_provider.router.state_store import HubSnapshot
 
 
 class AgentCardWidget(HubCard):
@@ -42,10 +42,14 @@ class AgentCardWidget(HubCard):
         self.role_lbl.pack(side="left")
 
         self.orch_pill = ctk.CTkFrame(self.line1, fg_color="#3D3522", corner_radius=Theme.RADIUS_SM)
-        self.orch_pill_lbl = ctk.CTkLabel(self.orch_pill, text="👑 ЛИДЕР РОУТЕРА", font=Theme.font_micro(), text_color=Theme.ACCENT)
+        self.orch_pill_lbl = ctk.CTkLabel(
+            self.orch_pill, text="👑 ЛИДЕР РОУТЕРА", font=Theme.font_micro(), text_color=Theme.ACCENT
+        )
         self.orch_pill_lbl.pack(padx=5, pady=1)
 
-        self.status_dot = ctk.CTkLabel(self.line1, text="●", font=("Segoe UI", 13, "bold"), text_color=Theme.STATUS_HEALTHY)
+        self.status_dot = ctk.CTkLabel(
+            self.line1, text="●", font=("Segoe UI", 13, "bold"), text_color=Theme.STATUS_HEALTHY
+        )
         self.status_dot.pack(side="right")
 
         # ── Line 2: Internal ID + Model ──
@@ -67,7 +71,9 @@ class AgentCardWidget(HubCard):
         # ── Line 4: Identity / Account ──
         self.line4 = ctk.CTkFrame(self, fg_color="transparent")
         self.line4.pack(fill="x", padx=14, pady=(2, 4))
-        self.identity_lbl = ctk.CTkLabel(self.line4, text="—", font=Theme.font_mono_sm(), text_color=Theme.TEXT_SECONDARY)
+        self.identity_lbl = ctk.CTkLabel(
+            self.line4, text="—", font=Theme.font_mono_sm(), text_color=Theme.TEXT_SECONDARY
+        )
         self.identity_lbl.pack(anchor="w")
 
         # ── Line 5: Role Tag Pills ──
@@ -88,7 +94,9 @@ class AgentCardWidget(HubCard):
         self.line6 = ctk.CTkFrame(self, fg_color="transparent")
         self.line6.pack(fill="x", padx=14, pady=(4, 12))
 
-        self.status_str_lbl = ctk.CTkLabel(self.line6, text="● Работает", font=Theme.font_caption(), text_color=Theme.STATUS_HEALTHY)
+        self.status_str_lbl = ctk.CTkLabel(
+            self.line6, text="● Работает", font=Theme.font_caption(), text_color=Theme.STATUS_HEALTHY
+        )
         self.status_str_lbl.pack(side="left")
 
         self.menu_btn = ctk.CTkButton(
@@ -117,7 +125,15 @@ class AgentCardWidget(HubCard):
             self.orch_pill.pack_forget()
 
         # Dot color
-        dot_color = Theme.STATUS_HEALTHY if a.status == STATUS_HEALTHY else (Theme.STATUS_WARNING if "quota" in a.status or "auth" in a.status or "not_configured" in a.status else Theme.STATUS_ERROR)
+        dot_color = (
+            Theme.STATUS_HEALTHY
+            if a.status == STATUS_HEALTHY
+            else (
+                Theme.STATUS_WARNING
+                if "quota" in a.status or "auth" in a.status or "not_configured" in a.status
+                else Theme.STATUS_ERROR
+            )
+        )
         self.status_dot.configure(text_color=dot_color)
 
         # ID + Model
@@ -145,12 +161,8 @@ class AgentCardWidget(HubCard):
         else:
             self.prov_lbl.configure(text=a.provider_display_name, text_color=Theme.TEXT_MUTED)
 
-        # Identity & Model-Specific Quota
-        from antigravity_provider.router.quota_collector import AccountQuotaService
-        snap = AccountQuotaService.get().get_snapshot(a.provider, a.assigned_profile_id or "")
-        bucket = snap.get_bucket_for_model(a.model) if snap else None
-        quota_tail = f" • {bucket.formatted_remaining()}" if bucket else ""
-        self.identity_lbl.configure(text=f"{a.account_identity}{quota_tail}")
+        # AgentViewModel has account identity, but no active-session or quota fields.
+        self.identity_lbl.configure(text=a.account_identity or "Аккаунт: Н/Д")
 
         # Pills
         self.pill1_lbl.configure(text=a.role_id)
@@ -183,25 +195,47 @@ class AgentCardWidget(HubCard):
         c.pack(fill="both", expand=True, padx=10, pady=10)
 
         ctk.CTkLabel(c, text=a.role_name_ru, font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(pady=(8, 2))
-        ctk.CTkLabel(c, text=f"Аккаунт: {a.account_identity} ({pid})", font=Theme.font_mono_sm(), text_color=Theme.TEXT_MUTED).pack(pady=(0, 10))
+        ctk.CTkLabel(
+            c, text=f"Аккаунт: {a.account_identity} ({pid})", font=Theme.font_mono_sm(), text_color=Theme.TEXT_MUTED
+        ).pack(pady=(0, 10))
 
         def _do(action_name: str):
             popup.destroy()
             if self.on_action:
-                self.on_action(action_name, {"profile_id": pid, "provider": a.provider, "display_name": a.assigned_display_name})
+                self.on_action(
+                    action_name, {"profile_id": pid, "provider": a.provider, "display_name": a.assigned_display_name}
+                )
 
-        HubButton(c, text="⚡ Проверить (Тест)", variant="secondary", height=30, command=lambda: _do("test")).pack(fill="x", padx=12, pady=2)
-        HubButton(c, text="👑 Назначить главным оркестратором", variant="secondary", height=30, command=lambda: _do("set_orchestrator")).pack(fill="x", padx=12, pady=2)
-        HubButton(c, text="★ Сделать основным аккаунтом Hermes", variant="secondary", height=30, command=lambda: _do("set_main")).pack(fill="x", padx=12, pady=2)
-        HubButton(c, text="🔄 Перераспределить роли", variant="ghost", height=28, command=lambda: _do("auto_assign_all")).pack(fill="x", padx=12, pady=(2, 0))
+        HubButton(c, text="⚡ Проверить (Тест)", variant="secondary", height=30, command=lambda: _do("test")).pack(
+            fill="x", padx=12, pady=2
+        )
+        HubButton(
+            c,
+            text="👑 Назначить главным оркестратором",
+            variant="secondary",
+            height=30,
+            command=lambda: _do("set_orchestrator"),
+        ).pack(fill="x", padx=12, pady=2)
+        HubButton(
+            c,
+            text="★ Сделать основным аккаунтом Hermes",
+            variant="secondary",
+            height=30,
+            command=lambda: _do("set_main"),
+        ).pack(fill="x", padx=12, pady=2)
+        HubButton(
+            c, text="🔄 Перераспределить роли", variant="ghost", height=28, command=lambda: _do("auto_assign_all")
+        ).pack(fill="x", padx=12, pady=(2, 0))
 
 
 class TeamView(ctk.CTkFrame):
-    def __init__(self, master: Any, app_state: Dict[str, Any], on_action: Optional[Callable] = None, **kwargs):
+    def __init__(
+        self, master: Any, app_state: Optional[Dict[str, Any]] = None, on_action: Optional[Callable] = None, **kwargs
+    ):
         super().__init__(master=master, fg_color="transparent", **kwargs)
-        self.app_state = app_state
+        self.app_state = app_state or {}
         self.on_action = on_action
-        self._card_widgets: List[AgentCardWidget] = []
+        self._card_widgets: Dict[str, AgentCardWidget] = {}
         self._build_static_layout()
         self.update_data()
 
@@ -261,7 +295,9 @@ class TeamView(ctk.CTkFrame):
         for i in range(4):
             metrics_grid.grid_columnconfigure(i, weight=1)
 
-        self.m1 = HubMetricCard(metrics_grid, title="АГЕНТЫ", value="0/6", subtext="готовы к работе", icon="👥", accent=True)
+        self.m1 = HubMetricCard(
+            metrics_grid, title="АГЕНТЫ", value="0/6", subtext="готовы к работе", icon="👥", accent=True
+        )
         self.m1.grid(row=0, column=0, padx=6, sticky="nsew")
 
         self.m2 = HubMetricCard(metrics_grid, title="АККАУНТЫ", value="0/16", subtext="подключено", icon="💼")
@@ -270,21 +306,36 @@ class TeamView(ctk.CTkFrame):
         self.m3 = HubMetricCard(metrics_grid, title="ПРОВАЙДЕРЫ", value="3/3", subtext="доступно", icon="⚛")
         self.m3.grid(row=0, column=2, padx=6, sticky="nsew")
 
-        self.m4 = HubMetricCard(metrics_grid, title="СОСТОЯНИЕ", value="Healthy", subtext="Все системы работают", icon="🛡️")
+        self.m4 = HubMetricCard(
+            metrics_grid, title="СОСТОЯНИЕ", value="Healthy", subtext="Все системы работают", icon="🛡️"
+        )
         self.m4.grid(row=0, column=3, padx=6, sticky="nsew")
 
-        # ── 3. Cards Grid ──
+        # ── 3. Hierarchy: orchestrator → role agents ──
+        ctk.CTkLabel(
+            self.scroll,
+            text="ОРКЕСТРАТОР",
+            font=Theme.font_micro(),
+            text_color=Theme.TEXT_MUTED,
+        ).pack(anchor="w", padx=Theme.SPACE_XS)
+        self.orchestrator_grid = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        self.orchestrator_grid.pack(fill="x", pady=(Theme.SPACE_XS, Theme.SECTION_GAP))
+        self.orchestrator_grid.grid_columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(
+            self.scroll,
+            text="РОЛИ И АГЕНТЫ",
+            font=Theme.font_micro(),
+            text_color=Theme.TEXT_MUTED,
+        ).pack(anchor="w", padx=Theme.SPACE_XS)
         self.cards_grid = ctk.CTkFrame(self.scroll, fg_color="transparent")
         self.cards_grid.pack(fill="both", expand=True)
         for col_idx in range(3):
             self.cards_grid.grid_columnconfigure(col_idx, weight=1)
 
     def update_data(self, snapshot: Optional[Any] = None):
-        from antigravity_provider.router.state_store import HubSnapshot, HubStateStore
         if not isinstance(snapshot, HubSnapshot):
-            # Callers have historically passed legacy app_state dicts here; a
-            # non-snapshot must fall back to the store, not crash the view.
-            snapshot = HubStateStore.get().get_snapshot()
+            return
 
         readiness = snapshot.readiness
         agents = snapshot.agents
@@ -302,20 +353,28 @@ class TeamView(ctk.CTkFrame):
         self.m4.val_label.configure(text=readiness.title_ru)
         self.m4.sub_label.configure(text=readiness.summary_ru)
 
-        # Ensure enough widgets in 3-column grid
-        while len(self._card_widgets) < len(agents):
-            idx = len(self._card_widgets)
-            row_idx, col_idx = divmod(idx, 3)
-            card = AgentCardWidget(self.cards_grid, on_action=self.on_action)
-            card.grid(row=row_idx, column=col_idx, padx=6, pady=6, sticky="nsew")
-            self._card_widgets.append(card)
+        live_roles = {agent.role_id for agent in agents}
+        for role_id in list(self._card_widgets):
+            if role_id not in live_roles:
+                self._card_widgets.pop(role_id).destroy()
 
-        for idx, agent in enumerate(agents):
-            self._card_widgets[idx].update_agent(agent)
-            self._card_widgets[idx].grid()
+        orchestrators = [agent for agent in agents if agent.is_main_orchestrator]
+        role_agents = [agent for agent in agents if not agent.is_main_orchestrator]
+        for index, agent in enumerate(orchestrators):
+            card = self._card_widgets.get(agent.role_id)
+            if card is None:
+                card = AgentCardWidget(self.orchestrator_grid, on_action=self.on_action)
+                self._card_widgets[agent.role_id] = card
+            card.update_agent(agent)
+            card.grid(row=index, column=0, padx=Theme.SPACE_XS, pady=Theme.SPACE_XS, sticky="nsew")
 
-        for idx in range(len(agents), len(self._card_widgets)):
-            self._card_widgets[idx].grid_remove()
+        for index, agent in enumerate(role_agents):
+            card = self._card_widgets.get(agent.role_id)
+            if card is None:
+                card = AgentCardWidget(self.cards_grid, on_action=self.on_action)
+                self._card_widgets[agent.role_id] = card
+            card.update_agent(agent)
+            card.grid(row=index // 3, column=index % 3, padx=6, pady=6, sticky="nsew")
 
     def _trigger_action(self, action: str, profile: Dict[str, Any]):
         if self.on_action:

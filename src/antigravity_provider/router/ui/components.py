@@ -5,6 +5,7 @@ try:
     import customtkinter as ctk
 except ImportError:
     import unittest.mock as _mock
+
     ctk = _mock.MagicMock()
 
 from antigravity_provider.router.ui.theme import Theme
@@ -152,32 +153,55 @@ def enable_clipboard_shortcuts(entry_widget: Any) -> None:
             pass
 
     # Standard Latin shortcuts
-    for p in ("<Control-v>", "<Control-V>", "<Control-KeyPress-v>", "<Control-KeyPress-V>", "<Shift-Insert>", "<Shift-KeyPress-Insert>"):
-        try: inner.bind(p, _paste_handler, add=False)
-        except Exception: pass
+    for p in (
+        "<Control-v>",
+        "<Control-V>",
+        "<Control-KeyPress-v>",
+        "<Control-KeyPress-V>",
+        "<Shift-Insert>",
+        "<Shift-KeyPress-Insert>",
+    ):
+        try:
+            inner.bind(p, _paste_handler, add=False)
+        except Exception:
+            pass
     for a in ("<Control-a>", "<Control-A>", "<Control-KeyPress-a>", "<Control-KeyPress-A>"):
-        try: inner.bind(a, _select_all_handler, add=False)
-        except Exception: pass
+        try:
+            inner.bind(a, _select_all_handler, add=False)
+        except Exception:
+            pass
     for c in ("<Control-c>", "<Control-C>", "<Control-KeyPress-c>", "<Control-KeyPress-C>"):
-        try: inner.bind(c, _copy_handler, add=False)
-        except Exception: pass
+        try:
+            inner.bind(c, _copy_handler, add=False)
+        except Exception:
+            pass
     for x in ("<Control-x>", "<Control-X>", "<Control-KeyPress-x>", "<Control-KeyPress-X>"):
-        try: inner.bind(x, _cut_handler, add=False)
-        except Exception: pass
+        try:
+            inner.bind(x, _cut_handler, add=False)
+        except Exception:
+            pass
 
     # Windows Cyrillic / Russian keyboard layouts
     for p in ("<Control-KeyPress-1084>", "<Control-KeyPress-1052>", "<Control-cyrillic_em>", "<Control-Cyrillic_EM>"):
-        try: inner.bind(p, _paste_handler, add=False)
-        except Exception: pass
+        try:
+            inner.bind(p, _paste_handler, add=False)
+        except Exception:
+            pass
     for a in ("<Control-KeyPress-1092>", "<Control-KeyPress-1060>", "<Control-cyrillic_ef>", "<Control-Cyrillic_EF>"):
-        try: inner.bind(a, _select_all_handler, add=False)
-        except Exception: pass
+        try:
+            inner.bind(a, _select_all_handler, add=False)
+        except Exception:
+            pass
     for c in ("<Control-KeyPress-1089>", "<Control-KeyPress-1057>", "<Control-cyrillic_es>", "<Control-Cyrillic_ES>"):
-        try: inner.bind(c, _copy_handler, add=False)
-        except Exception: pass
+        try:
+            inner.bind(c, _copy_handler, add=False)
+        except Exception:
+            pass
     for x in ("<Control-KeyPress-1095>", "<Control-KeyPress-1063>", "<Control-cyrillic_che>", "<Control-Cyrillic_CHE>"):
-        try: inner.bind(x, _cut_handler, add=False)
-        except Exception: pass
+        try:
+            inner.bind(x, _cut_handler, add=False)
+        except Exception:
+            pass
 
 
 class HubEntry(ctk.CTkEntry):
@@ -251,25 +275,29 @@ class HubStatusBadge(ctk.CTkFrame):
     def __init__(self, master: Any, status_key: str, **kwargs):
         super().__init__(master=master, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_PILL, **kwargs)
 
-        clean_key = status_key.lower().replace("-", "_")
-        color, label = self.STATUS_MAP.get(clean_key, (Theme.TEXT_MUTED, status_key))
-
         inner = ctk.CTkFrame(self, fg_color="transparent")
         inner.pack(padx=Theme.SPACE_MD, pady=Theme.SPACE_XS)
 
-        ctk.CTkLabel(
+        self.dot = ctk.CTkLabel(
             inner,
             text="●",
             font=Theme.font_badge_bold(),
-            text_color=color,
-        ).pack(side="left", padx=(0, Theme.SPACE_XS))
+        )
+        self.dot.pack(side="left", padx=(0, Theme.SPACE_XS))
 
-        ctk.CTkLabel(
+        self.label = ctk.CTkLabel(
             inner,
-            text=label,
             font=Theme.font_caption(),
             text_color=Theme.TEXT_SECONDARY,
-        ).pack(side="left")
+        )
+        self.label.pack(side="left")
+        self.set_status(status_key)
+
+    def set_status(self, status_key: str, label: Optional[str] = None) -> None:
+        clean_key = (status_key or "unknown").lower().replace("-", "_")
+        color, default_label = self.STATUS_MAP.get(clean_key, (Theme.TEXT_MUTED, status_key or "Н/Д"))
+        self.dot.configure(text_color=color)
+        self.label.configure(text=label or default_label)
 
 
 class HubProviderBadge(ctk.CTkFrame):
@@ -610,8 +638,10 @@ class QuotaBar(ctk.CTkFrame):
             self.detail.configure(text=detail or "Н/Д", text_color=Theme.TEXT_MUTED)
             return
         normalized = max(0.0, min(1.0, float(value)))
-        color = Theme.COLOR_NEGATIVE if normalized <= 0.05 else (
-            Theme.COLOR_CAUTION if normalized <= 0.20 else Theme.COLOR_POSITIVE
+        color = (
+            Theme.COLOR_NEGATIVE
+            if normalized <= 0.05
+            else (Theme.COLOR_CAUTION if normalized <= 0.20 else Theme.COLOR_POSITIVE)
         )
         self.progress.set(normalized)
         self.progress.configure(progress_color=color)
@@ -647,10 +677,11 @@ class QuotaBucketWidget(HubCard):
         remaining_ratio: Optional[float],
         reset_text: str = "",
         is_estimated: bool = False,
+        detail: Optional[str] = None,
     ) -> None:
         suffix = " • оценка" if is_estimated else ""
         self.title.configure(text=f"{label}{suffix}")
-        self.bar.set_value(remaining_ratio)
+        self.bar.set_value(remaining_ratio, detail or ("Н/Д" if remaining_ratio is None else None))
         self.reset.configure(text=reset_text or "Сброс: Н/Д")
 
 
@@ -720,9 +751,7 @@ class EmptyState(HubCard):
             padx=Theme.SPACE_LG, pady=(0, Theme.SPACE_MD)
         )
         if action_text and action_cmd:
-            ActionButton(self, text=action_text, variant="secondary", command=action_cmd).pack(
-                pady=(0, Theme.SPACE_LG)
-            )
+            ActionButton(self, text=action_text, variant="secondary", command=action_cmd).pack(pady=(0, Theme.SPACE_LG))
 
 
 class RouteTargetWidget(HubCard):
@@ -736,6 +765,12 @@ class RouteTargetWidget(HubCard):
         self.title.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_XS, 0))
         self.subtitle = ctk.CTkLabel(self, text=subtitle, font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
         self.subtitle.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(0, Theme.SPACE_SM))
+        self.update_target(rank, title, subtitle, status)
+
+    def update_target(self, rank: str, title: str, subtitle: str, status: str = "unknown") -> None:
+        self.rank.configure(text=rank)
+        self.title.configure(text=title)
+        self.subtitle.configure(text=subtitle)
         self.set_status(status)
 
     def set_status(self, status: str) -> None:
@@ -743,22 +778,142 @@ class RouteTargetWidget(HubCard):
 
 
 class AccountCardWidget(HubCard):
-    """Model-agnostic account-card shell shared by account views."""
+    """Keyed account card whose quota buckets are updated without rebuilding the card."""
 
-    def __init__(self, master: Any, identity: str, provider: str, status: str = "unknown", **kwargs):
-        super().__init__(master, height=Theme.ACCOUNT_CARD_MIN_HEIGHT, **kwargs)
-        self.grid_propagate(False)
-        self.provider = ctk.CTkLabel(self, text=provider, font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
-        self.provider.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.CARD_PAD_Y, Theme.SPACE_XS))
-        self.identity = EllipsizedLabel(
-            self,
-            text=identity,
-            font=Theme.font_body_bold(),
-            text_color=Theme.TEXT_PRIMARY,
-        )
+    def __init__(
+        self,
+        master: Any,
+        profile_id: str,
+        identity: str,
+        provider: str,
+        status: str = "unknown",
+        compact: bool = False,
+        on_action: Optional[Callable[[str, Any], None]] = None,
+        **kwargs,
+    ):
+        super().__init__(master, **kwargs)
+        self.profile_id = profile_id
+        self.profile_model: Any = None
+        self.on_action = on_action
+        self.compact = compact
+        self._quota_widgets: Dict[str, QuotaBucketWidget] = {}
+        self.widgets_created = 0
+        self.widgets_destroyed = 0
+
+        top = ctk.CTkFrame(self, fg_color="transparent")
+        top.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(Theme.CARD_PAD_Y, Theme.SPACE_XS))
+        self.provider = ctk.CTkLabel(top, text=provider, font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
+        self.provider.pack(side="left")
+        self.toggle = IconButton(top, text="▾", command=self.toggle_compact)
+        self.toggle.pack(side="right")
+
+        self.identity = EllipsizedLabel(self, text=identity, font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY)
         self.identity.pack(anchor="w", padx=Theme.CARD_PAD_X)
+        self.meta = ctk.CTkLabel(self, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
+        self.meta.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_XS, 0))
         self.status = StatusBadge(self, status)
         self.status.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_SM)
+
+        self.details = ctk.CTkFrame(self, fg_color="transparent")
+        self.details.pack(fill="x")
+        self.quota_box = ctk.CTkFrame(self.details, fg_color="transparent")
+        self.quota_box.pack(fill="x", padx=Theme.CARD_PAD_X)
+        self.empty_quota = ctk.CTkLabel(
+            self.quota_box, text="Квота: Н/Д", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED
+        )
+        self.actions = ctk.CTkFrame(self.details, fg_color="transparent")
+        self.actions.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_SM, Theme.CARD_PAD_Y))
+        ActionButton(
+            self.actions,
+            text="Обновить",
+            variant="secondary",
+            width=86,
+            command=lambda: self._trigger("refresh_account"),
+        ).pack(side="left")
+        ActionButton(
+            self.actions,
+            text="Удалить",
+            variant="ghost",
+            width=72,
+            command=lambda: self._trigger("delete_credentials"),
+        ).pack(side="right")
+        self.set_compact(compact)
+
+    @staticmethod
+    def resolve_identity(profile: Any) -> str:
+        """Contract order: email → normalized account identity → display name → profile id."""
+        for value in (
+            getattr(profile, "email", None),
+            getattr(profile, "account_identity", None),
+            getattr(profile, "display_name", None),
+            getattr(profile, "profile_id", None),
+        ):
+            if value and str(value).strip() and str(value).strip() not in {"—", "Н/Д"}:
+                return str(value).strip()
+        return "Аккаунт: Н/Д"
+
+    def _trigger(self, action: str) -> None:
+        if self.on_action and self.profile_model is not None:
+            self.on_action(action, self.profile_model)
+
+    def toggle_compact(self) -> None:
+        self.set_compact(not self.compact)
+
+    def set_compact(self, compact: bool) -> None:
+        self.compact = compact
+        self.toggle.configure(text="▸" if compact else "▾")
+        if compact:
+            self.details.pack_forget()
+        else:
+            self.details.pack(fill="x")
+
+    def update_account(self, profile: Any, quota_snapshot: Optional[Any] = None) -> None:
+        self.profile_model = profile
+        self.profile_id = profile.profile_id
+        self.identity.set_text(self.resolve_identity(profile))
+        self.provider.configure(text=profile.provider_display_name or profile.provider)
+        roles = ", ".join(getattr(profile, "assigned_roles", []) or []) or "Роль: Н/Д"
+        self.meta.configure(text=f"{profile.display_name} • {roles}")
+        self.status.set_status(profile.health_state, getattr(profile, "health_label_ru", None))
+        self.configure(border_color=Theme.BORDER_ACCENT if profile.is_main_account else Theme.BORDER)
+
+        snapshot = quota_snapshot or getattr(profile, "quota_snapshot", None)
+        buckets = list(getattr(snapshot, "buckets", None) or [])
+        estimated = bool(getattr(snapshot, "is_estimated", True)) if snapshot else True
+        seen: set[str] = set()
+        for bucket in buckets:
+            key = str(getattr(bucket, "id", "") or getattr(bucket, "display_name", "bucket"))
+            seen.add(key)
+            remaining = getattr(bucket, "remaining_percent", None)
+            ratio = float(remaining) / 100.0 if remaining is not None else None
+            if ratio is None:
+                remaining_abs = getattr(bucket, "remaining_absolute", None)
+                limit_abs = getattr(bucket, "limit_absolute", None)
+                if remaining_abs is not None and limit_abs:
+                    ratio = float(remaining_abs) / float(limit_abs)
+            detail = bucket.formatted_remaining() if hasattr(bucket, "formatted_remaining") else "Н/Д"
+            reset = bucket.formatted_reset() if hasattr(bucket, "formatted_reset") else None
+            if key not in self._quota_widgets:
+                widget = QuotaBucketWidget(self.quota_box, key, bucket.display_name)
+                widget.pack(fill="x", pady=(0, Theme.SPACE_SM))
+                self._quota_widgets[key] = widget
+                self.widgets_created += 1
+            self._quota_widgets[key].update_bucket(
+                bucket.display_name,
+                ratio,
+                reset or "Сброс: Н/Д",
+                estimated,
+                detail,
+            )
+
+        for key in list(self._quota_widgets):
+            if key not in seen:
+                self._quota_widgets.pop(key).destroy()
+                self.widgets_destroyed += 1
+        if buckets:
+            self.empty_quota.pack_forget()
+        else:
+            self.empty_quota.pack(anchor="w", pady=Theme.SPACE_SM)
 
 
 class AgentCardWidget(HubCard):

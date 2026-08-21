@@ -1,141 +1,166 @@
-"""Hermes Hub — Dashboard View (Главный экран)."""
+"""Snapshot-driven overview of readiness, routes and actionable account warnings."""
+
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
+
 import customtkinter as ctk
 
+from antigravity_provider.router.state_store import HubSnapshot
+from antigravity_provider.router.ui.components import ActionButton, EmptyState, HubCard, HubMetricCard, SectionHeader
 from antigravity_provider.router.ui.theme import Theme
-from antigravity_provider.router.ui.components import (
-    HubButton,
-    HubCard,
-    HubMetricCard,
-    HubProviderBadge,
-    HubSectionHeader,
-    HubStatusBadge,
-)
+
+
+class _SummaryRow(HubCard):
+    def __init__(self, master: Any, title: str = "", detail: str = ""):
+        super().__init__(master, corner_radius=Theme.RADIUS_SM, border_color=Theme.BORDER_SUBTLE)
+        self.title = ctk.CTkLabel(self, text=title, font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY)
+        self.title.pack(side="left", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_SM)
+        self.detail = ctk.CTkLabel(self, text=detail, font=Theme.font_caption(), text_color=Theme.TEXT_MUTED)
+        self.detail.pack(side="right", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_SM)
+
+    def update_row(self, title: str, detail: str, status: str = "unknown") -> None:
+        self.title.configure(text=title)
+        self.detail.configure(text=detail)
+        color = (
+            Theme.COLOR_POSITIVE
+            if status == "healthy"
+            else (Theme.COLOR_CAUTION if status in {"warning", "quota_low", "auth_expired"} else Theme.COLOR_NEUTRAL)
+        )
+        self.configure(border_color=color)
 
 
 class DashboardView(ctk.CTkFrame):
-    def __init__(self, master: Any, app_state: Dict[str, Any], on_navigate: Optional[Callable] = None, on_action: Optional[Callable] = None, **kwargs):
+    def __init__(
+        self,
+        master: Any,
+        app_state: Optional[Dict[str, Any]] = None,
+        on_navigate: Optional[Callable] = None,
+        on_action: Optional[Callable] = None,
+        **kwargs,
+    ):
         super().__init__(master=master, fg_color="transparent", **kwargs)
-        self.app_state = app_state
         self.on_navigate = on_navigate
         self.on_action = on_action
+        self._provider_rows: Dict[str, _SummaryRow] = {}
+        self._route_rows: Dict[str, _SummaryRow] = {}
+        self._alert_rows: Dict[str, _SummaryRow] = {}
         self._build()
 
-    def _build(self):
-        # ── Header ──
-        header = HubSectionHeader(
+    def _build(self) -> None:
+        SectionHeader(
             self,
-            title="Главная панель управления",
-            subtitle="Multi-Agent & Multi-Provider Control Hub",
-            action_text="+ Добавить аккаунт",
-            action_cmd=lambda: self._trigger_action("add_account"),
+            title="Обзор Hermes Hub",
+            subtitle="Кто работает сейчас, через какой маршрут и где требуется внимание",
+            action_text="Обновить",
+            action_cmd=lambda: self.on_action and self.on_action("refresh_data", {}),
+        ).pack(fill="x", padx=Theme.PAGE_PAD_X, pady=(Theme.PAGE_PAD_Y, Theme.SPACE_SM))
+        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll.pack(fill="both", expand=True, padx=Theme.PAGE_PAD_X, pady=(0, Theme.PAGE_PAD_Y))
+
+        metrics = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        metrics.pack(fill="x", pady=(0, Theme.SECTION_GAP))
+        for column in range(4):
+            metrics.grid_columnconfigure(column, weight=1)
+        self.system_metric = HubMetricCard(metrics, "Состояние", "Н/Д", "Ожидание snapshot", icon="◈", accent=True)
+        self.provider_metric = HubMetricCard(metrics, "Провайдеры", "0/0", "доступно", icon="◉")
+        self.account_metric = HubMetricCard(metrics, "Аккаунты", "0/0", "подключено", icon="◎")
+        self.role_metric = HubMetricCard(metrics, "Роли", "0/0", "готово", icon="◇")
+        for index, metric in enumerate(
+            (self.system_metric, self.provider_metric, self.account_metric, self.role_metric)
+        ):
+            metric.grid(row=0, column=index, padx=Theme.SPACE_XS, sticky="nsew")
+
+        columns = ctk.CTkFrame(self.scroll, fg_color="transparent")
+        columns.pack(fill="x")
+        columns.grid_columnconfigure((0, 1), weight=1)
+        self.providers_card = self._section(columns, "Провайдеры", 0, 0)
+        self.routes_card = self._section(columns, "Активные маршруты", 0, 1)
+        self.alerts_card = self._section(columns, "Требует внимания", 1, 0, columnspan=2)
+        self.events_gap = EmptyState(
+            self.scroll,
+            title="Последние события: Н/Д",
+            message="Журнал событий не входит в HubSnapshot; выдуманные события не отображаются.",
         )
-        header.pack(fill="x", padx=20, pady=(20, 16))
+        self.events_gap.pack(fill="x", pady=(Theme.SECTION_GAP, 0))
 
-        scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        scroll.pack(fill="both", expand=True, padx=15, pady=(0, 10))
+    def _section(self, master: Any, title: str, row: int, column: int, columnspan: int = 1) -> ctk.CTkFrame:
+        card = HubCard(master)
+        card.grid(
+            row=row, column=column, columnspan=columnspan, padx=Theme.SPACE_XS, pady=Theme.SPACE_XS, sticky="nsew"
+        )
+        ctk.CTkLabel(card, text=title, font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(
+            anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.CARD_PAD_Y, Theme.SPACE_SM)
+        )
+        body = ctk.CTkFrame(card, fg_color="transparent")
+        body.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(0, Theme.CARD_PAD_Y))
+        return body
 
-        data = self.app_state
-        stats = data.get("stats", {})
-        total_profiles = stats.get("total_profiles", 0)
-        auth_profiles = stats.get("authenticated_profiles", 0)
-        providers_data = data.get("providers", {})
+    @staticmethod
+    def _sync_rows(container: Any, cache: Dict[str, _SummaryRow], rows: Dict[str, tuple[str, str, str]]) -> None:
+        for key in list(cache):
+            if key not in rows:
+                cache.pop(key).destroy()
+        for key, (title, detail, status) in rows.items():
+            if key not in cache:
+                cache[key] = _SummaryRow(container)
+                cache[key].pack(fill="x", pady=Theme.SPACE_XS)
+            cache[key].update_row(title, detail, status)
 
-        ag_list = providers_data.get("antigravity", [])
-        codex_list = providers_data.get("openai-codex", [])
-        opencode_list = providers_data.get("opencode-go", [])
+    def update_data(self, snapshot: Optional[HubSnapshot] = None) -> None:
+        if not isinstance(snapshot, HubSnapshot):
+            return
+        readiness = snapshot.readiness
+        self.system_metric.val_label.configure(text=readiness.title_ru)
+        self.system_metric.sub_label.configure(text=readiness.summary_ru)
+        self.provider_metric.val_label.configure(text=f"{readiness.providers_ready_count}/{readiness.total_providers}")
+        self.account_metric.val_label.configure(text=f"{readiness.accounts_connected_count}/{readiness.total_accounts}")
+        self.role_metric.val_label.configure(text=f"{readiness.roles_ready_count}/{readiness.total_roles}")
 
-        ag_online = sum(1 for p in ag_list if p.get("authenticated"))
-        codex_online = sum(1 for p in codex_list if p.get("authenticated"))
-        opencode_online = sum(1 for p in opencode_list if p.get("authenticated"))
+        provider_rows = {
+            provider.provider_id: (
+                provider.provider_name,
+                f"{provider.online_count}/{provider.connected_count} онлайн • {provider.auth_required_count} требуют входа",
+                "healthy" if provider.online_count else "warning",
+            )
+            for provider in snapshot.providers
+        }
+        self._sync_rows(self.providers_card, self._provider_rows, provider_rows)
 
-        overall_state = "Healthy" if auth_profiles > 0 else "Degraded"
+        route_rows = {}
+        for role_id, pipeline in snapshot.routing.items():
+            active = next((node for node in pipeline.nodes if node.is_active), None)
+            detail = f"{active.provider_display_name} • {active.model}" if active else "Активный узел: Н/Д"
+            route_rows[role_id] = (pipeline.role_name_ru, detail, "healthy" if active else "warning")
+        self._sync_rows(self.routes_card, self._route_rows, route_rows)
 
-        # ── 1. Top Metrics (4 cards) ──
-        metrics_grid = ctk.CTkFrame(scroll, fg_color="transparent")
-        metrics_grid.pack(fill="x", pady=(0, 16))
-        for i in range(4):
-            metrics_grid.grid_columnconfigure(i, weight=1)
+        alerts: Dict[str, tuple[str, str, str]] = {}
+        for profile in snapshot.all_profiles.values():
+            if profile.auth_state == "AUTH_EXPIRED":
+                alerts[f"auth:{profile.profile_id}"] = (
+                    profile.account_identity or profile.profile_id,
+                    "Авторизация истекла",
+                    "auth_expired",
+                )
+            quota = snapshot.quotas.get(profile.profile_id)
+            if quota and not getattr(quota, "is_estimated", True):
+                low = [
+                    bucket
+                    for bucket in quota.buckets
+                    if bucket.remaining_percent is not None and bucket.remaining_percent <= 20
+                ]
+                if low:
+                    alerts[f"quota:{profile.profile_id}"] = (
+                        profile.account_identity or profile.profile_id,
+                        ", ".join(f"{bucket.display_name}: {bucket.remaining_percent:.0f}%" for bucket in low),
+                        "quota_low",
+                    )
+        for index, warning in enumerate(readiness.warnings):
+            alerts[f"warning:{index}"] = ("Системное предупреждение", warning, "warning")
+        if not alerts:
+            alerts["none"] = ("Критичных предупреждений нет", "По данным текущего snapshot", "healthy")
+        self._sync_rows(self.alerts_card, self._alert_rows, alerts)
 
-        m1 = HubMetricCard(metrics_grid, title="Агенты", value=str(total_profiles), subtext=f"{auth_profiles} активны в ролях", icon="👥", accent=True)
-        m1.grid(row=0, column=0, padx=6, sticky="nsew")
-
-        m2 = HubMetricCard(metrics_grid, title="Аккаунты", value=f"{auth_profiles}/{total_profiles}", subtext="Авторизовано", icon="🔑")
-        m2.grid(row=0, column=1, padx=6, sticky="nsew")
-
-        m3 = HubMetricCard(metrics_grid, title="Провайдеры", value="3", subtext="Antigravity, Codex, OpenCode", icon="🌐")
-        m3.grid(row=0, column=2, padx=6, sticky="nsew")
-
-        m4 = HubMetricCard(metrics_grid, title="Состояние", value=overall_state, subtext="Fail-closed router active", icon="🛡️")
-        m4.grid(row=0, column=3, padx=6, sticky="nsew")
-
-        # ── 2. Middle Row: Providers Status & Active Roles ──
-        mid_frame = ctk.CTkFrame(scroll, fg_color="transparent")
-        mid_frame.pack(fill="x", pady=(0, 16))
-        mid_frame.grid_columnconfigure(0, weight=1)
-        mid_frame.grid_columnconfigure(1, weight=1)
-
-        # 2A: Provider Status Breakdown
-        prov_card = HubCard(mid_frame)
-        prov_card.grid(row=0, column=0, padx=(0, 8), sticky="nsew")
-
-        ctk.CTkLabel(prov_card, text="Состояние провайдеров", font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", padx=16, pady=(14, 10))
-
-        prov_rows = [
-            ("Google Antigravity", f"{ag_online} / {len(ag_list)} онлайн", Theme.PROVIDER_ANTIGRAVITY),
-            ("OpenAI Codex", f"{codex_online} / {len(codex_list)} онлайн", Theme.PROVIDER_CODEX),
-            ("OpenCode Go", f"{opencode_online} / {len(opencode_list)} онлайн", Theme.PROVIDER_OPENCODE),
-        ]
-        for name, status_txt, col in prov_rows:
-            row = ctk.CTkFrame(prov_card, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
-            row.pack(fill="x", padx=16, pady=4)
-            ctk.CTkLabel(row, text=f"◈ {name}", font=Theme.font_body_bold(), text_color=col).pack(side="left", padx=10, pady=8)
-            ctk.CTkLabel(row, text=status_txt, font=Theme.font_body(), text_color=Theme.TEXT_SECONDARY).pack(side="right", padx=10)
-
-        # 2B: Core Leadership & Orchestrator
-        lead_card = HubCard(mid_frame)
-        lead_card.grid(row=0, column=1, padx=(8, 0), sticky="nsew")
-
-        ctk.CTkLabel(lead_card, text="Ключевые назначения", font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", padx=16, pady=(14, 10))
-
-        # Find main profile and orchestrator
-        main_ag_id = data.get("main_profiles", {}).get("antigravity", "—")
-        main_codex_id = data.get("main_profiles", {}).get("openai-codex", "—")
-
-        key_items = [
-            ("👑 Главный оркестратор", f"OpenAI Codex ({main_codex_id})", Theme.STATUS_ORCHESTRATOR),
-            ("⭐ Основной Antigravity", f"Google Antigravity ({main_ag_id})", Theme.STATUS_MAIN),
-            ("🔄 Резервный оркестратор", "Google Antigravity (ag-orch-fallback)", Theme.STATUS_FAILOVER),
-        ]
-        for title_str, val_str, clr in key_items:
-            row = ctk.CTkFrame(lead_card, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
-            row.pack(fill="x", padx=16, pady=4)
-            ctk.CTkLabel(row, text=title_str, font=Theme.font_body_bold(), text_color=clr).pack(side="left", padx=10, pady=8)
-            ctk.CTkLabel(row, text=val_str, font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(side="right", padx=10)
-
-        # ── 3. Quick Actions Banner ──
-        banner = HubCard(scroll, fg_color=Theme.DARK, border_color=Theme.BORDER_ACCENT)
-        banner.pack(fill="x", pady=(0, 10))
-
-        b_inner = ctk.CTkFrame(banner, fg_color="transparent")
-        b_inner.pack(fill="x", padx=16, pady=14)
-
-        b_text = ctk.CTkFrame(b_inner, fg_color="transparent")
-        b_text.pack(side="left")
-        ctk.CTkLabel(b_text, text="Управление маршрутизацией и отказоустойчивостью", font=Theme.font_heading(), text_color=Theme.TEXT_ACCENT).pack(anchor="w")
-        ctk.CTkLabel(b_text, text="Автоматический failover при исчерпании квот и поддержка session affinity активны.", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(anchor="w")
-
-        b_btns = ctk.CTkFrame(b_inner, fg_color="transparent")
-        b_btns.pack(side="right")
-        HubButton(b_btns, text="Команда агентов", variant="secondary", command=lambda: self._navigate("team")).pack(side="left", padx=4)
-        HubButton(b_btns, text="Маршрутизация", variant="secondary", command=lambda: self._navigate("routing")).pack(side="left", padx=4)
-
-    def _navigate(self, target: str):
+    def _navigate(self, target: str) -> None:
         if self.on_navigate:
             self.on_navigate(target)
-
-    def _trigger_action(self, action: str):
-        if self.on_action:
-            self.on_action(action, {})

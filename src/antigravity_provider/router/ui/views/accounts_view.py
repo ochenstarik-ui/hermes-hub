@@ -1,444 +1,269 @@
-"""Hermes Hub — Accounts View with Reusable AccountCardWidget & Zero Widget Re-creation."""
+"""Accounts and quota view driven exclusively by a supplied HubSnapshot."""
+
 from __future__ import annotations
 
-import logging
-from typing import Any, Callable, Dict, List, Optional
+from collections import defaultdict
+from typing import Any, Callable, Dict, Iterable, Optional
+
 import customtkinter as ctk
 
-from antigravity_provider.router.ui.theme import Theme
-from antigravity_provider.router.ui.assets import AssetManager
+from antigravity_provider.router.state_store import HubSnapshot
 from antigravity_provider.router.ui.components import (
-    HubButton,
-    HubCard,
-    HubToolbar,
+    AccountCardWidget,
+    ActionButton,
+    EmptyState,
+    FilterButton,
+    SearchField,
+    SectionHeader,
 )
-from antigravity_provider.router.unified_health import (
-    ProfileViewModel,
-    STATUS_HEALTHY,
-    STATUS_QUOTA_EXHAUSTED,
-    STATUS_AUTH_REQUIRED,
-    STATUS_NOT_CONFIGURED,
-    STATUS_COLD_SPARE,
-)
-from antigravity_provider.router.quota_collector import AccountQuotaService
-from antigravity_provider.router.state_store import HubStateStore, HubSnapshot
-from antigravity_provider.router.scheduler import HermesRefreshScheduler
-from antigravity_provider.router.event_bus import (
-    EventBus,
-    EVENT_ACCOUNT_UPDATED,
-    EVENT_QUOTA_UPDATED,
-)
-
-logger = logging.getLogger("hermes.hub.accounts_view")
+from antigravity_provider.router.ui.theme import Theme
 
 
-class AccountCardWidget(HubCard):
-    """Reusable, updateable account card widget keyed by profile_id."""
+PROVIDER_LABELS = {
+    "antigravity": "Google Antigravity",
+    "openai-codex": "OpenAI Codex",
+    "opencode-go": "OpenCode Go",
+    "claude": "Claude",
+    "grok": "Grok",
+}
 
-    def __init__(
-        self,
-        parent: Any,
-        profile: ProfileViewModel,
-        quota_snapshot: Optional[Any] = None,
-        on_action: Optional[Callable] = None,
-        on_refresh: Optional[Callable] = None,
-        **kwargs,
-    ):
-        border_col = Theme.BORDER_ACCENT if profile.is_main_account else Theme.BORDER
-        super().__init__(parent, border_color=border_col, fg_color=Theme.SURFACE, **kwargs)
-        self.profile = profile
-        self.on_action = on_action
-        self.on_refresh = on_refresh
 
-        self._build()
-        self.update_from_model(profile, quota_snapshot)
+class ProviderGroup(ctk.CTkFrame):
+    """Collapsible provider section that retains its account cards while hidden."""
 
-    def _build(self):
-        # 1. Top row: icon + plan badge + main badge + status dot
-        self.top_row = ctk.CTkFrame(self, fg_color="transparent")
-        self.top_row.pack(fill="x", padx=14, pady=(12, 2))
-
-        self.p_icon_lbl = ctk.CTkLabel(self.top_row, text="")
-        self.p_icon_lbl.pack(side="left", padx=(0, 6))
-
-        self.plan_frame = ctk.CTkFrame(self.top_row, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
-        self.plan_frame.pack(side="left", padx=(0, 6))
-        self.plan_lbl = ctk.CTkLabel(self.plan_frame, text="", font=Theme.font_micro_bold())
-        self.plan_lbl.pack(padx=6, pady=2)
-
-        self.main_pill = ctk.CTkFrame(self.top_row, fg_color="#3D3522", corner_radius=Theme.RADIUS_SM)
-        self.main_lbl = ctk.CTkLabel(self.main_pill, text="★ MAIN", font=Theme.font_micro(), text_color=Theme.ACCENT)
-        self.main_lbl.pack(padx=5, pady=1)
-
-        self.status_dot = ctk.CTkLabel(self.top_row, text="●", font=("Segoe UI", 13, "bold"))
-        self.status_dot.pack(side="right")
-
-        # 2. Identity line
-        self.ident_lbl = ctk.CTkLabel(self, text="", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY)
-        self.ident_lbl.pack(anchor="w", padx=14, pady=(2, 2))
-
-        # 3. Subheader: display name + provider name
-        self.sub_lbl = ctk.CTkLabel(self, text="", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED)
-        self.sub_lbl.pack(anchor="w", padx=14, pady=(0, 4))
-
-        # 4. Quota Buckets Container
-        self.quota_box = ctk.CTkFrame(self, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
-        self.quota_box.pack(fill="x", padx=14, pady=4)
-
-        # 5. Freshness text
-        self.fresh_lbl = ctk.CTkLabel(self, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
-        self.fresh_lbl.pack(anchor="w", padx=14, pady=(2, 2))
-
-        # 6. Action buttons
-        self.btns = ctk.CTkFrame(self, fg_color="transparent")
-        self.btns.pack(fill="x", padx=14, pady=(4, 12))
-
-        self.refresh_btn = HubButton(
-            self.btns,
-            text="↻",
-            variant="secondary",
-            width=32,
-            height=Theme.HEIGHT_BTN_SM,
-            command=self._on_single_refresh,
+    def __init__(self, master: Any, provider: str):
+        super().__init__(master, fg_color="transparent")
+        self.provider = provider
+        self.collapsed = False
+        self.header = ctk.CTkFrame(self, fg_color=Theme.BG_HEADER, corner_radius=Theme.RADIUS_SM)
+        self.header.pack(fill="x", pady=(Theme.SPACE_SM, Theme.SPACE_XS))
+        self.toggle = ActionButton(
+            self.header,
+            text="▾",
+            variant="ghost",
+            width=34,
+            command=self.toggle_collapsed,
         )
-        self.refresh_btn.pack(side="left", padx=(0, 6))
-
-        self.test_btn = HubButton(
-            self.btns,
-            text="⚡ Тест",
-            variant="secondary",
-            width=65,
-            height=Theme.HEIGHT_BTN_SM,
-            command=lambda: self._trigger("test"),
+        self.toggle.pack(side="left", padx=(Theme.SPACE_SM, 0))
+        self.title = ctk.CTkLabel(
+            self.header,
+            text=PROVIDER_LABELS.get(provider, provider),
+            font=Theme.font_heading(),
+            text_color=Theme.TEXT_PRIMARY,
         )
-        self.test_btn.pack(side="left", padx=(0, 6))
+        self.title.pack(side="left", padx=Theme.SPACE_SM, pady=Theme.SPACE_SM)
+        self.count = ctk.CTkLabel(self.header, text="0", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED)
+        self.count.pack(side="right", padx=Theme.SPACE_MD)
+        self.body = ctk.CTkFrame(self, fg_color="transparent")
+        self.body.pack(fill="x")
+        for column in range(Theme.ACCOUNT_CARD_COLUMNS):
+            self.body.grid_columnconfigure(column, weight=1)
 
-        self.assign_btn = HubButton(
-            self.btns,
-            text="Назначить",
-            variant="secondary",
-            width=80,
-            height=Theme.HEIGHT_BTN_SM,
-            command=lambda: self._trigger("assign_role"),
-        )
-        self.assign_btn.pack(side="left", padx=(0, 6))
-
-    def _trigger(self, action: str):
-        if self.on_action:
-            self.on_action(action, self.profile)
-
-    def _on_single_refresh(self):
-        if self.on_refresh:
-            self.on_refresh(self.profile.provider, self.profile.profile_id)
-
-    def update_from_model(self, p: ProfileViewModel, quota_snap: Optional[Any] = None) -> None:
-        """Update existing card properties in-place without destroying widgets."""
-        self.profile = p
-
-        # Border color for main
-        if p.is_main_account:
-            self.configure(border_color=Theme.BORDER_ACCENT)
-            if not self.main_pill.winfo_ismapped():
-                self.main_pill.pack(side="left", padx=(0, 6))
+    def toggle_collapsed(self) -> None:
+        self.collapsed = not self.collapsed
+        self.toggle.configure(text="▸" if self.collapsed else "▾")
+        if self.collapsed:
+            self.body.pack_forget()
         else:
-            self.configure(border_color=Theme.BORDER)
-            if self.main_pill.winfo_ismapped():
-                self.main_pill.pack_forget()
-
-        # Provider icon
-        p_img = AssetManager.get().get_provider_image(p.provider, size=(20, 20))
-        if p_img:
-            self.p_icon_lbl.configure(image=p_img)
-
-        # Plan badge
-        plan_color = "#3b82f6" if p.plan_code in ("PRO", "PLUS", "MAX") else ("#10b981" if p.plan_code in ("ULTRA", "SUPERGROK", "TEAM") else Theme.TEXT_MUTED)
-        self.plan_lbl.configure(text=p.plan, text_color=plan_color)
-
-        # Status dot
-        dot_col = Theme.STATUS_HEALTHY if p.health_state == STATUS_HEALTHY else (
-            Theme.STATUS_WARNING if "quota" in p.health_state or "auth" in p.health_state else Theme.STATUS_ERROR
-        )
-        self.status_dot.configure(text_color=dot_col)
-
-        # Identity & Subheader
-        self.ident_lbl.configure(text=p.account_identity)
-        self.sub_lbl.configure(text=f"{p.display_name} • {p.provider_display_name}")
-
-        # Quota Buckets
-        snap = quota_snap or p.quota_snapshot or AccountQuotaService.get().get_snapshot(p.provider, p.profile_id)
-        for child in self.quota_box.winfo_children():
-            child.destroy()
-
-        is_estimated = getattr(snap, "is_estimated", True) if snap else True
-        if snap and getattr(snap, "buckets", None):
-            for b in snap.buckets[:4]:
-                brow = ctk.CTkFrame(self.quota_box, fg_color="transparent")
-                brow.pack(fill="x", padx=8, pady=2)
-                disp_name = f"{b.display_name} (оценка)" if is_estimated else b.display_name
-                ctk.CTkLabel(brow, text=disp_name, font=Theme.font_caption(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-
-                b_status_col = Theme.STATUS_HEALTHY if b.status == "healthy" else (Theme.STATUS_WARNING if b.status == "warning" else Theme.STATUS_ERROR)
-                reset_text = f" ({b.formatted_reset()})" if b.formatted_reset() else ""
-                rem_text = f"{b.formatted_remaining()}{reset_text}"
-                ctk.CTkLabel(brow, text=rem_text, font=Theme.font_micro(), text_color=b_status_col).pack(side="right")
-        else:
-            ctk.CTkLabel(self.quota_box, text="Квота: доступна (оценка)", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED).pack(padx=8, pady=4)
-
-        # Freshness label
-        fresh_lbl_text = snap.freshness_label() if (snap and hasattr(snap, "freshness_label")) else "Обновлено: недавно"
-        if is_estimated:
-            fresh_lbl_text += " • оценка"
-        self.fresh_lbl.configure(text=fresh_lbl_text)
+            self.body.pack(fill="x")
 
 
 class AccountsView(ctk.CTkFrame):
-    """Native Windows CustomTkinter view for multi-provider accounts with widget reuse."""
+    """Keyed accounts view; one account delta never reconstructs another card."""
 
-    def __init__(self, master: Any, app_state: Dict[str, Any], on_action: Optional[Callable] = None, **kwargs):
+    def __init__(
+        self, master: Any, app_state: Optional[Dict[str, Any]] = None, on_action: Optional[Callable] = None, **kwargs
+    ):
         super().__init__(master=master, fg_color="transparent", **kwargs)
-        self.app_state = app_state
         self.on_action = on_action
-        self._search_query = ""
-        self._filter_status = "Все статусы"
-        self._sort_by = "По умолчанию"
-
+        self._snapshot: Optional[HubSnapshot] = None
         self._cards: Dict[str, AccountCardWidget] = {}
-        self._empty_cards: Dict[str, HubCard] = {}
-        self._last_rendered_generation = 0
-
+        self._groups: Dict[str, ProviderGroup] = {}
+        self._search = ""
+        self._provider_filter = "Все провайдеры"
+        self._health_filter = "Все состояния"
+        self._role_filter = "Все роли"
+        self.cards_created = 0
+        self.cards_destroyed = 0
         self._build()
-        self._subscribe_events()
 
-    def _subscribe_events(self):
-        bus = EventBus.get()
-        bus.subscribe(EVENT_ACCOUNT_UPDATED, self._on_account_updated_event)
-        bus.subscribe(EVENT_QUOTA_UPDATED, self._on_quota_updated_event)
+    def _build(self) -> None:
+        header = SectionHeader(
+            self,
+            title="Аккаунты и квоты",
+            subtitle="Реальные идентичности, независимые лимитные корзины и резервные роли",
+            action_text="+ Добавить аккаунт",
+            action_cmd=lambda: self._emit("add_account", {}),
+        )
+        header.pack(fill="x", padx=Theme.PAGE_PAD_X, pady=(Theme.PAGE_PAD_Y, Theme.SPACE_SM))
 
-    def _on_account_updated_event(self, event_name: str, payload: Any):
-        if isinstance(payload, dict):
-            pid = payload.get("profile_id")
-            prof = payload.get("profile")
-            if pid and prof and pid in self._cards:
-                self.after(0, lambda: self._cards[pid].update_from_model(prof))
-
-    def _on_quota_updated_event(self, event_name: str, payload: Any):
-        if isinstance(payload, dict):
-            pid = payload.get("profile_id")
-            quota_snap = payload.get("quota_snapshot")
-            if pid and pid in self._cards:
-                p = self._cards[pid].profile
-                self.after(0, lambda: self._cards[pid].update_from_model(p, quota_snap))
-
-    def _build(self):
-        # 1. Header with Refresh All and Add Account buttons
-        header_row = ctk.CTkFrame(self, fg_color="transparent")
-        header_row.pack(fill="x", padx=20, pady=(16, 8))
-
-        titles_col = ctk.CTkFrame(header_row, fg_color="transparent")
-        titles_col.pack(side="left", fill="both", expand=True)
-
-        ctk.CTkLabel(
-            titles_col,
-            text="Управление аккаунтами",
-            font=Theme.font_title(),
-            text_color=Theme.TEXT_PRIMARY,
-            anchor="w",
-        ).pack(fill="x")
-
-        ctk.CTkLabel(
-            titles_col,
-            text="Подключение, мониторинг тарифов и раздельных квот провайдеров",
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_SECONDARY,
-            anchor="w",
-        ).pack(fill="x", pady=(2, 0))
-
-        actions_col = ctk.CTkFrame(header_row, fg_color="transparent")
-        actions_col.pack(side="right")
-
-        self.refresh_all_btn = HubButton(
-            actions_col,
-            text="↻ Обновить все",
+        toolbar = ctk.CTkFrame(self, fg_color="transparent")
+        toolbar.pack(fill="x", padx=Theme.PAGE_PAD_X, pady=(0, Theme.SPACE_SM))
+        self.search = SearchField(toolbar, placeholder_text="Поиск по аккаунту, модели или роли…", width=300)
+        self.search.pack(side="left", padx=(0, Theme.SPACE_SM))
+        self.search.bind("<KeyRelease>", lambda _event: self._set_search(self.search.get()))
+        self.provider_filter = FilterButton(
+            toolbar,
+            values=["Все провайдеры", *PROVIDER_LABELS.values()],
+            command=self._set_provider_filter,
+            width=170,
+        )
+        self.provider_filter.pack(side="left", padx=(0, Theme.SPACE_SM))
+        self.health_filter = FilterButton(
+            toolbar,
+            values=["Все состояния", "Работают", "Требуют входа", "Проблемные"],
+            command=self._set_health_filter,
+            width=150,
+        )
+        self.health_filter.pack(side="left", padx=(0, Theme.SPACE_SM))
+        self.role_filter = FilterButton(
+            toolbar,
+            values=["Все роли", "orchestrator", "coder", "reviewer", "researcher", "tester", "general", "spare"],
+            command=self._set_role_filter,
+            width=135,
+        )
+        self.role_filter.pack(side="left")
+        ActionButton(
+            toolbar,
+            text="Обновить все",
             variant="secondary",
-            height=Theme.HEIGHT_BTN_MD,
-            command=self._refresh_all_quotas,
-        )
-        self.refresh_all_btn.pack(side="left", padx=(0, 8))
+            command=lambda: self._emit("refresh_all", {}),
+        ).pack(side="right")
 
-        HubButton(
-            actions_col,
-            text="+ Добавить аккаунт",
-            variant="primary",
-            height=Theme.HEIGHT_BTN_MD,
-            command=lambda: self._trigger_action("add_account", {}),
-        ).pack(side="left")
-
-        # 2. Cockpit Toolbar
-        self.toolbar = HubToolbar(
-            self,
-            on_search=self._on_search,
-            on_filter=self._on_filter,
-            on_sort=self._on_sort,
-        )
-        self.toolbar.pack(fill="x", padx=20, pady=(0, 10))
-
-        # 3. Provider Tabs
-        self.tabview = ctk.CTkTabview(
-            self,
-            fg_color=Theme.BG_WINDOW,
-            segmented_button_fg_color=Theme.BG_SIDEBAR,
-            segmented_button_selected_color=Theme.SECONDARY,
-            segmented_button_selected_hover_color=Theme.SURFACE_HOVER,
-            segmented_button_unselected_color=Theme.BG_SIDEBAR,
-            segmented_button_unselected_hover_color=Theme.SURFACE_HOVER,
-            text_color=Theme.TEXT_PRIMARY,
-        )
-        self.tabview.pack(fill="both", expand=True, padx=15, pady=(0, 10))
-
-        provider_tabs = [
-            ("antigravity", "Google Antigravity"),
-            ("openai-codex", "OpenAI Codex"),
-            ("opencode-go", "OpenCode Go"),
-            ("claude", "Claude"),
-            ("grok", "Grok"),
-        ]
-
-        self.tab_scrolls: Dict[str, ctk.CTkScrollableFrame] = {}
-
-        for p_key, p_label in provider_tabs:
-            tab = self.tabview.add(p_label)
-            scroll = ctk.CTkScrollableFrame(tab, fg_color="transparent")
-            scroll.pack(fill="both", expand=True, padx=4, pady=4)
-            for c in range(3):
-                scroll.grid_columnconfigure(c, weight=1)
-            self.tab_scrolls[p_key] = scroll
-
-        self.update_data()
-
-    def _trigger_action(self, action: str, data: Any):
-        if self.on_action:
-            self.on_action(action, data)
-
-    def _refresh_all_quotas(self):
-        self.refresh_all_btn.configure(text="↻ Обновление...", state="disabled")
-        def _done():
-            def _ui():
-                self.refresh_all_btn.configure(text="↻ Обновить все", state="normal")
-                self.update_data()
-            self.after(0, _ui)
-        HermesRefreshScheduler.get().trigger_refresh_all(on_complete=_done)
-
-    def _refresh_single_account(self, provider: str, profile_id: str):
-        HermesRefreshScheduler.get().trigger_refresh_account(
-            provider, profile_id, on_complete=lambda: self.after(0, self.update_data)
+        self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
+        self.scroll.pack(fill="both", expand=True, padx=Theme.PAGE_PAD_X, pady=(0, Theme.PAGE_PAD_Y))
+        self.empty = EmptyState(
+            self.scroll,
+            title="Нет подходящих аккаунтов",
+            message="Измените фильтры или подключите новый аккаунт.",
+            action_text="Подключить аккаунт",
+            action_cmd=lambda: self._emit("add_account", {}),
         )
 
-    def _on_search(self, query: str):
-        self._search_query = query
-        self.update_data()
+    def _emit(self, action: str, profile: Any) -> None:
+        if not self.on_action:
+            return
+        if isinstance(profile, dict):
+            payload = profile
+        else:
+            payload = {
+                "profile_id": profile.profile_id,
+                "provider": profile.provider,
+                "display_name": profile.display_name,
+            }
+        self.on_action(action, payload)
 
-    def _on_filter(self, filter_val: str):
-        self._filter_status = filter_val
-        self.update_data()
+    def _set_search(self, value: str) -> None:
+        self._search = value.strip().lower()
+        self._render_visibility()
 
-    def _on_sort(self, sort_val: str):
-        self._sort_by = sort_val
-        self.update_data()
+    def _set_provider_filter(self, value: str) -> None:
+        self._provider_filter = value
+        self._render_visibility()
 
-    def update_data(self, snapshot: Optional[HubSnapshot] = None):
-        """Update views by reusing widgets and updating properties in place."""
+    def _set_health_filter(self, value: str) -> None:
+        self._health_filter = value
+        self._render_visibility()
+
+    def _set_role_filter(self, value: str) -> None:
+        self._role_filter = value
+        self._render_visibility()
+
+    def _matches(self, profile: Any) -> bool:
+        if self._provider_filter != "Все провайдеры":
+            if PROVIDER_LABELS.get(profile.provider, profile.provider) != self._provider_filter:
+                return False
+        if self._health_filter == "Работают" and profile.health_state != "healthy":
+            return False
+        if self._health_filter == "Требуют входа" and profile.auth_state not in {"AUTH_REQUIRED", "AUTH_EXPIRED"}:
+            return False
+        if self._health_filter == "Проблемные" and profile.health_state in {"healthy", "not_configured", "cold_spare"}:
+            return False
+        roles = list(getattr(profile, "assigned_roles", []) or [])
+        if self._role_filter != "Все роли" and not any(self._role_filter.lower() in role.lower() for role in roles):
+            return False
+        haystack = " ".join(
+            [
+                AccountCardWidget.resolve_identity(profile),
+                profile.display_name,
+                profile.provider_display_name,
+                *roles,
+                *(getattr(profile, "preferred_models", []) or []),
+            ]
+        ).lower()
+        return not self._search or self._search in haystack
+
+    def _profiles(self) -> Iterable[Any]:
+        if not self._snapshot:
+            return []
+        return (profile for profile in self._snapshot.all_profiles.values() if not profile.is_empty_slot)
+
+    def update_data(self, snapshot: Optional[HubSnapshot] = None) -> None:
         if not isinstance(snapshot, HubSnapshot):
-            # A non-snapshot (e.g. a legacy app_state dict) must fall back
-            # to the store rather than crash the view.
-            snapshot = HubStateStore.get().get_snapshot()
+            return
+        self._snapshot = snapshot
+        live_ids = {profile.profile_id for profile in self._profiles()}
+        for profile_id in list(self._cards):
+            if profile_id not in live_ids:
+                self._cards.pop(profile_id).destroy()
+                self.cards_destroyed += 1
 
-        self._last_rendered_generation = snapshot.generation
-        profiles_by_prov = snapshot.profiles_by_provider
+        for profile in self._profiles():
+            group = self._groups.get(profile.provider)
+            if group is None:
+                group = ProviderGroup(self.scroll, profile.provider)
+                self._groups[profile.provider] = group
+            card = self._cards.get(profile.profile_id)
+            if card is None:
+                card = AccountCardWidget(
+                    group.body,
+                    profile.profile_id,
+                    AccountCardWidget.resolve_identity(profile),
+                    profile.provider_display_name,
+                    on_action=self._emit,
+                )
+                self._cards[profile.profile_id] = card
+                self.cards_created += 1
+            card.update_account(profile, snapshot.quotas.get(profile.profile_id))
+        self._render_visibility()
 
-        for prov_key, scroll in self.tab_scrolls.items():
-            profiles = profiles_by_prov.get(prov_key, [])
+    def _render_visibility(self) -> None:
+        if not self._snapshot:
+            self.empty.pack(fill="x", pady=Theme.SPACE_XL)
+            return
+        grouped: Dict[str, list[Any]] = defaultdict(list)
+        for profile in self._profiles():
+            if self._matches(profile):
+                grouped[profile.provider].append(profile)
+        visible_total = 0
+        for provider, group in self._groups.items():
+            profiles = grouped.get(provider, [])
+            if not profiles:
+                group.pack_forget()
+                continue
+            group.pack(fill="x")
+            group.count.configure(text=f"{len(profiles)} аккаунт(а)")
+            for card in self._cards.values():
+                if card.profile_model and card.profile_model.provider == provider:
+                    card.grid_remove()
+            for index, profile in enumerate(profiles):
+                self._cards[profile.profile_id].grid(
+                    row=index // Theme.ACCOUNT_CARD_COLUMNS,
+                    column=index % Theme.ACCOUNT_CARD_COLUMNS,
+                    padx=Theme.SPACE_XS,
+                    pady=Theme.SPACE_XS,
+                    sticky="nsew",
+                )
+            visible_total += len(profiles)
+        if visible_total:
+            self.empty.pack_forget()
+        else:
+            self.empty.pack(fill="x", pady=Theme.SPACE_XL)
 
-            # Filter
-            filtered: List[ProfileViewModel] = []
-            for p in profiles:
-                if self._search_query:
-                    q = self._search_query.lower()
-                    matches = (
-                        q in p.account_identity.lower()
-                        or q in p.display_name.lower()
-                        or q in p.plan.lower()
-                        or any(q in m.lower() for m in p.preferred_models)
-                        or any(q in r.lower() for r in p.assigned_roles)
-                    )
-                    if not matches:
-                        continue
-
-                if self._filter_status == "Подключённые" and p.auth_state != "AUTHENTICATED":
-                    continue
-                elif self._filter_status == "Требуют входа" and p.auth_state == "AUTHENTICATED":
-                    continue
-                elif self._filter_status == "Квота исчерпана" and "quota" not in p.health_state:
-                    continue
-
-                filtered.append(p)
-
-            if self._sort_by == "По имени":
-                filtered.sort(key=lambda x: x.display_name)
-            elif self._sort_by == "По статусу":
-                filtered.sort(key=lambda x: x.health_state)
-
-            configured_profs = [p for p in filtered if not p.is_empty_slot]
-            empty_profs = [p for p in filtered if p.is_empty_slot]
-
-            # Reusable placement
-            grid_idx = 0
-            for p in configured_profs:
-                row_idx, col_idx = divmod(grid_idx, 3)
-                q_snap = snapshot.quotas.get(p.profile_id)
-
-                if p.profile_id in self._cards:
-                    card = self._cards[p.profile_id]
-                    card.update_from_model(p, q_snap)
-                else:
-                    card = AccountCardWidget(
-                        scroll,
-                        profile=p,
-                        quota_snapshot=q_snap,
-                        on_action=self._trigger_action,
-                        on_refresh=self._refresh_single_account,
-                    )
-                    self._cards[p.profile_id] = card
-
-                card.grid(row=row_idx, column=col_idx, padx=6, pady=6, sticky="nsew")
-                grid_idx += 1
-
-            # Empty slots summary card
-            if empty_profs:
-                c_row = (grid_idx // 3) + 1
-                slot_key = f"empty_{prov_key}"
-                if slot_key not in self._empty_cards:
-                    summary_card = HubCard(scroll, border_color=Theme.BORDER_SUBTLE, fg_color=Theme.SURFACE_MUTED)
-                    s_inner = ctk.CTkFrame(summary_card, fg_color="transparent")
-                    s_inner.pack(fill="x", padx=16, pady=12)
-
-                    lbl = ctk.CTkLabel(
-                        s_inner,
-                        text=f"Свободные слоты: {len(empty_profs)} слотов доступно",
-                        font=Theme.font_body_bold(),
-                        text_color=Theme.TEXT_SECONDARY,
-                    )
-                    lbl.pack(side="left")
-
-                    HubButton(
-                        s_inner,
-                        text="+ Подключить аккаунт",
-                        variant="primary",
-                        height=Theme.HEIGHT_BTN_SM,
-                        command=lambda k=prov_key: self._trigger_action("add_account", {"provider": k}),
-                    ).pack(side="right")
-
-                    self._empty_cards[slot_key] = summary_card
-                else:
-                    summary_card = self._empty_cards[slot_key]
-
-                summary_card.grid(row=c_row, column=0, columnspan=3, padx=6, pady=10, sticky="ew")
+    def render_stats(self) -> Dict[str, int]:
+        return {
+            "cards_created": self.cards_created,
+            "cards_destroyed": self.cards_destroyed,
+            "quota_widgets_created": sum(card.widgets_created for card in self._cards.values()),
+            "quota_widgets_destroyed": sum(card.widgets_destroyed for card in self._cards.values()),
+        }

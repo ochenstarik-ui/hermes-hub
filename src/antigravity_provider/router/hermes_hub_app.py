@@ -9,9 +9,11 @@ Features:
 - Real Provider Icon Marks (Google Antigravity, OpenAI Codex, OpenCode Go)
 - Non-blocking Background Workers & Graceful Shutdown Coordinator
 """
+
 from __future__ import annotations
 
 import ctypes
+import json
 import logging
 import os
 import sys
@@ -44,6 +46,7 @@ from antigravity_provider.router.router_config import load_router_config
 from antigravity_provider.router.profile_manager import ProfileAuthManager
 from antigravity_provider.router.auto_assigner import AutoAssigner
 from antigravity_provider.router.adapters import get_adapter
+from antigravity_provider import paths
 
 from antigravity_provider.router.ui.theme import Theme
 from antigravity_provider.router.ui.assets import AssetManager
@@ -58,6 +61,7 @@ from antigravity_provider.router.unified_health import (
 )
 
 from antigravity_provider.router.ui.views.team_view import TeamView
+from antigravity_provider.router.ui.views.dashboard_view import DashboardView
 from antigravity_provider.router.ui.views.accounts_view import AccountsView
 from antigravity_provider.router.ui.views.providers_view import ProvidersView
 from antigravity_provider.router.ui.views.routing_view import RoutingView
@@ -73,17 +77,22 @@ logger = logging.getLogger("hermes.hub.gui")
 #  Actions Layer (Safe & Non-blocking)
 # ═══════════════════════════════════════════════════════════════
 
+
 def do_set_main(provider: str, profile_id: str) -> Tuple[bool, str]:
     ok, msg = ProfileAuthManager.set_main_profile(provider, profile_id)
     if ok:
-        EventLogService.get().log("account", f"Профиль {profile_id} назначен основным аккаунтом Hermes ({provider}).", level="info")
+        EventLogService.get().log(
+            "account", f"Профиль {profile_id} назначен основным аккаунтом Hermes ({provider}).", level="info"
+        )
     return ok, msg
 
 
 def do_set_orchestrator(profile_id: str) -> Tuple[bool, str]:
     ok, msg = AutoAssigner.set_primary_orchestrator(profile_id)
     if ok:
-        EventLogService.get().log("routing", f"Профиль {profile_id} назначен главным оркестратором команды.", level="info")
+        EventLogService.get().log(
+            "routing", f"Профиль {profile_id} назначен главным оркестратором команды.", level="info"
+        )
     return ok, msg
 
 
@@ -102,11 +111,14 @@ def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
     model = pcfg.preferred_models[0] if pcfg.preferred_models else "default"
     t0 = time.time()
     try:
-        resp = adapter.invoke(pcfg, {
-            "model": model,
-            "messages": [{"role": "user", "content": f"Respond strictly with: TEST_OK_FOR_{profile_id}"}],
-            "temperature": 0.1,
-        })
+        resp = adapter.invoke(
+            pcfg,
+            {
+                "model": model,
+                "messages": [{"role": "user", "content": f"Respond strictly with: TEST_OK_FOR_{profile_id}"}],
+                "temperature": 0.1,
+            },
+        )
         el = round(time.time() - t0, 2)
         content = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
         EventLogService.get().log("system", f"Тест {profile_id} ({model}) успешно пройден за {el}s.", level="success")
@@ -128,9 +140,29 @@ def do_delete_credentials(provider: str, profile_id: str) -> Tuple[bool, str]:
     return True, "Учетные данные отсутствовали"
 
 
+def do_save_settings(settings: Dict[str, Any]) -> Tuple[bool, str]:
+    settings_file = paths.get_hermes_home() / "hub_settings.json"
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    existing: Dict[str, Any] = {}
+    if settings_file.exists():
+        try:
+            existing = json.loads(settings_file.read_text(encoding="utf-8"))
+        except Exception:
+            existing = {}
+    existing.update(settings)
+    temp_file = settings_file.with_suffix(".json.tmp")
+    temp_file.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(temp_file, settings_file)
+    from antigravity_provider.router.quota_collector import AccountQuotaService
+
+    AccountQuotaService.get().set_refresh_interval(int(settings.get("quota_refresh_interval_sec", 300)))
+    return True, "Настройки сохранены"
+
+
 # ═══════════════════════════════════════════════════════════════
 #  Main Application Window
 # ═══════════════════════════════════════════════════════════════
+
 
 class HermesHubApp(ctk.CTk):
     def __init__(self):
@@ -151,7 +183,7 @@ class HermesHubApp(ctk.CTk):
             except Exception:
                 pass
 
-        self._current_view = "team"
+        self._current_view = "overview"
         self._views: Dict[str, ctk.CTkFrame] = {}
         self._view_generations: Dict[str, int] = {}
         self._shutting_down = False
@@ -161,16 +193,18 @@ class HermesHubApp(ctk.CTk):
         self.bind("<Configure>", self._on_window_configure)
 
         self._build_layout()
-        self._show_view("team")
+        self._show_view("overview")
 
         try:
             from antigravity_provider.router.scheduler import HermesRefreshScheduler
+
             HermesRefreshScheduler.get().start()
         except Exception:
             pass
 
         try:
             from antigravity_provider.router.quota_collector import AccountQuotaService
+
             AccountQuotaService.get().start_background_scheduler()
         except Exception:
             pass
@@ -192,14 +226,19 @@ class HermesHubApp(ctk.CTk):
             logo_lbl = ctk.CTkLabel(brand_container, image=logo_img, text="")
             logo_lbl.pack(anchor="center", pady=(0, 6))
 
-        ctk.CTkLabel(brand_container, text="HERMES HUB", font=Theme.font_title_hero(), text_color=Theme.TEXT_ACCENT).pack(anchor="center")
-        ctk.CTkLabel(brand_container, text="Control Center", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED).pack(anchor="center")
+        ctk.CTkLabel(
+            brand_container, text="HERMES HUB", font=Theme.font_title_hero(), text_color=Theme.TEXT_ACCENT
+        ).pack(anchor="center")
+        ctk.CTkLabel(
+            brand_container, text="Control Center", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED
+        ).pack(anchor="center")
 
         # Divider
         ctk.CTkFrame(self.sidebar, height=1, fg_color=Theme.BORDER).pack(fill="x", padx=14, pady=(6, 12))
 
         # Nav Items with clean Fluent glyphs
         self._nav_items = [
+            ("overview", "Обзор", "⌂"),
             ("team", "Команда", "👥"),
             ("accounts", "Аккаунты", "🔍"),
             ("routing", "Маршрутизация", "🔀"),
@@ -267,20 +306,27 @@ class HermesHubApp(ctk.CTk):
 
     def _create_view(self, view_name: str) -> ctk.CTkFrame:
         """Create view widget instance."""
-        if view_name == "team":
+        if view_name == "overview":
+            return DashboardView(
+                self.content,
+                app_state={},
+                on_navigate=self._show_view,
+                on_action=self._handle_action,
+            )
+        elif view_name == "team":
             return TeamView(self.content, app_state={}, on_action=self._handle_action)
         elif view_name == "accounts":
             return AccountsView(self.content, app_state={}, on_action=self._handle_action)
         elif view_name == "providers":
             return ProvidersView(self.content, app_state={}, on_action=self._handle_action)
         elif view_name == "routing":
-            return RoutingView(self.content)
+            return RoutingView(self.content, on_action=self._handle_action)
         elif view_name == "health":
             return HealthView(self.content, app_state={}, on_refresh=self._refresh_data)
         elif view_name == "logs":
             return LogsView(self.content)
         elif view_name == "settings":
-            return SettingsView(self.content)
+            return SettingsView(self.content, on_action=self._handle_action)
         elif view_name == "about":
             return AboutView(self.content)
         else:
@@ -319,6 +365,7 @@ class HermesHubApp(ctk.CTk):
 
             # Lazy update if view state is behind current snapshot generation
             from antigravity_provider.router.state_store import HubStateStore
+
             snap = HubStateStore.get().get_snapshot()
             if self._view_generations.get(view_name, 0) < snap.generation:
                 if hasattr(target_view, "update_data"):
@@ -364,6 +411,7 @@ class HermesHubApp(ctk.CTk):
                 return
             try:
                 from antigravity_provider.router.state_store import HubStateStore
+
                 snap = HubStateStore.get().refresh(force_scan=True)
                 if not self._shutting_down:
                     self.after(0, lambda: self._on_data_loaded(snap))
@@ -381,6 +429,7 @@ class HermesHubApp(ctk.CTk):
             return
 
         from antigravity_provider.router.state_store import HubSnapshot, HubStateStore
+
         if isinstance(snapshot_or_readiness, HubSnapshot):
             snap = snapshot_or_readiness
             readiness = snap.readiness
@@ -392,7 +441,11 @@ class HermesHubApp(ctk.CTk):
             text=f"Аккаунты: {readiness.accounts_connected_count}/{readiness.total_accounts} | Роли: {readiness.roles_ready_count}/{readiness.total_roles} | Провайдеры: {readiness.providers_ready_count}/{readiness.total_providers} | Обновлено: {time.strftime('%H:%M:%S')}"
         )
 
-        r_color = Theme.STATUS_HEALTHY if readiness.state == "healthy" else (Theme.STATUS_WARNING if readiness.state in ("limited", "degraded") else Theme.STATUS_ERROR)
+        r_color = (
+            Theme.STATUS_HEALTHY
+            if readiness.state == "healthy"
+            else (Theme.STATUS_WARNING if readiness.state in ("limited", "degraded") else Theme.STATUS_ERROR)
+        )
         self.status_right.configure(text=f"● {readiness.title_ru}", text_color=r_color)
 
         # Update ONLY the currently visible view (others are updated lazily on tab switch)
@@ -448,10 +501,40 @@ class HermesHubApp(ctk.CTk):
             )
         elif action == "refresh_data":
             self._refresh_data()
+        elif action == "refresh_all":
+            from antigravity_provider.router.scheduler import HermesRefreshScheduler
+
+            HermesRefreshScheduler.get().trigger_refresh_all(on_complete=lambda: self.after(0, self._refresh_data))
+        elif action == "refresh_account":
+            from antigravity_provider.router.scheduler import HermesRefreshScheduler
+
+            HermesRefreshScheduler.get().trigger_refresh_account(
+                prov,
+                pid,
+                on_complete=lambda: self.after(0, self._refresh_data),
+            )
+        elif action == "edit_route":
+            self._show_toast("Редактор цепочки использует кнопки и селекторы; drag-and-drop отключён.")
+        elif action == "save_settings":
+            self._run_in_thread(
+                lambda: do_save_settings(data),
+                on_success=lambda result: self._show_toast(f"✅ {result[1]}"),
+            )
+        elif action == "check_updates":
+            from antigravity_provider.updater import UpdateManager
+
+            self._run_in_thread(
+                lambda: UpdateManager().check_for_updates(),
+                on_success=lambda result: self._show_toast(
+                    f"Доступна версия {result.manifest.version}"
+                    if result.update_available and result.manifest
+                    else (f"Ошибка: {result.error}" if result.error else "Установлена актуальная версия")
+                ),
+            )
 
     def _open_assign_role_modal(self, profile_id: str, display_name: str):
         modal = HubModal(self, title=f"Назначение роли: {display_name}", width=500, height=420)
-        
+
         ctk.CTkLabel(
             modal.body,
             text=f"Выберите роль в команде Hermes для профиля «{display_name}» ({profile_id}):",
@@ -540,6 +623,7 @@ class HermesHubApp(ctk.CTk):
         if self._shutting_down:
             return
         from antigravity_provider.router.state_store import HubStateStore
+
         readiness = HubStateStore.get().get_snapshot().readiness
         self.status_left.configure(
             text=f"Аккаунты: {readiness.accounts_connected_count}/{readiness.total_accounts} | Роли: {readiness.roles_ready_count}/{readiness.total_roles} | Провайдеры: {readiness.providers_ready_count}/{readiness.total_providers} | Обновлено: {time.strftime('%H:%M:%S')}"
@@ -550,11 +634,13 @@ class HermesHubApp(ctk.CTk):
         self._shutting_down = True
         try:
             from antigravity_provider.router.scheduler import HermesRefreshScheduler
+
             HermesRefreshScheduler.get().stop()
         except Exception:
             pass
         try:
             from antigravity_provider.router.quota_collector import AccountQuotaService
+
             AccountQuotaService.get().stop_background_scheduler()
         except Exception:
             pass
@@ -624,7 +710,9 @@ def launch_hub():
     if not check_single_instance():
         try:
             with open(log_file, "a", encoding="utf-8") as f:
-                f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Another instance is already running. Focused existing window and exiting.\n")
+                f.write(
+                    f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] Another instance is already running. Focused existing window and exiting.\n"
+                )
         except Exception:
             pass
         sys.exit(0)
@@ -635,6 +723,7 @@ def launch_hub():
     except Exception as exc:
         try:
             import traceback
+
             tb = traceback.format_exc()
             with open(log_file, "a", encoding="utf-8") as f:
                 f.write(f"[{time.strftime('%Y-%m-%d %H:%M:%S')}] FATAL CRASH:\n{tb}\n")

@@ -1,264 +1,93 @@
-"""Hermes Hub — Settings View (Интерактивные параметры, настройки и обновления)."""
+"""Presentation-only settings screen; persistence is delegated to the app action layer."""
+
 from __future__ import annotations
 
-import json
-import os
-import subprocess
-import threading
-from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
+
 import customtkinter as ctk
 
-from antigravity_provider import paths
-from antigravity_provider.version import __version__, CHANNEL
-from antigravity_provider.updater import UpdateManager, UpdateCheckResult
+from antigravity_provider.router.ui.components import ActionButton, HubCard, SectionHeader
 from antigravity_provider.router.ui.theme import Theme
-from antigravity_provider.router.ui.components import (
-    HubButton,
-    HubCard,
-    HubSectionHeader,
-)
+from antigravity_provider.version import CHANNEL, __version__
 
 
 class SettingsView(ctk.CTkFrame):
-    def __init__(self, master: Any, **kwargs):
+    def __init__(self, master: Any, on_action: Optional[Callable] = None, **kwargs):
         super().__init__(master=master, fg_color="transparent", **kwargs)
-        self.settings_file = paths.get_hermes_home() / "hub_settings.json"
-        self._load_settings()
-        self._build()
-
-    def _load_settings(self):
-        self.settings = {
-            "session_affinity": True,
-            "failover_attempts": "3",
-            "model_timeout_sec": "120",
-            "auto_assignment": True,
-            "auto_failover": True,
-            "auto_return_primary": True,
-            "auto_monitoring": True,
-            "monitoring_interval_min": "5",
-            "auto_check_updates": True,
-        }
-        if self.settings_file.exists():
-            try:
-                data = json.loads(self.settings_file.read_text(encoding="utf-8"))
-                self.settings.update(data)
-            except Exception:
-                pass
-
-    def _save_settings(self):
-        try:
-            if hasattr(self, "aff_sw"):
-                self.settings["session_affinity"] = bool(self.aff_sw.get())
-            if hasattr(self, "fo_sw"):
-                self.settings["auto_failover"] = bool(self.fo_sw.get())
-            if hasattr(self, "fo_menu"):
-                self.settings["failover_attempts"] = str(self.fo_menu.get())
-            if hasattr(self, "ret_sw"):
-                self.settings["auto_return_primary"] = bool(self.ret_sw.get())
-            if hasattr(self, "same_acc_sw"):
-                self.settings["prefer_same_account_model_fallback"] = bool(self.same_acc_sw.get())
-            if hasattr(self, "refr_menu"):
-                lbl = str(self.refr_menu.get())
-                self.settings["quota_refresh_interval_label"] = lbl
-                interval_sec_map = {
-                    "Выкл": 0,
-                    "1 мин": 60,
-                    "5 мин": 300,
-                    "10 мин": 600,
-                    "30 мин": 1800,
-                }
-                sec = interval_sec_map.get(lbl, 300)
-                self.settings["quota_refresh_interval_sec"] = sec
-                from antigravity_provider.router.quota_collector import AccountQuotaService
-                AccountQuotaService.get().set_refresh_interval(sec)
-
-            self.settings_file.parent.mkdir(parents=True, exist_ok=True)
-            self.settings_file.write_text(json.dumps(self.settings, indent=2), encoding="utf-8")
-        except Exception:
-            pass
-
-    def _build(self):
-        header = HubSectionHeader(
+        self.on_action = on_action
+        SectionHeader(
             self,
-            title="Настройки Hermes Hub",
-            subtitle="Конфигурация параметров маршрутизации, восстановления, мониторинга и обновлений",
-            action_text="💾 Сохранить",
-            action_cmd=self._save_settings,
-        )
-        header.pack(fill="x", padx=20, pady=(16, 12))
-
+            title="Настройки",
+            subtitle="Маршрутизация, мониторинг и обновления",
+            action_text="Сохранить",
+            action_cmd=self._save,
+        ).pack(fill="x", padx=Theme.PAGE_PAD_X, pady=(Theme.PAGE_PAD_Y, Theme.SPACE_SM))
         scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
-        scroll.pack(fill="both", expand=True, padx=15, pady=(0, 10))
-
-        # ── 1. Routing & Failover ──
-        c1 = HubCard(scroll, border_color=Theme.BORDER, fg_color=Theme.SURFACE)
-        c1.pack(fill="x", pady=6)
-        ctk.CTkLabel(c1, text="Маршрутизация и Отказоустойчивость", font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", padx=16, pady=(12, 6))
-
-        # Session Affinity switch
-        r1 = ctk.CTkFrame(c1, fg_color="transparent")
-        r1.pack(fill="x", padx=16, pady=4)
-        ctk.CTkLabel(r1, text="Сессионная привязка (Session Affinity)", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-        self.aff_sw = ctk.CTkSwitch(r1, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
-        self.aff_sw.pack(side="right")
-        if self.settings.get("session_affinity"):
-            self.aff_sw.select()
-
-        # Auto Failover switch
-        r2 = ctk.CTkFrame(c1, fg_color="transparent")
-        r2.pack(fill="x", padx=16, pady=4)
-        ctk.CTkLabel(r2, text="Автоматический Failover при исчерпании квот", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-        self.fo_sw = ctk.CTkSwitch(r2, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
-        self.fo_sw.pack(side="right")
-        if self.settings.get("auto_failover"):
-            self.fo_sw.select()
-
-        # Failover Attempts
-        r3 = ctk.CTkFrame(c1, fg_color="transparent")
-        r3.pack(fill="x", padx=16, pady=(4, 12))
-        ctk.CTkLabel(r3, text="Лимит попыток failover на запрос", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-        self.fo_menu = ctk.CTkOptionMenu(
-            r3,
-            values=["1", "2", "3", "4", "5"],
-            width=80,
-            height=28,
-            fg_color=Theme.SURFACE_MUTED,
-            button_color=Theme.ACCENT,
-            text_color=Theme.TEXT_PRIMARY,
+        scroll.pack(fill="both", expand=True, padx=Theme.PAGE_PAD_X, pady=(0, Theme.PAGE_PAD_Y))
+        routing = self._section(scroll, "Маршрутизация и отказоустойчивость")
+        self.affinity = self._switch(routing, "Сессионная привязка", True)
+        self.failover = self._switch(routing, "Автоматический failover", True)
+        self.same_account = self._switch(routing, "Сначала менять модель на том же аккаунте", True)
+        refresh = self._section(scroll, "Мониторинг")
+        row = ctk.CTkFrame(refresh, fg_color="transparent")
+        row.pack(fill="x", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_SM)
+        ctk.CTkLabel(row, text="Интервал обновления квот", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(
+            side="left"
         )
-        self.fo_menu.set(str(self.settings.get("failover_attempts", "3")))
-        self.fo_menu.pack(side="right")
-
-        # ── 2. Recovery & Monitoring ──
-        c2 = HubCard(scroll, border_color=Theme.BORDER, fg_color=Theme.SURFACE)
-        c2.pack(fill="x", pady=6)
-        ctk.CTkLabel(c2, text="Восстановление и Мониторинг", font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", padx=16, pady=(12, 6))
-
-        r4 = ctk.CTkFrame(c2, fg_color="transparent")
-        r4.pack(fill="x", padx=16, pady=4)
-        ctk.CTkLabel(r4, text="Возвращаться на основной аккаунт после сброса квоты", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-        self.ret_sw = ctk.CTkSwitch(r4, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
-        self.ret_sw.pack(side="right")
-        if self.settings.get("auto_return_primary"):
-            self.ret_sw.select()
-
-        # Same-account model fallback switch
-        r_same = ctk.CTkFrame(c2, fg_color="transparent")
-        r_same.pack(fill="x", padx=16, pady=4)
-        ctk.CTkLabel(r_same, text="Приоритет смены модели на том же аккаунте (Fallback внутри аккаунта)", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-        self.same_acc_sw = ctk.CTkSwitch(r_same, text="", fg_color=Theme.SURFACE_MUTED, progress_color=Theme.ACCENT)
-        self.same_acc_sw.pack(side="right")
-        if self.settings.get("prefer_same_account_model_fallback", True):
-            self.same_acc_sw.select()
-
-        # Quota background refresh interval
-        r_refr = ctk.CTkFrame(c2, fg_color="transparent")
-        r_refr.pack(fill="x", padx=16, pady=(4, 12))
-        ctk.CTkLabel(r_refr, text="Фоновое автообновление квот провайдеров", font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
-
-        self.refr_menu = ctk.CTkOptionMenu(
-            r_refr,
+        self.interval = ctk.CTkOptionMenu(
+            row,
             values=["Выкл", "1 мин", "5 мин", "10 мин", "30 мин"],
-            width=100,
-            height=28,
             fg_color=Theme.SURFACE_MUTED,
-            button_color=Theme.ACCENT,
-            text_color=Theme.TEXT_PRIMARY,
+            button_color=Theme.SECONDARY,
         )
-        self.refr_menu.set(str(self.settings.get("quota_refresh_interval_label", "5 мин")))
-        self.refr_menu.pack(side="right")
-
-        # ── 3. Updates & Release Channel ──
-        c_upd = HubCard(scroll, border_color=Theme.BORDER, fg_color=Theme.SURFACE)
-        c_upd.pack(fill="x", pady=6)
-        ctk.CTkLabel(c_upd, text="Обновления и Релизы", font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(anchor="w", padx=16, pady=(12, 6))
-
-        u_row = ctk.CTkFrame(c_upd, fg_color="transparent")
-        u_row.pack(fill="x", padx=16, pady=4)
-        ctk.CTkLabel(
-            u_row,
-            text=f"Текущая версия: v{__version__}  •  Канал: {CHANNEL.capitalize()}",
+        self.interval.set("5 мин")
+        self.interval.pack(side="right")
+        updates = self._section(scroll, "Обновления")
+        self.update_status = ctk.CTkLabel(
+            updates,
+            text=f"Версия {__version__} • канал {CHANNEL} • состояние обновления: Н/Д",
             font=Theme.font_body(),
-            text_color=Theme.TEXT_PRIMARY,
-        ).pack(side="left")
-
-        self.upd_status_lbl = ctk.CTkLabel(
-            c_upd,
-            text="Проверка обновлений не выполнялась",
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_MUTED,
+            text_color=Theme.TEXT_SECONDARY,
         )
-        self.upd_status_lbl.pack(anchor="w", padx=16, pady=(0, 8))
-
-        btns_upd = ctk.CTkFrame(c_upd, fg_color="transparent")
-        btns_upd.pack(fill="x", padx=16, pady=(0, 12))
-
-        self.check_upd_btn = HubButton(
-            btns_upd,
-            text="🔄 Проверить обновления",
+        self.update_status.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_SM)
+        ActionButton(
+            updates,
+            text="Проверить обновления",
             variant="secondary",
-            width=200,
-            height=Theme.HEIGHT_BTN_SM,
-            command=self._check_updates_click,
+            command=lambda: self.on_action and self.on_action("check_updates", {}),
+        ).pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(0, Theme.CARD_PAD_Y))
+
+    @staticmethod
+    def _section(master: Any, title: str) -> HubCard:
+        card = HubCard(master)
+        card.pack(fill="x", pady=Theme.SPACE_XS)
+        ctk.CTkLabel(card, text=title, font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY).pack(
+            anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.CARD_PAD_Y, Theme.SPACE_SM)
         )
-        self.check_upd_btn.pack(side="left")
+        return card
 
-        # ── 4. Advanced / Paths ──
-        c3 = HubCard(scroll, border_color=Theme.BORDER, fg_color=Theme.DARK)
-        c3.pack(fill="x", pady=6)
+    @staticmethod
+    def _switch(master: Any, label: str, selected: bool) -> ctk.CTkSwitch:
+        row = ctk.CTkFrame(master, fg_color="transparent")
+        row.pack(fill="x", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_XS)
+        ctk.CTkLabel(row, text=label, font=Theme.font_body(), text_color=Theme.TEXT_PRIMARY).pack(side="left")
+        switch = ctk.CTkSwitch(row, text="", progress_color=Theme.ACCENT)
+        switch.pack(side="right")
+        if selected:
+            switch.select()
+        return switch
 
-        ctk.CTkLabel(c3, text="Дополнительно (Инструменты и Пути)", font=Theme.font_heading(), text_color=Theme.TEXT_ACCENT).pack(anchor="w", padx=16, pady=(12, 6))
-
-        hermes_home = paths.get_hermes_home()
-
-        btns_row = ctk.CTkFrame(c3, fg_color="transparent")
-        btns_row.pack(fill="x", padx=16, pady=6)
-
-        HubButton(btns_row, text="📁 Открыть папку данных", variant="secondary", width=180, command=lambda: self._open_folder(hermes_home)).pack(side="left", padx=(0, 8))
-        HubButton(btns_row, text="📜 Открыть журнал логов", variant="secondary", width=180, command=lambda: self._open_folder(paths.get_logs_dir())).pack(side="left")
-
-        paths_info = [
-            ("Профили роутера:", str(paths.get_router_profiles_path())),
-            ("Состояние роутера:", str(paths.get_router_state_path())),
-            ("Файл логов:", str(paths.get_log_file())),
-        ]
-        for label, pstr in paths_info:
-            p_row = ctk.CTkFrame(c3, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
-            p_row.pack(fill="x", padx=16, pady=2)
-            ctk.CTkLabel(p_row, text=label, font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(side="left", padx=8, pady=4)
-            ctk.CTkLabel(p_row, text=pstr, font=Theme.font_mono_sm(), text_color=Theme.TEXT_MUTED).pack(side="right", padx=8)
-
-        ctk.CTkLabel(c3, text="", font=Theme.font_micro()).pack(pady=4)
-
-    def _check_updates_click(self):
-        self.upd_status_lbl.configure(text="Проверка наличия обновлений на GitHub...")
-        self.check_upd_btn.configure(state="disabled")
-
-        def _worker():
-            mgr = UpdateManager()
-            res = mgr.check_for_updates()
-            self.after(0, lambda: self._on_update_result(res))
-
-        threading.Thread(target=_worker, daemon=True).start()
-
-    def _on_update_result(self, res: UpdateCheckResult):
-        self.check_upd_btn.configure(state="normal")
-        if res.error:
-            self.upd_status_lbl.configure(text=f"Ошибка проверки: {res.error}", text_color=Theme.STATUS_WARNING)
-        elif res.update_available and res.manifest:
-            self.upd_status_lbl.configure(
-                text=f"★ Доступна новая версия Hermes Hub v{res.manifest.version}!",
-                text_color=Theme.STATUS_HEALTHY,
-            )
-        else:
-            self.upd_status_lbl.configure(text=f"✓ Установлена актуальная версия (v{__version__})", text_color=Theme.STATUS_HEALTHY)
-
-    def _open_folder(self, path: Path):
-        try:
-            if path.exists():
-                os.startfile(str(path))
-            elif path.parent.exists():
-                os.startfile(str(path.parent))
-        except Exception:
-            pass
+    def _save(self) -> None:
+        if not self.on_action:
+            return
+        intervals = {"Выкл": 0, "1 мин": 60, "5 мин": 300, "10 мин": 600, "30 мин": 1800}
+        self.on_action(
+            "save_settings",
+            {
+                "session_affinity": bool(self.affinity.get()),
+                "auto_failover": bool(self.failover.get()),
+                "prefer_same_account_model_fallback": bool(self.same_account.get()),
+                "quota_refresh_interval_label": self.interval.get(),
+                "quota_refresh_interval_sec": intervals.get(self.interval.get(), 300),
+            },
+        )
