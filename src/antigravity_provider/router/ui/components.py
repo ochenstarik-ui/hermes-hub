@@ -600,7 +600,25 @@ class _TextBadge(ctk.CTkFrame):
 
 
 class PlanBadge(_TextBadge):
-    """Provider plan badge. Unknown/empty plans should not instantiate it."""
+    """Provider plan badge that makes provider truth distinct from inference."""
+
+    TRUSTED_SOURCES = {"provider_api", "jwt_claim", "provider_auth"}
+
+    def set_plan(self, plan_code: str, plan_source: str) -> bool:
+        """Update the badge and return whether it should be visible."""
+        code = str(plan_code or "UNKNOWN").strip().upper()
+        source = str(plan_source or "unknown").strip().lower()
+        if code == "UNKNOWN" or source == "unknown":
+            return False
+        if source in self.TRUSTED_SOURCES:
+            self.set_text(f"Тариф {code}")
+            self.configure(border_color=Theme.BORDER_ACCENT, fg_color=Theme.SURFACE_MUTED)
+            self.label.configure(text_color=Theme.TEXT_ACCENT)
+        else:
+            self.set_text(f"Тариф {code} • выведено")
+            self.configure(border_color=Theme.BORDER_SUBTLE, fg_color=Theme.SURFACE_MUTED)
+            self.label.configure(text_color=Theme.TEXT_MUTED)
+        return True
 
 
 class QuotaBar(ctk.CTkFrame):
@@ -668,7 +686,15 @@ class QuotaBucketWidget(HubCard):
         self.bar = QuotaBar(self, label="Остаток")
         self.bar.pack(fill="x", padx=Theme.CARD_PAD_X)
         self.reset = ctk.CTkLabel(self, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
-        self.reset.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_XS, Theme.SPACE_SM))
+        self.reset.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_XS, 0))
+        self.unavailable_reason = ctk.CTkLabel(
+            self,
+            text="",
+            font=Theme.font_micro(),
+            text_color=Theme.COLOR_CAUTION,
+            wraplength=320,
+            justify="left",
+        )
         self.update_bucket(label, remaining_ratio, reset_text, is_estimated)
 
     def update_bucket(
@@ -678,11 +704,19 @@ class QuotaBucketWidget(HubCard):
         reset_text: str = "",
         is_estimated: bool = False,
         detail: Optional[str] = None,
+        unavailable_reason: Optional[str] = None,
     ) -> None:
         suffix = " • оценка" if is_estimated else ""
         self.title.configure(text=f"{label}{suffix}")
         self.bar.set_value(remaining_ratio, detail or ("Н/Д" if remaining_ratio is None else None))
         self.reset.configure(text=reset_text or "Сброс: Н/Д")
+        if unavailable_reason:
+            self.reset.pack_configure(pady=(Theme.SPACE_XS, 0))
+            self.unavailable_reason.configure(text=f"Недоступно: {unavailable_reason}")
+            self.unavailable_reason.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_XS, Theme.SPACE_SM))
+        else:
+            self.unavailable_reason.pack_forget()
+            self.reset.pack_configure(pady=(Theme.SPACE_XS, Theme.SPACE_SM))
 
 
 class SearchField(HubEntry):
@@ -764,13 +798,38 @@ class RouteTargetWidget(HubCard):
         self.title = ctk.CTkLabel(self, text=title, font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY)
         self.title.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_XS, 0))
         self.subtitle = ctk.CTkLabel(self, text=subtitle, font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
-        self.subtitle.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(0, Theme.SPACE_SM))
+        self.subtitle.pack(anchor="w", padx=Theme.CARD_PAD_X)
+        self.quota = ctk.CTkLabel(self, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
+        self.quota.pack(anchor="w", padx=Theme.CARD_PAD_X)
+        self.failover = ctk.CTkLabel(
+            self, text="", font=Theme.font_micro(), text_color=Theme.COLOR_CAUTION, wraplength=260, justify="left"
+        )
         self.update_target(rank, title, subtitle, status)
 
-    def update_target(self, rank: str, title: str, subtitle: str, status: str = "unknown") -> None:
+    def update_target(
+        self,
+        rank: str,
+        title: str,
+        subtitle: str,
+        status: str = "unknown",
+        quota_status: str = "unknown",
+        failover_reason: Optional[str] = None,
+    ) -> None:
         self.rank.configure(text=rank)
         self.title.configure(text=title)
         self.subtitle.configure(text=subtitle)
+        quota_labels = {
+            "healthy": "Квота: доступна",
+            "warning": "Квота: заканчивается",
+            "exhausted": "Квота: исчерпана",
+        }
+        self.quota.configure(text=quota_labels.get(quota_status, "Квота: Н/Д"))
+        if failover_reason:
+            self.failover.configure(text=f"Переключено: {failover_reason}")
+            self.failover.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_XS, Theme.SPACE_SM))
+        else:
+            self.failover.pack_forget()
+            self.quota.pack_configure(pady=(0, Theme.SPACE_SM))
         self.set_status(status)
 
     def set_status(self, status: str) -> None:
@@ -811,6 +870,7 @@ class AccountCardWidget(HubCard):
         self.identity.pack(anchor="w", padx=Theme.CARD_PAD_X)
         self.meta = ctk.CTkLabel(self, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
         self.meta.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_XS, 0))
+        self.plan_badge = PlanBadge(self, text="")
         self.status = StatusBadge(self, status)
         self.status.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_SM)
 
@@ -874,6 +934,17 @@ class AccountCardWidget(HubCard):
         self.provider.configure(text=profile.provider_display_name or profile.provider)
         roles = ", ".join(getattr(profile, "assigned_roles", []) or []) or "Роль: Н/Д"
         self.meta.configure(text=f"{profile.display_name} • {roles}")
+        if self.plan_badge.set_plan(
+            getattr(profile, "plan_code", "UNKNOWN"), getattr(profile, "plan_source", "unknown")
+        ):
+            self.plan_badge.pack(
+                anchor="w",
+                padx=Theme.CARD_PAD_X,
+                pady=(Theme.SPACE_SM, 0),
+                before=self.status,
+            )
+        else:
+            self.plan_badge.pack_forget()
         self.status.set_status(profile.health_state, getattr(profile, "health_label_ru", None))
         self.configure(border_color=Theme.BORDER_ACCENT if profile.is_main_account else Theme.BORDER)
 
@@ -904,6 +975,7 @@ class AccountCardWidget(HubCard):
                 reset or "Сброс: Н/Д",
                 estimated,
                 detail,
+                getattr(bucket, "unavailable_reason", None) or getattr(snapshot, "unavailable_reason", None),
             )
 
         for key in list(self._quota_widgets):

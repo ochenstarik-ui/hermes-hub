@@ -58,6 +58,15 @@ class DashboardView(ctk.CTkFrame):
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.scroll.pack(fill="both", expand=True, padx=Theme.PAGE_PAD_X, pady=(0, Theme.PAGE_PAD_Y))
 
+        self.snapshot_freshness = ctk.CTkLabel(
+            self.scroll,
+            text="Snapshot: Н/Д",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_MUTED,
+            anchor="w",
+        )
+        self.snapshot_freshness.pack(fill="x", pady=(0, Theme.SPACE_SM))
+
         metrics = ctk.CTkFrame(self.scroll, fg_color="transparent")
         metrics.pack(fill="x", pady=(0, Theme.SECTION_GAP))
         for column in range(4):
@@ -110,6 +119,16 @@ class DashboardView(ctk.CTkFrame):
     def update_data(self, snapshot: Optional[HubSnapshot] = None) -> None:
         if not isinstance(snapshot, HubSnapshot):
             return
+        if snapshot.is_stale:
+            self.snapshot_freshness.configure(
+                text=f"⚠ Snapshot #{snapshot.seq}: данные устарели",
+                text_color=Theme.STATUS_WARNING,
+            )
+        else:
+            self.snapshot_freshness.configure(
+                text=f"Snapshot #{snapshot.seq}: актуальные данные",
+                text_color=Theme.TEXT_MUTED,
+            )
         readiness = snapshot.readiness
         self.system_metric.val_label.configure(text=readiness.title_ru)
         self.system_metric.sub_label.configure(text=readiness.summary_ru)
@@ -130,7 +149,7 @@ class DashboardView(ctk.CTkFrame):
         route_rows = {}
         for role_id, pipeline in snapshot.routing.items():
             active = next((node for node in pipeline.nodes if node.is_active), None)
-            detail = f"{active.provider_display_name} • {active.model}" if active else "Активный узел: Н/Д"
+            detail = f"{active.provider} • {active.model}" if active else "Активный узел: Н/Д"
             route_rows[role_id] = (pipeline.role_name_ru, detail, "healthy" if active else "warning")
         self._sync_rows(self.routes_card, self._route_rows, route_rows)
 
