@@ -43,8 +43,8 @@ namespace HermesHub
                 script.AppendLine("sys.path.insert(0, r'" + agentDir.Replace('\\', '/') + "')");
             if (Directory.Exists(hubSrc))
                 script.AppendLine("sys.path.insert(0, r'" + hubSrc.Replace('\\', '/') + "')");
-            script.AppendLine("from antigravity_provider.router.hermes_hub_app import launch_hub");
-            script.AppendLine("launch_hub()");
+            script.AppendLine("from antigravity_provider.router.launcher_bootstrap import bootstrap_and_launch");
+            script.AppendLine("bootstrap_and_launch()");
 
             string entryScript = Path.Combine(hermesHome, "hermes_hub_entry.py");
             try

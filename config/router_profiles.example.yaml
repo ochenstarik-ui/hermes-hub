@@ -230,6 +230,62 @@ profiles:
     preferred_models: ["kimi-k2.7-code", "deepseek-v4-pro", "qwen3.8-max"]
     max_concurrency: 3
 
+  # Claude / Anthropic (3 accounts)
+  claude-orch:
+    profile_id: "claude-orch"
+    provider: "claude"
+    account_id: "claude-acc-1"
+    enabled: true
+    capabilities: ["orchestrator", "coding", "reasoning"]
+    preferred_models: ["claude-3-7-sonnet", "claude-3-5-haiku", "claude-sonnet-4-6"]
+    max_concurrency: 2
+
+  claude-worker-1:
+    profile_id: "claude-worker-1"
+    provider: "claude"
+    account_id: "claude-acc-2"
+    enabled: true
+    capabilities: ["coding", "coder-primary", "reasoning"]
+    preferred_models: ["claude-3-7-sonnet", "claude-3-5-haiku", "claude-sonnet-4-6"]
+    max_concurrency: 2
+
+  claude-worker-2:
+    profile_id: "claude-worker-2"
+    provider: "claude"
+    account_id: "claude-acc-3"
+    enabled: true
+    capabilities: ["coding", "coder-secondary", "reviewer", "review"]
+    preferred_models: ["claude-3-7-sonnet", "claude-3-5-haiku"]
+    max_concurrency: 2
+
+  # Grok / xAI (3 accounts)
+  grok-orch:
+    profile_id: "grok-orch"
+    provider: "grok"
+    account_id: "grok-acc-1"
+    enabled: true
+    capabilities: ["orchestrator", "coding", "reasoning"]
+    preferred_models: ["grok-3", "grok-3-mini", "grok-4.5"]
+    max_concurrency: 2
+
+  grok-worker-1:
+    profile_id: "grok-worker-1"
+    provider: "grok"
+    account_id: "grok-acc-2"
+    enabled: true
+    capabilities: ["coding", "coder-primary", "reasoning"]
+    preferred_models: ["grok-3", "grok-3-mini", "grok-4.5"]
+    max_concurrency: 2
+
+  grok-worker-2:
+    profile_id: "grok-worker-2"
+    provider: "grok"
+    account_id: "grok-acc-3"
+    enabled: true
+    capabilities: ["research", "reasoning", "fast"]
+    preferred_models: ["grok-3", "grok-3-mini"]
+    max_concurrency: 2
+
 # Optional: User Model Pricing Table (USD per 1M tokens)
 # Telemetry will compute call cost in USD only if a model price is defined below.
 pricing:

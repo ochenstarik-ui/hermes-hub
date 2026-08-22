@@ -234,16 +234,69 @@ def simulate_quota_cli(profile_id: str, model_family: Optional[str] = None, dura
 
 
 def print_diagnostics_cli() -> int:
-    """Print comprehensive diagnostic table for all profiles with provider, identity, auth, quota state and data source."""
+    """Print comprehensive diagnostic and readiness check for Hermes Hub."""
+    from antigravity_provider.version import __version__
     from antigravity_provider.router.unified_health import UnifiedHealthService
+    from antigravity_provider.router.launcher_bootstrap import check_missing_dependencies
+    from antigravity_provider import paths
+
+    print("=" * 115)
+    print(f"HERMES HUB — SYSTEM DIAGNOSTICS & DOCTOR (App v{__version__})")
+    print("=" * 115)
+
+    reasons: list[str] = []
+    has_fatal_error = False
+
+    # 1. Environment & Venv Dependencies Check
+    missing_deps = check_missing_dependencies()
+    if missing_deps:
+        print(f"[FAIL] Зависимости venv: отсутствуют {', '.join(missing_deps)}")
+        reasons.append(f"Отсутствуют зависимости: {', '.join(missing_deps)}")
+        has_fatal_error = True
+    else:
+        print("[PASS] Зависимости venv: все необходимые пакеты установлены (customtkinter, Pillow, psutil, pyyaml)")
+
+    # 2. Deployed Plugin Freshness Check
+    hermes_home = paths.get_hermes_home()
+    manifest_file = hermes_home / "plugins" / "antigravity-provider" / "deployment_manifest.json"
+    if manifest_file.is_file():
+        try:
+            m_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+            m_ver = m_data.get("version", "unknown")
+            m_date = m_data.get("deployed_at", "unknown")
+            m_commit = m_data.get("git_commit", "unknown")
+            if m_ver == __version__:
+                print(f"[PASS] Развёрнутый плагин: v{m_ver} (развёрнут {m_date}, commit {m_commit}) — актуален")
+            else:
+                print(f"[WARN] Развёрнутый плагин: v{m_ver} отличается от приложения v{__version__}")
+                reasons.append(f"Версия развёрнутого плагина ({m_ver}) не совпадает с приложением ({__version__})")
+        except Exception as e:
+            print(f"[WARN] Не удалось прочитать deployment_manifest.json: {e}")
+    else:
+        print(f"[INFO] Развёрнутый плагин: манифест не найден по пути {manifest_file} (запуск из репозитория/dev-режима)")
+
+    # 3. Router Profiles YAML Validity
+    config_file = paths.get_router_profiles_path()
+    try:
+        config = load_router_config()
+        p_count = len(config.profiles)
+        r_count = len(config.roles)
+        print(f"[PASS] Конфигурация {config_file.name}: валидна ({p_count} профилей, {r_count} ролей)")
+    except Exception as e:
+        print(f"[FAIL] Ошибка загрузки {config_file.name}: {e}")
+        reasons.append(f"Ошибка загрузки router_profiles.yaml: {e}")
+        has_fatal_error = True
+        config = None
+
+    # 4. Profile Diagnostic Matrix
+    print("\n" + "-" * 115)
+    print(f"{'PROFILE':<18} | {'PROVIDER':<15} | {'IDENTITY':<26} | {'AUTH':<14} | {'QUOTA STATE':<16} | {'DATA SOURCE'}")
+    print("-" * 115)
+
     uh_service = UnifiedHealthService.get()
     profiles_by_prov = uh_service.scan_all(force=True)
 
-    print("=" * 115)
-    print("HERMES HUB — DIAGNOSTIC & HEALTH MATRIX")
-    print("=" * 115)
-    print(f"{'PROFILE':<18} | {'PROVIDER':<15} | {'IDENTITY':<26} | {'AUTH':<14} | {'QUOTA STATE':<16} | {'DATA SOURCE'}")
-    print("-" * 115)
+    auth_profiles_by_prov: dict[str, list[Any]] = {}
 
     for prov, profs in sorted(profiles_by_prov.items()):
         for p in profs:
@@ -259,10 +312,71 @@ def print_diagnostics_cli() -> int:
             else:
                 quota_source = "unconfigured"
 
+            if p.auth_state == "AUTHENTICATED":
+                auth_profiles_by_prov.setdefault(p.provider, []).append(p)
+
             print(f"{p.profile_id:<18} | {p.provider:<15} | {ident:<26} | {p.auth_state:<14} | {quota_st:<16} | {quota_source}")
 
     print("-" * 115)
-    return 0
+
+    # 5. Live Test Invocations (1 profile per provider)
+    print("\n[Проверка тестовых вызовов провайдеров]:")
+    test_fails = 0
+    test_passes = 0
+
+    for prov, prof_list in sorted(auth_profiles_by_prov.items()):
+        target_p = prof_list[0]
+        pid = target_p.profile_id
+        pcfg = config.get_profile(pid) if config else None
+        if not pcfg:
+            continue
+
+        model = pcfg.preferred_models[0] if pcfg.preferred_models else "default"
+        adapter = get_adapter(pcfg.provider)
+        test_request = {
+            "model": model,
+            "messages": [{"role": "user", "content": f"Respond strictly with: TEST_OK_FOR_{pid}"}],
+            "temperature": 0.1,
+            "timeout": 15,
+        }
+
+        t0 = time.time()
+        try:
+            resp = adapter.invoke(pcfg, test_request)
+            dt = round(time.time() - t0, 2)
+            content = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
+            print(f"  [PASS] {prov:<15} ({pid} -> {model}): Успешно ({dt}s) [Ответ: {content[:30]}]")
+            test_passes += 1
+        except Exception as exc:
+            dt = round(time.time() - t0, 2)
+            print(f"  [FAIL] {prov:<15} ({pid} -> {model}): Ошибка ({dt}s): {exc}")
+            reasons.append(f"Тестовый вызов {prov} ({pid}) завершился ошибкой: {exc}")
+            test_fails += 1
+
+    for prov in ["antigravity", "openai-codex", "opencode-go", "claude", "grok"]:
+        if prov not in auth_profiles_by_prov:
+            print(f"  [SKIP] {prov:<15} Нет авторизованных профилей для тестирования")
+
+    # 6. Final Single-Line Verdict
+    print("\n" + "=" * 115)
+    if has_fatal_error:
+        verdict = f"[ВЕРДИКТ: НЕ ГОТОВ] Причины: {'; '.join(reasons)}"
+        ret = 2
+    elif test_fails > 0 or not auth_profiles_by_prov:
+        if not auth_profiles_by_prov:
+            reasons.append("Нет ни одного авторизованного профиля в системе")
+        verdict = f"[ВЕРДИКТ: ЧАСТИЧНО ГОТОВ] Причины: {'; '.join(reasons)}"
+        ret = 1
+    else:
+        if reasons:
+            verdict = f"[ВЕРДИКТ: ГОТОВ (с предупреждениями)] Замечания: {'; '.join(reasons)}"
+        else:
+            verdict = "[ВЕРДИКТ: ГОТОВ] Все компоненты, конфигурация и тестовые вызовы функционируют штатно."
+        ret = 0
+
+    print(verdict)
+    print("=" * 115)
+    return ret
 
 
 def clear_cooldown_cli(profile_id: Optional[str] = None) -> int:

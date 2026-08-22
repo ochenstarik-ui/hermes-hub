@@ -269,15 +269,30 @@ namespace HermesHubSetup
                     CopyDirectoryRecursive(assetsSrc, Path.Combine(HermesHome, "assets"));
                 }
 
-                // 4. Copy Plugin Source Files
+                // 4. Copy Plugin Source Files (Mirrored)
                 if (progressCallback != null) progressCallback("Deploying Hermes router and provider plugin...", 65);
                 string pluginDst = Path.Combine(HermesHome, @"plugins\antigravity-provider\src\antigravity_provider");
                 string pluginSrc = Path.Combine(sourceRoot, @"src\antigravity_provider");
 
                 if (Directory.Exists(pluginSrc))
                 {
-                    CopyDirectoryRecursive(pluginSrc, pluginDst);
+                    MirrorDirectoryRecursive(pluginSrc, pluginDst);
                 }
+
+                // 4b. Write Deployment Manifest for version freshness check
+                string pluginDir = Path.Combine(HermesHome, @"plugins\antigravity-provider");
+                string manifestFile = Path.Combine(pluginDir, "deployment_manifest.json");
+                try
+                {
+                    string manifestJson = string.Format(
+                        "{{\n  \"version\": \"{0}\",\n  \"deployed_at\": \"{1}\",\n  \"git_commit\": \"{2}\"\n}}",
+                        HUB_VERSION,
+                        DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                        "8cddc9f"
+                    );
+                    File.WriteAllText(manifestFile, manifestJson, Encoding.UTF8);
+                }
+                catch { }
 
                 // 5. Install Default Template Config if not exists
                 if (progressCallback != null) progressCallback("Configuring runtime profiles...", 80);
@@ -398,23 +413,56 @@ namespace HermesHubSetup
             }
         }
 
-        private static void CopyDirectoryRecursive(string src, string dst)
+        private static void MirrorDirectoryRecursive(string src, string dst)
         {
             if (!Directory.Exists(dst)) Directory.CreateDirectory(dst);
 
+            // Copy/overwrite files from source and track them
+            System.Collections.Generic.HashSet<string> srcFiles = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (string file in Directory.GetFiles(src))
             {
                 if (file.EndsWith(".pyc") || file.Contains("__pycache__")) continue;
-                string destFile = Path.Combine(dst, Path.GetFileName(file));
+                string fileName = Path.GetFileName(file);
+                srcFiles.Add(fileName);
+                string destFile = Path.Combine(dst, fileName);
                 File.Copy(file, destFile, true);
             }
 
+            // Remove destination files that do not exist in source or are .pyc
+            foreach (string destFile in Directory.GetFiles(dst))
+            {
+                string fileName = Path.GetFileName(destFile);
+                if (destFile.EndsWith(".pyc") || !srcFiles.Contains(fileName))
+                {
+                    try { File.Delete(destFile); } catch { }
+                }
+            }
+
+            // Copy subdirectories and track them
+            System.Collections.Generic.HashSet<string> srcDirs = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (string dir in Directory.GetDirectories(src))
             {
                 if (dir.Contains("__pycache__")) continue;
-                string destDir = Path.Combine(dst, Path.GetFileName(dir));
-                CopyDirectoryRecursive(dir, destDir);
+                string dirName = Path.GetFileName(dir);
+                srcDirs.Add(dirName);
+                string destDir = Path.Combine(dst, dirName);
+                MirrorDirectoryRecursive(dir, destDir);
             }
+
+            // Remove destination directories that do not exist in source or are __pycache__
+            foreach (string destDir in Directory.GetDirectories(dst))
+            {
+                string dirName = Path.GetFileName(destDir);
+                if (dirName.Equals("__pycache__", StringComparison.OrdinalIgnoreCase) || !srcDirs.Contains(dirName))
+                {
+                    try { Directory.Delete(destDir, true); } catch { }
+                }
+            }
+        }
+
+        private static void CopyDirectoryRecursive(string src, string dst)
+        {
+            MirrorDirectoryRecursive(src, dst);
         }
 
         private static void CreateStartMenuShortcut()

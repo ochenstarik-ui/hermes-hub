@@ -201,6 +201,56 @@ def get_default_router_config() -> RouterConfig:
             preferred_models=["deepseek-r1", "deepseek-v3", "qwen-2.5-coder-32b"],
             max_concurrency=5,
         ),
+        # 4. Claude Pool (3 accounts)
+        "claude-orch": RouterProfileConfig(
+            profile_id="claude-orch",
+            provider="claude",
+            account_id="claude-acc-1",
+            capabilities=["orchestrator", "coding", "reasoning"],
+            preferred_models=["claude-3-7-sonnet", "claude-3-5-haiku", "claude-sonnet-4-6"],
+            max_concurrency=2,
+        ),
+        "claude-worker-1": RouterProfileConfig(
+            profile_id="claude-worker-1",
+            provider="claude",
+            account_id="claude-acc-2",
+            capabilities=["coding", "coder-primary", "reasoning"],
+            preferred_models=["claude-3-7-sonnet", "claude-3-5-haiku", "claude-sonnet-4-6"],
+            max_concurrency=2,
+        ),
+        "claude-worker-2": RouterProfileConfig(
+            profile_id="claude-worker-2",
+            provider="claude",
+            account_id="claude-acc-3",
+            capabilities=["coding", "coder-secondary", "reviewer", "review"],
+            preferred_models=["claude-3-7-sonnet", "claude-3-5-haiku"],
+            max_concurrency=2,
+        ),
+        # 5. Grok Pool (3 accounts)
+        "grok-orch": RouterProfileConfig(
+            profile_id="grok-orch",
+            provider="grok",
+            account_id="grok-acc-1",
+            capabilities=["orchestrator", "coding", "reasoning"],
+            preferred_models=["grok-3", "grok-3-mini", "grok-4.5"],
+            max_concurrency=2,
+        ),
+        "grok-worker-1": RouterProfileConfig(
+            profile_id="grok-worker-1",
+            provider="grok",
+            account_id="grok-acc-2",
+            capabilities=["coding", "coder-primary", "reasoning"],
+            preferred_models=["grok-3", "grok-3-mini", "grok-4.5"],
+            max_concurrency=2,
+        ),
+        "grok-worker-2": RouterProfileConfig(
+            profile_id="grok-worker-2",
+            provider="grok",
+            account_id="grok-acc-3",
+            capabilities=["research", "reasoning", "fast"],
+            preferred_models=["grok-3", "grok-3-mini"],
+            max_concurrency=2,
+        ),
     }
 
     roles: dict[str, RolePolicy] = {

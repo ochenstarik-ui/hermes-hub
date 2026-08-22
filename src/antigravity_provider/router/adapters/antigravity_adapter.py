@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -60,6 +61,19 @@ class AntigravityAdapter(BaseProviderAdapter):
         profile_auth = ProfileAuthManager.load_profile_auth("antigravity", profile.profile_id)
 
         if profile_auth:
+            # Pre-flight check: verify token expiry before calling subprocess to prevent interactive browser login
+            tokens = profile_auth.get("tokens", {})
+            expiry = tokens.get("expiry_date") or profile_auth.get("expiry_date")
+            if expiry:
+                if expiry > 1e11:
+                    expiry = expiry / 1000.0
+                if time.time() > expiry:
+                    raise AuthExpiredError(
+                        "Авторизация истекла, требуется повторный вход.",
+                        provider="antigravity",
+                        profile_id=profile.profile_id,
+                    )
+
             with _AGY_INVOCATION_LOCK:
                 prev_cred = None
                 with _CM_LOCK:

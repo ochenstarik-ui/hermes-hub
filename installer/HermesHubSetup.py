@@ -125,6 +125,15 @@ def run_installation(silent: bool = False):
         if sf.exists():
             shutil.copy2(sf, hub_dest / f)
 
+    # 3b. Write Deployment Manifest
+    import datetime
+    manifest_data = {
+        "version": __version__,
+        "deployed_at": datetime.datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "git_commit": os.environ.get("HERMES_HUB_GIT_COMMIT", "8cddc9f"),
+    }
+    (hub_dest / "deployment_manifest.json").write_text(json.dumps(manifest_data, indent=2), encoding="utf-8")
+
     # 4. Create Windows Shortcuts
     print("\n[4/5] Создание ярлыков Windows с AppUserModelID (HermesHub.Desktop)...")
     try:
