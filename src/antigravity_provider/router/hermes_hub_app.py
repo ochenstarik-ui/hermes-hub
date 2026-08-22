@@ -42,7 +42,7 @@ for _p in [_PLUGIN_SRC, _AGENT_DIR, Path(__file__).resolve().parent.parent.paren
     if _p.exists() and _ps not in sys.path:
         sys.path.insert(0, _ps)
 
-from antigravity_provider.router.router_config import load_router_config
+from antigravity_provider.router.router_config import load_router_config, save_router_config
 from antigravity_provider.router.profile_manager import ProfileAuthManager
 from antigravity_provider.router.auto_assigner import AutoAssigner
 from antigravity_provider.router.adapters import get_adapter
@@ -61,7 +61,7 @@ from antigravity_provider.router.unified_health import (
     STATUS_HEALTHY,
 )
 
-from antigravity_provider.router.ui.views.team_view import TeamView
+from antigravity_provider.router.ui.views.team_view import TeamView, persist_role_chain
 from antigravity_provider.router.ui.views.dashboard_view import DashboardView
 from antigravity_provider.router.ui.views.accounts_view import AccountsView
 from antigravity_provider.router.ui.views.providers_view import ProvidersView
@@ -74,6 +74,24 @@ from antigravity_provider.router.ui.views.analytics_view import AnalyticsView
 from antigravity_provider.router.ui.views.quotas_view import QuotasView
 
 logger = logging.getLogger("hermes.hub.gui")
+
+AGENT_MODEL_OPTIONS = {
+    "antigravity": [
+        # User-facing logical IDs. The provider layer maps Gemini 3.1 Pro
+        # to the current low/high wire variants according to reasoning effort.
+        "gemini-3.1-pro",
+        "gemini-2.5-pro",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash-high",
+        "gemini-3.5-flash",
+        "claude-sonnet-4-6",
+        "claude-opus-4-6-thinking",
+    ],
+    "openai-codex": ["gpt-4o", "o3-mini", "codex"],
+    "opencode-go": ["qwen3.8-max", "kimi-k2.7-code", "deepseek-v3"],
+    "claude": ["claude-sonnet-4-6", "claude-3-7-sonnet", "claude-3-5-haiku"],
+    "grok": ["grok-3", "grok-3-mini", "grok-2"],
+}
 
 
 def _load_saved_theme() -> str:
@@ -109,7 +127,7 @@ def do_set_orchestrator(profile_id: str) -> Tuple[bool, str]:
 
 
 def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
-    """Strictly tests stored credentials WITHOUT triggering OAuth or opening browsers."""
+    """Check local profile readiness without inference, OAuth, or a browser."""
     config = load_router_config()
     pcfg = config.get_profile(profile_id)
     if not pcfg:
@@ -119,25 +137,36 @@ def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
     if not status.get("authenticated"):
         return {"success": False, "error": "Аккаунт не добавлен. Сначала выполните подключение."}
 
-    if status.get("expired"):
+    # Ключ называется is_expired; часть провайдеров сообщает о просрочке только
+    # через status == "EXPIRED". Проверяем все формы: зелёная галочка на
+    # протухшем аккаунте — это ложь пользователю, а не мелкая неточность.
+    if status.get("is_expired") or status.get("expired") or status.get("status") == "EXPIRED":
         return {"success": False, "error": "Авторизация истекла, требуется повторный вход."}
 
-    adapter = get_adapter(pcfg.provider)
     model = pcfg.preferred_models[0] if pcfg.preferred_models else "default"
     t0 = time.time()
     try:
-        resp = adapter.invoke(
-            pcfg,
-            {
-                "model": model,
-                "messages": [{"role": "user", "content": f"Respond strictly with: TEST_OK_FOR_{profile_id}"}],
-                "temperature": 0.1,
-            },
-        )
+        auth_data = ProfileAuthManager.load_profile_auth(pcfg.provider, profile_id)
+        if not auth_data:
+            return {"success": False, "error": "Сохранённые данные авторизации не найдены"}
+        adapter = get_adapter(pcfg.provider)
+        runtime_ready = adapter.health_check(pcfg)
         el = round(time.time() - t0, 2)
-        content = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-        EventLogService.get().log("system", f"Тест {profile_id} ({model}) успешно пройден за {el}s.", level="success")
-        return {"success": True, "model": model, "duration_sec": el, "response": content[:120]}
+        if not runtime_ready:
+            return {
+                "success": False,
+                "duration_sec": el,
+                "error": "Локальный runtime провайдера недоступен; повторная авторизация не запускалась",
+            }
+        EventLogService.get().log(
+            "system", f"Локальная проверка профиля {profile_id} ({model}) пройдена за {el}s.", level="success"
+        )
+        return {
+            "success": True,
+            "model": model,
+            "duration_sec": el,
+            "response": "Авторизация сохранена; runtime провайдера доступен",
+        }
     except Exception as e:
         EventLogService.get().log("system", f"Ошибка теста {profile_id} ({model}): {e}", level="error")
         return {"success": False, "model": model, "duration_sec": round(time.time() - t0, 2), "error": str(e)}
@@ -226,6 +255,18 @@ class HermesHubApp(ctk.CTk):
             pass
 
         self.after(50, self._refresh_data)
+        self.after(800, self._refresh_quotas_on_startup)
+
+    def _refresh_quotas_on_startup(self) -> None:
+        """Populate measured quota cards immediately instead of after the 5-minute scheduler tick."""
+        if self._shutting_down:
+            return
+        try:
+            from antigravity_provider.router.scheduler import HermesRefreshScheduler
+
+            HermesRefreshScheduler.get().trigger_refresh_all(on_complete=lambda: self.after(0, self._refresh_data))
+        except Exception as exc:
+            logger.warning("Initial quota refresh could not start: %s", exc)
 
     def _build_layout(self):
         # ── Sidebar (Left) ──
@@ -258,8 +299,8 @@ class HermesHubApp(ctk.CTk):
             ("team", "Команда", "team"),
             ("accounts", "Аккаунты", "accounts"),
             ("routing", "Маршрутизация", "routing"),
-            ("providers", "Провайдеры", "providers"),
-            ("quotas", "Квоты и лимиты", "quotas"),
+            ("providers", "Модели и провайдеры", "providers"),
+            ("quotas", "Сводка лимитов", "quotas"),
             ("analytics", "Аналитика", "analytics"),
             ("health", "Состояние", "health"),
             ("logs", "Журнал событий", "logs"),
@@ -341,6 +382,8 @@ class HermesHubApp(ctk.CTk):
             text_color=Theme.STATUS_HEALTHY,
         )
         self.status_left.pack(side="left", padx=Theme.SPACE_LG)
+        self.status_left.configure(cursor="hand2")
+        self.status_left.bind("<Button-1>", lambda _event: self._show_view("health"), add="+")
 
         self.global_search = ctk.CTkEntry(
             self.statusbar,
@@ -545,7 +588,7 @@ class HermesHubApp(ctk.CTk):
 
         freshness = "⚠ Данные устарели" if snap.is_stale else f"Snapshot #{snap.seq}"
         self.status_left.configure(
-            text=f"● {readiness.title_ru}",
+            text=f"● {readiness.title_ru}{' · Подробнее' if readiness.state != 'healthy' else ''}",
             text_color=Theme.STATUS_HEALTHY
             if readiness.state == "healthy"
             else Theme.STATUS_WARNING
@@ -590,28 +633,33 @@ class HermesHubApp(ctk.CTk):
         if action == "set_main":
             self._run_in_thread(
                 lambda: do_set_main(prov, pid),
-                on_success=lambda r: self._show_toast(f"✅ {r[1]}" if r[0] else f"❌ {r[1]}"),
+                on_success=lambda r: self._show_account_action_result(pid, r[1], r[0]),
             )
         elif action == "set_orchestrator":
             self._run_in_thread(
                 lambda: do_set_orchestrator(pid),
-                on_success=lambda r: self._show_toast(f"✅ {r[1]}" if r[0] else f"❌ {r[1]}"),
+                on_success=lambda r: self._show_account_action_result(pid, r[1], r[0]),
             )
         elif action == "test":
-            self._show_toast(f"⚡ Тестирование {data.get('display_name', pid)}...")
+            self._show_account_action_result(pid, f"Тестирование {data.get('display_name', pid)}…", None)
             self._run_in_thread(
                 lambda: do_test_profile(prov, pid),
-                on_success=self._show_test_result,
+                on_success=lambda result: self._show_test_result(result, pid),
             )
         elif action == "oauth" or action == "add_account":
             self._open_add_account_wizard()
         elif action == "delete_credentials":
             self._run_in_thread(
                 lambda: do_delete_credentials(prov, pid),
-                on_success=lambda r: self._show_toast(f"✅ {r[1]}" if r[0] else f"❌ {r[1]}"),
+                on_success=lambda r: self._show_account_action_result(pid, r[1], r[0]),
             )
         elif action == "assign_role":
             self._open_assign_role_modal(pid, data.get("display_name", pid))
+        elif action == "agent_settings":
+            self._open_agent_settings_modal(
+                data.get("role_id", ""),
+                pid,
+            )
         elif action == "auto_assign_all":
             self._show_toast("⚡ Автоматическое распределение ролей...")
             self._run_in_thread(
@@ -633,7 +681,13 @@ class HermesHubApp(ctk.CTk):
                 on_complete=lambda: self.after(0, self._refresh_data),
             )
         elif action == "edit_route":
-            self._show_toast("Редактор цепочки использует кнопки и селекторы; drag-and-drop отключён.")
+            role_id = data.get("role_id", "")
+            self._open_route_editor_modal(role_id)
+        elif action == "open_routing":
+            self._show_view("routing")
+            routing = self._views.get("routing")
+            if routing and hasattr(routing, "focus_role"):
+                routing.focus_role(data.get("role_id", ""))
         elif action == "save_settings":
 
             def _settings_saved(result: Tuple[bool, str]) -> None:
@@ -670,14 +724,19 @@ class HermesHubApp(ctk.CTk):
             justify="left",
         ).pack(anchor="w", pady=(0, 12))
 
-        role_var = ctk.StringVar(value="orchestrator")
+        config = load_router_config()
+        current_role = next(
+            (role_id for role_id, policy in config.roles.items() if profile_id in policy.preferred_chain),
+            "orchestrator",
+        )
+        role_var = ctk.StringVar(value=current_role)
         roles = [
             ("orchestrator", "👑 Главный оркестратор"),
-            ("coder", "💻 Кодер (Code Generation)"),
+            ("coder-primary", "💻 Основной кодер"),
+            ("coder-secondary", "💻 Резервный кодер"),
             ("reviewer", "🔍 Ревьюер (Code Review)"),
-            ("researcher", "🌐 Исследователь (Search / Docs)"),
-            ("tester", "🧪 Тестировщик (Deterministic Tests)"),
-            ("general", "⚡ Агент общего назначения (Subagent)"),
+            ("research", "🌐 Исследователь (Search / Docs)"),
+            ("fast", "⚡ Быстрый агент"),
             ("spare", "🛡️ Резерв (Spare)"),
         ]
 
@@ -693,15 +752,297 @@ class HermesHubApp(ctk.CTk):
                 hover_color=Theme.ACCENT_HOVER,
             ).pack(anchor="w", padx=8, pady=3)
 
+        primary_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            modal.body,
+            text="Сделать основным в выбранной цепочке",
+            variable=primary_var,
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_PRIMARY,
+            fg_color=Theme.ACCENT,
+            hover_color=Theme.ACCENT_HOVER,
+        ).pack(anchor="w", padx=8, pady=(12, 3))
+
+        result_label = ctk.CTkLabel(
+            modal.body,
+            text="",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_SECONDARY,
+            wraplength=440,
+            justify="left",
+            anchor="w",
+        )
+        result_label.pack(fill="x", padx=8, pady=(8, 0))
+        modal.result_label = result_label
+
         def _save():
             chosen = role_var.get()
-            ok, msg = AutoAssigner.assign_profile_to_role(profile_id, chosen, is_primary=(chosen != "spare"))
-            modal.destroy()
-            self._show_toast(f"✅ {msg}" if ok else f"❌ {msg}")
-            self._refresh_data()
+            ok, msg = AutoAssigner.assign_profile_to_role(
+                profile_id,
+                chosen,
+                is_primary=primary_var.get() and chosen != "spare",
+            )
+            result_label.configure(
+                text=f"{'✓' if ok else '✕'} {msg}",
+                text_color=Theme.STATUS_HEALTHY if ok else Theme.STATUS_ERROR,
+            )
+            self._show_account_action_result(profile_id, msg, ok)
+            if ok:
+                save_button.configure(text="Готово", command=modal.destroy)
+                self._refresh_data()
 
         HubButton(modal.footer, text="Отмена", variant="secondary", width=100, command=modal.destroy).pack(side="left")
-        HubButton(modal.footer, text="Применить роль", variant="primary", width=160, command=_save).pack(side="right")
+        save_button = HubButton(
+            modal.footer, text="Применить роль", variant="primary", width=160, command=_save
+        )
+        save_button.pack(side="right")
+        modal.save_button = save_button
+        return modal
+
+    def _open_route_editor_modal(self, role_id: str):
+        """Direct, visible editor for one ordered failover chain."""
+        config = load_router_config()
+        policy = config.roles.get(role_id)
+        if policy is None:
+            self._show_toast(f"❌ Роль '{role_id}' не найдена")
+            return None
+        modal = HubModal(self, title=f"Цепочка маршрутизации: {role_id}", width=620, height=520)
+        ctk.CTkLabel(
+            modal.body,
+            text="Первый профиль — основной. Ниже идут резервы в порядке переключения.",
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_SECONDARY,
+        ).pack(anchor="w", pady=(0, 10))
+        chain = list(policy.preferred_chain)
+        rows = ctk.CTkFrame(modal.body, fg_color="transparent")
+        rows.pack(fill="both", expand=True)
+        result = ctk.CTkLabel(modal.body, text="", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY)
+        result.pack(fill="x", pady=(6, 0))
+
+        def _render() -> None:
+            for child in rows.winfo_children():
+                child.destroy()
+            for index, pid in enumerate(chain):
+                pcfg = load_router_config().profiles.get(pid)
+                row = ctk.CTkFrame(rows, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
+                row.pack(fill="x", pady=3)
+                ctk.CTkLabel(
+                    row,
+                    text=f"{index + 1}.  {pid}",
+                    font=Theme.font_body_bold(),
+                    text_color=Theme.TEXT_PRIMARY,
+                ).pack(side="left", padx=10, pady=8)
+                ctk.CTkLabel(
+                    row,
+                    text=(pcfg.provider if pcfg else "профиль не найден"),
+                    font=Theme.font_caption(),
+                    text_color=Theme.TEXT_MUTED,
+                ).pack(side="left", padx=6)
+
+                def _move(delta: int, current: int = index) -> None:
+                    target = current + delta
+                    if 0 <= target < len(chain):
+                        chain[current], chain[target] = chain[target], chain[current]
+                        _render()
+
+                def _remove(current: int = index) -> None:
+                    chain.pop(current)
+                    _render()
+
+                HubButton(row, text="Удалить", variant="ghost", width=70, command=_remove).pack(
+                    side="right", padx=(2, 8), pady=5
+                )
+                HubButton(row, text="↓", variant="secondary", width=34, command=lambda i=index: _move(1, i)).pack(
+                    side="right", padx=2, pady=5
+                )
+                HubButton(row, text="↑", variant="secondary", width=34, command=lambda i=index: _move(-1, i)).pack(
+                    side="right", padx=2, pady=5
+                )
+
+        add_row = ctk.CTkFrame(modal.body, fg_color="transparent")
+        add_row.pack(fill="x", pady=(8, 0))
+        # Keep every profile in the selector so a just-removed item can be
+        # re-added immediately without closing and reopening the editor.
+        available = list(config.profiles)
+        add_var = ctk.StringVar(value=available[0] if available else "Нет доступных профилей")
+        add_menu = ctk.CTkOptionMenu(
+            add_row,
+            values=available or ["Нет доступных профилей"],
+            variable=add_var,
+            fg_color=Theme.SURFACE_MUTED,
+            button_color=Theme.ACCENT,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        add_menu.pack(side="left", fill="x", expand=True)
+
+        def _add() -> None:
+            pid = add_var.get()
+            if pid in config.profiles and pid not in chain:
+                chain.append(pid)
+                _render()
+
+        HubButton(add_row, text="+ Добавить в цепочку", variant="secondary", command=_add).pack(side="right", padx=(8, 0))
+
+        def _save_chain() -> None:
+            ok, message = persist_role_chain(role_id, chain)
+            result.configure(
+                text=f"{'✓' if ok else '✕'} {message}",
+                text_color=Theme.STATUS_HEALTHY if ok else Theme.STATUS_ERROR,
+            )
+            if ok:
+                save_button.configure(text="Готово", command=modal.destroy)
+                self._refresh_data()
+
+        _render()
+        HubButton(modal.footer, text="Отмена", variant="secondary", command=modal.destroy).pack(side="left")
+        save_button = HubButton(modal.footer, text="Сохранить цепочку", variant="primary", command=_save_chain)
+        save_button.pack(side="right")
+        return modal
+
+    def _open_agent_settings_modal(self, role_id: str, profile_id: str):
+        """Open practical role settings from a click anywhere on an agent card."""
+        from antigravity_provider.router.quota_collector import AccountQuotaService
+
+        config = load_router_config()
+        role = config.roles.get(role_id)
+        role_labels = {
+            "orchestrator": "Главный оркестратор",
+            "coder-primary": "Кодер 1",
+            "coder-secondary": "Кодер 2",
+            "reviewer": "Ревьюер",
+            "research": "Исследователь",
+            "fast": "Быстрый агент",
+        }
+        modal = HubModal(self, title=f"Настройки агента: {role_labels.get(role_id, role_id)}", width=560, height=540)
+        ctk.CTkLabel(
+            modal.body,
+            text="Аккаунт, модель и реальные лимиты агента",
+            font=Theme.font_heading(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(anchor="w", pady=(0, 12))
+
+        choices: dict[str, str] = {}
+        for pid, pcfg in config.profiles.items():
+            status = ProfileAuthManager.get_profile_status(pcfg.provider, pid)
+            if not status.get("authenticated"):
+                continue
+            identity = AccountQuotaService.get().get_identity(pcfg.provider, pid).primary_identifier()
+            label = f"{pid}  •  {identity}"
+            choices[label] = pid
+        if not choices:
+            ctk.CTkLabel(
+                modal.body,
+                text="Нет подключённых аккаунтов. Сначала добавьте аккаунт.",
+                text_color=Theme.STATUS_WARNING,
+            ).pack(anchor="w")
+            HubButton(modal.footer, text="Закрыть", variant="secondary", command=modal.destroy).pack(side="right")
+            return modal
+
+        selected_label = next((label for label, pid in choices.items() if pid == profile_id), next(iter(choices)))
+        account_var = ctk.StringVar(value=selected_label)
+        model_var = ctk.StringVar(value="")
+
+        ctk.CTkLabel(modal.body, text="Аккаунт", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(
+            anchor="w"
+        )
+        account_menu = ctk.CTkOptionMenu(
+            modal.body,
+            values=list(choices),
+            variable=account_var,
+            fg_color=Theme.SURFACE_MUTED,
+            button_color=Theme.ACCENT,
+            button_hover_color=Theme.ACCENT_HOVER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        account_menu.pack(fill="x", pady=(3, 10))
+
+        ctk.CTkLabel(modal.body, text="Модель агента", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY).pack(
+            anchor="w"
+        )
+        model_menu = ctk.CTkOptionMenu(
+            modal.body,
+            values=["default"],
+            variable=model_var,
+            fg_color=Theme.SURFACE_MUTED,
+            button_color=Theme.ACCENT,
+            button_hover_color=Theme.ACCENT_HOVER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        model_menu.pack(fill="x", pady=(3, 10))
+
+        quota_card = ctk.CTkFrame(modal.body, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_MD)
+        quota_card.pack(fill="both", expand=True, pady=(2, 10))
+        quota_title = ctk.CTkLabel(
+            quota_card, text="Реальные лимиты", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY
+        )
+        quota_title.pack(anchor="w", padx=12, pady=(10, 5))
+        quota_rows = ctk.CTkFrame(quota_card, fg_color="transparent")
+        quota_rows.pack(fill="both", expand=True, padx=12, pady=(0, 8))
+
+        def _refresh_account_panel(_choice: Optional[str] = None) -> None:
+            current_pid = choices[account_var.get()]
+            current_cfg = load_router_config().profiles[current_pid]
+            available = list(
+                dict.fromkeys(current_cfg.preferred_models + AGENT_MODEL_OPTIONS.get(current_cfg.provider, []))
+            )
+            if not available:
+                available = ["default"]
+            model_menu.configure(values=available)
+            current_model = role.default_model if role and role.default_model in available else available[0]
+            model_var.set(current_model)
+            for child in quota_rows.winfo_children():
+                child.destroy()
+            snapshot = AccountQuotaService.get().get_snapshot(current_cfg.provider, current_pid)
+            buckets = list(snapshot.buckets) if snapshot else []
+            quota_title.configure(text=f"Реальные лимиты • {current_cfg.provider}")
+            if not buckets:
+                ctk.CTkLabel(
+                    quota_rows, text="Лимиты пока не получены", text_color=Theme.TEXT_MUTED, font=Theme.font_caption()
+                ).pack(anchor="w", pady=5)
+            for bucket in buckets[:6]:
+                row = ctk.CTkFrame(quota_rows, fg_color="transparent")
+                row.pack(fill="x", pady=3)
+                ctk.CTkLabel(
+                    row, text=bucket.display_name, font=Theme.font_caption(), text_color=Theme.TEXT_PRIMARY
+                ).pack(side="left")
+                reset = bucket.formatted_reset() or "Сброс: Н/Д"
+                ctk.CTkLabel(
+                    row,
+                    text=f"{bucket.formatted_remaining()}  •  {reset}",
+                    font=Theme.font_caption(),
+                    text_color=Theme.STATUS_HEALTHY if bucket.status == "healthy" else Theme.STATUS_WARNING,
+                ).pack(side="right")
+
+        account_menu.configure(command=_refresh_account_panel)
+        _refresh_account_panel()
+        result = ctk.CTkLabel(modal.body, text="", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY)
+        result.pack(fill="x")
+
+        def _save_agent() -> None:
+            current_pid = choices[account_var.get()]
+            current_model = model_var.get()
+            updated = load_router_config()
+            profile = updated.profiles[current_pid]
+            profile.preferred_models = [current_model] + [m for m in profile.preferred_models if m != current_model]
+            updated.profiles[current_pid] = profile
+            if role_id in updated.roles:
+                updated.roles[role_id].default_model = current_model
+            if not save_router_config(updated):
+                result.configure(text="✕ Не удалось сохранить модель", text_color=Theme.STATUS_ERROR)
+                return
+            ok, message = AutoAssigner.assign_profile_to_role(current_pid, role_id, is_primary=True)
+            result.configure(
+                text=f"{'✓' if ok else '✕'} {message}",
+                text_color=Theme.STATUS_HEALTHY if ok else Theme.STATUS_ERROR,
+            )
+            if ok:
+                save_button.configure(text="Готово", command=modal.destroy)
+                self._refresh_data()
+
+        HubButton(modal.footer, text="Отмена", variant="secondary", command=modal.destroy).pack(side="left")
+        save_button = HubButton(modal.footer, text="Сохранить настройки", variant="primary", command=_save_agent)
+        save_button.pack(side="right")
+        return modal
 
     def _open_add_account_wizard(self):
         wizard = AddAccountWizard(self, on_complete=self._on_wizard_complete)
@@ -710,12 +1051,19 @@ class HermesHubApp(ctk.CTk):
         self._show_toast(f"✅ Аккаунт {result.get('identity')} успешно подключён")
         self._refresh_data()
 
-    def _show_test_result(self, result: Dict[str, Any]):
+    def _show_account_action_result(self, profile_id: str, message: str, success: Optional[bool]) -> None:
+        view = self._views.get("accounts")
+        if view and hasattr(view, "show_action_result"):
+            view.show_action_result(profile_id, message, success)
+        prefix = "✅" if success is True else "❌" if success is False else "⚡"
+        self._show_toast(f"{prefix} {message}")
+
+    def _show_test_result(self, result: Dict[str, Any], profile_id: str = ""):
         if result.get("success"):
-            msg = f"✓ Тест успешен | Модель: {result.get('model')} | Время: {result.get('duration_sec')}s"
+            msg = f"Профиль готов • модель: {result.get('model')} • время: {result.get('duration_sec')} с"
         else:
-            msg = f"✕ Ошибка теста: {result.get('error', 'Неизвестная ошибка')}"
-        self._show_toast(msg)
+            msg = f"Ошибка теста: {result.get('error', 'Неизвестная ошибка')}"
+        self._show_account_action_result(profile_id, msg, bool(result.get("success")))
 
     def _apply_theme(self, scheme: str) -> None:
         """Apply all palette tokens by rebuilding presentation widgets in place."""
@@ -768,7 +1116,7 @@ class HermesHubApp(ctk.CTk):
 
         readiness = HubStateStore.get().get_snapshot().readiness
         self.status_left.configure(
-            text=f"● {readiness.title_ru}",
+            text=f"● {readiness.title_ru}{' · Подробнее' if readiness.state != 'healthy' else ''}",
             text_color=Theme.STATUS_HEALTHY
             if readiness.state == "healthy"
             else Theme.STATUS_WARNING

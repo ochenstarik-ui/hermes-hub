@@ -125,6 +125,7 @@ def test_fifty_accounts_update_one_quota_without_rebuilding_other_cards(ui_root)
         ui_root.update_idletasks()
         before = view.render_stats()
         card_ids = {key: id(card) for key, card in view._cards.items()}
+        assert all(card.compact for card in view._cards.values())
 
         view.update_data(_snapshot(changed_remaining=42.0))
         ui_root.update_idletasks()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any, Callable, Dict, Optional
+import tkinter as tk
 
 import customtkinter as ctk
 
@@ -26,7 +27,7 @@ class RoutingRoleWidget(HubCard):
         self.meta.pack(side="left", padx=Theme.SPACE_SM)
         ActionButton(
             top,
-            text="Настроить",
+            text="Изменить цепочку →",
             variant="secondary",
             width=90,
             command=lambda: self.on_action and self.on_action("edit_route", {"role_id": self.pipeline.role_id}),
@@ -89,6 +90,19 @@ class RoutingView(ctk.CTkFrame):
         ).pack(fill="x", padx=Theme.PAGE_PAD_X, pady=(Theme.PAGE_PAD_Y, Theme.SPACE_SM))
         self.scroll = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.scroll.pack(fill="both", expand=True, padx=Theme.PAGE_PAD_X, pady=(0, Theme.PAGE_PAD_Y))
+
+    def focus_role(self, role_id: str) -> None:
+        """Focus the existing route editor/card selected in the graph inspector."""
+        widget = self._role_widgets.get(role_id)
+        if not widget:
+            return
+        for current in self._role_widgets.values():
+            current.configure(border_color=Theme.BORDER)
+        widget.configure(border_color=Theme.BORDER_ACCENT)
+        try:
+            self.scroll._parent_canvas.yview_moveto(max(0.0, widget.winfo_y() / max(1, self.scroll.winfo_height())))
+        except (AttributeError, tk.TclError):
+            pass
 
     def update_data(self, snapshot: Optional[HubSnapshot] = None) -> None:
         if not isinstance(snapshot, HubSnapshot):

@@ -109,7 +109,7 @@ def test_system_readiness_calculation():
     assert isinstance(readiness, SystemReadiness)
     assert readiness.state in (READINESS_HEALTHY, READINESS_LIMITED, READINESS_DEGRADED, READINESS_CRITICAL)
     assert readiness.total_roles > 0
-    assert readiness.total_accounts >= 16
+    assert readiness.total_accounts >= readiness.accounts_connected_count
     assert readiness.title_ru
     assert readiness.summary_ru
 

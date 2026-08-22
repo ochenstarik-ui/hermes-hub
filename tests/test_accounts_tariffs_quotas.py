@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import json
+import io
 import os
 import tempfile
 import time
+import urllib.error
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -187,13 +189,30 @@ def test_quota_snapshot_model_availability():
 
 def test_antigravity_separate_claude_and_gemini_buckets():
     service = AccountQuotaService()
-    snap = service._collect_antigravity_quota("ag-w1", {"tokens": {}})
+    response = MagicMock()
+    response.__enter__.return_value.read.return_value = json.dumps(
+        {
+            "models": {
+                "claude-sonnet-4-6": {
+                    "quotaInfo": {"remainingFraction": 0.42, "resetTime": "2026-08-23T00:00:00Z"}
+                },
+                "gemini-3.7-flash": {
+                    "quotaInfo": {"remainingFraction": 0.87, "resetTime": "2026-08-23T00:00:00Z"}
+                },
+            }
+        }
+    ).encode()
+    with patch("antigravity_provider.cloudcode.load_or_onboard_project", return_value="project-1"), patch(
+        "antigravity_provider.router.quota_collector.urllib.request.urlopen", return_value=response
+    ):
+        snap = service._collect_antigravity_quota(
+            "ag-w1", {"tokens": {"access_token": "access-token"}}
+        )
 
     bucket_ids = [b.id for b in snap.buckets]
-    assert "antigravity.claude.5h" in bucket_ids
-    assert "antigravity.claude.weekly" in bucket_ids
-    assert "antigravity.gemini.5h" in bucket_ids
-    assert "antigravity.gemini.weekly" in bucket_ids
+    assert "antigravity.claude.model_pool" in bucket_ids
+    assert "antigravity.gemini.model_pool" in bucket_ids
+    assert snap.source == "provider_api"
 
     # Claude bucket and Gemini bucket are independent
     b_c = snap.get_bucket_for_model("claude-3-7-sonnet")
@@ -201,6 +220,140 @@ def test_antigravity_separate_claude_and_gemini_buckets():
 
     assert b_c is not None and b_c.model_family == "claude"
     assert b_g is not None and b_g.model_family == "gemini"
+    assert b_c.remaining_percent == 42.0
+    assert b_g.remaining_percent == 87.0
+
+
+def test_antigravity_grouped_summary_includes_five_hour_and_weekly_buckets():
+    service = AccountQuotaService()
+    response = MagicMock()
+    response.__enter__.return_value.read.return_value = json.dumps(
+        {
+            "groups": [
+                {
+                    "displayName": "Gemini Models",
+                    "buckets": [
+                        {
+                            "bucketId": "gemini-weekly",
+                            "window": "weekly",
+                            "remainingFraction": 0.73,
+                            "resetTime": "2026-08-27T00:00:00Z",
+                        },
+                        {
+                            "bucketId": "gemini-5h",
+                            "window": "5h",
+                            "remainingFraction": 0.91,
+                            "resetTime": "2026-08-23T05:00:00Z",
+                        },
+                    ],
+                },
+                {
+                    "displayName": "Claude and GPT models",
+                    "buckets": [
+                        {
+                            "bucketId": "3p-weekly",
+                            "window": "weekly",
+                            "remainingFraction": 0.44,
+                            "resetTime": "2026-08-27T00:00:00Z",
+                        },
+                        {
+                            "bucketId": "3p-5h",
+                            "window": "5h",
+                            "remainingFraction": 0.82,
+                            "resetTime": "2026-08-23T05:00:00Z",
+                        },
+                    ],
+                },
+            ]
+        }
+    ).encode()
+
+    with patch(
+        "antigravity_provider.router.quota_collector.urllib.request.urlopen", return_value=response
+    ) as urlopen:
+        snapshot = service._collect_antigravity_quota(
+            "ag-w1", {"token": {"access_token": "access-token"}, "project_id": "project-1"}
+        )
+
+    assert urlopen.call_count == 1
+    assert [bucket.id for bucket in snapshot.buckets] == [
+        "antigravity.claude.5h",
+        "antigravity.gemini.5h",
+        "antigravity.claude.7d",
+        "antigravity.gemini.7d",
+    ]
+    assert [bucket.remaining_percent for bucket in snapshot.buckets] == [82.0, 91.0, 44.0, 73.0]
+    assert snapshot.get_bucket_for_model("gemini-3.1-pro").remaining_percent == 73.0
+    assert snapshot.get_bucket_for_model("claude-sonnet-4-6").remaining_percent == 44.0
+
+
+def test_antigravity_refreshes_expired_token_before_project_discovery():
+    service = AccountQuotaService()
+    response = MagicMock()
+    response.__enter__.return_value.read.return_value = json.dumps(
+        {
+            "models": {
+                "claude-sonnet-4-6": {
+                    "quotaInfo": {"remainingFraction": 0.64, "resetTime": "2026-08-23T00:00:00Z"}
+                },
+                "gemini-3.7-flash": {
+                    "quotaInfo": {"remainingFraction": 0.91, "resetTime": "2026-08-23T00:00:00Z"}
+                },
+            }
+        }
+    ).encode()
+    auth_data = {
+        "token": {
+            "access_token": "expired-token",
+            "refresh_token": "refresh-token",
+            "expires_at": "2026-08-22T00:00:00Z",
+        }
+    }
+
+    with patch(
+        "antigravity_provider.oauth.refresh_access_token",
+        return_value={"access_token": "fresh-token", "expires_at": "2026-08-23T00:00:00Z"},
+    ) as refresh, patch(
+        "antigravity_provider.cloudcode.load_or_onboard_project", return_value="project-1"
+    ) as discover, patch(
+        "antigravity_provider.router.quota_collector.ProfileAuthManager.save_profile_auth"
+    ) as save, patch(
+        "antigravity_provider.router.quota_collector.urllib.request.urlopen", return_value=response
+    ) as urlopen:
+        snapshot = service._collect_antigravity_quota("ag-w1", auth_data)
+
+    refresh.assert_called_once_with("refresh-token")
+    discover.assert_called_once_with("fresh-token")
+    assert "Bearer fresh-token" == urlopen.call_args.args[0].headers["Authorization"]
+    assert save.called
+    assert auth_data["project_id"] == "project-1"
+    assert snapshot.source == "provider_api"
+    assert snapshot.get_bucket_for_model("claude-sonnet-4-6").remaining_percent == 64.0
+
+
+def test_opencode_shows_published_limits_and_subscription_error():
+    service = AccountQuotaService()
+    models_response = MagicMock()
+    models_response.__enter__.return_value.read.return_value = b'{"data": []}'
+    entitlement_error = urllib.error.HTTPError(
+        "https://opencode.ai/zen/go/v1/usage",
+        403,
+        "Forbidden",
+        {},
+        io.BytesIO(b'{"message":"OpenCode Go subscription required"}'),
+    )
+
+    with patch(
+        "antigravity_provider.router.quota_collector.urllib.request.urlopen",
+        side_effect=[models_response, entitlement_error],
+    ):
+        snapshot = service._collect_opencode_quota("opengo-1", {"api_key": "test-key"})
+
+    assert snapshot.source == "provider_api"
+    assert snapshot.unavailable_reason == "Для этого ключа не активна подписка OpenCode Go"
+    assert [bucket.limit_absolute for bucket in snapshot.buckets] == [12, 30, 60]
+    assert [bucket.period for bucket in snapshot.buckets] == ["5h", "7d", "30d"]
+    assert all(bucket.remaining_percent is None for bucket in snapshot.buckets)
 
 
 def test_health_tracker_antigravity_claude_exhaustion_does_not_block_gemini(tmp_path):
@@ -216,6 +369,17 @@ def test_health_tracker_antigravity_claude_exhaustion_does_not_block_gemini(tmp_
 
     # Gemini should remain healthy!
     assert tracker.is_healthy("ag-w1", "gemini-2.5-pro") is True
+
+
+def test_live_measured_quota_clears_stale_exhaustion(tmp_path):
+    tracker = HealthTracker(state_file=tmp_path / "router_state.json")
+    tracker.mark_quota_exhausted("ag-w1", "gemini-3.1-pro", duration=3600, reason="old 429")
+    assert tracker.is_healthy("ag-w1", "gemini-3.1-pro") is False
+
+    changed = tracker.reconcile_measured_quota("ag-w1", {"gemini": 73.0, "claude": 44.0})
+
+    assert changed is True
+    assert tracker.is_healthy("ag-w1", "gemini-3.1-pro") is True
     assert tracker.is_healthy("ag-w1", "gemini-2.5-flash") is True
 
 

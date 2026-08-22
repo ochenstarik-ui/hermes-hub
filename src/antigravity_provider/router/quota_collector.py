@@ -15,6 +15,8 @@ import logging
 import os
 import threading
 import time
+import urllib.error
+import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
@@ -148,9 +150,30 @@ class AccountQuotaService:
         except Exception as e:
             logger.warning("Error fetching quota for %s/%s: %s", provider, profile_id, e)
             snap = self._generate_baseline_snapshot(provider, profile_id)
+            status = getattr(e, "status", None)
+            if status == 401 or "401" in str(e) or "unauthenticated" in str(e).lower():
+                snap.unavailable_reason = "Авторизация истекла — обновите подключение"
+            else:
+                snap.unavailable_reason = "Провайдер не вернул данные лимитов"
 
         with self._cache_lock:
             self._snapshots[key] = snap
+
+        if snap.source == "provider_api":
+            measured_by_family: dict[str, float] = {}
+            for bucket in snap.buckets:
+                family = bucket.model_family
+                remaining = bucket.remaining_percent
+                if not family or remaining is None:
+                    continue
+                measured_by_family[family] = min(measured_by_family.get(family, 100.0), float(remaining))
+            if measured_by_family:
+                try:
+                    from .router_engine import get_router_engine
+
+                    get_router_engine().health.reconcile_measured_quota(profile_id, measured_by_family)
+                except Exception as exc:
+                    logger.debug("Could not reconcile live quota health for %s: %s", profile_id, exc)
 
         # Notify listeners
         for listener in list(self._listeners):
@@ -164,17 +187,14 @@ class AccountQuotaService:
     def fetch_all_configured(self, force: bool = False) -> Dict[str, QuotaSnapshot]:
         """Fetch quota for all configured profiles across all providers."""
         results: Dict[str, QuotaSnapshot] = {}
-        providers = ["antigravity", "openai-codex", "opencode-go", "claude", "grok"]
+        from antigravity_provider.router.router_config import load_router_config
 
-        for prov in providers:
-            # Check slots
-            from antigravity_provider.router.auto_assigner import AutoAssigner
-            slots = AutoAssigner.PRESET_SLOTS.get(prov, [])
-            for slot_id in slots:
-                auth = ProfileAuthManager.load_profile_auth(prov, slot_id)
-                if auth:
-                    snap = self.fetch_account_quota(prov, slot_id, force=force)
-                    results[f"{prov}:{slot_id}"] = snap
+        for profile_id, profile in load_router_config().profiles.items():
+            auth = ProfileAuthManager.load_profile_auth(profile.provider, profile_id)
+            if not auth:
+                continue
+            snap = self.fetch_account_quota(profile.provider, profile_id, force=force)
+            results[f"{profile.provider}:{profile_id}"] = snap
         return results
 
     # ─────────────────────────────────────────────────────────────
@@ -313,60 +333,171 @@ class AccountQuotaService:
     # ─────────────────────────────────────────────────────────────
 
     def _collect_antigravity_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
-        """Collect separate Claude (5h, Weekly) and Gemini (5h, Weekly) quota pools for Google Antigravity."""
-        now = _utc_now()
-        claude_reset_5h = now + timedelta(hours=5)
-        gemini_reset_5h = now + timedelta(hours=5)
-        weekly_reset = now + timedelta(days=7)
+        """Read measured per-model capacity from the official Cloud Code endpoint.
 
-        # Build separate capacity buckets
-        b_claude_5h = QuotaBucket(
-            id="antigravity.claude.5h",
-            display_name="Claude 5h",
-            model_family="claude",
-            used_percent=None,
-            remaining_percent=None,
-            period="5h",
-            reset_at=claude_reset_5h,
-            status="unknown",
-        )
-        b_claude_weekly = QuotaBucket(
-            id="antigravity.claude.weekly",
-            display_name="Claude Weekly",
-            model_family="claude",
-            used_percent=None,
-            remaining_percent=None,
-            period="7d",
-            reset_at=weekly_reset,
-            status="unknown",
-        )
-        b_gemini_5h = QuotaBucket(
-            id="antigravity.gemini.5h",
-            display_name="Gemini 5h",
-            model_family="gemini",
-            used_percent=None,
-            remaining_percent=None,
-            period="5h",
-            reset_at=gemini_reset_5h,
-            status="unknown",
-        )
-        b_gemini_weekly = QuotaBucket(
-            id="antigravity.gemini.weekly",
-            display_name="Gemini Weekly",
-            model_family="gemini",
-            used_percent=None,
-            remaining_percent=None,
-            period="7d",
-            reset_at=weekly_reset,
-            status="unknown",
-        )
+        The endpoint exposes one live capacity pool per model, not artificial
+        ``5h``/``weekly`` pairs.  We therefore show the minimum remaining value
+        in each model family.  This keeps the compact card useful while never
+        presenting an invented period or percentage.
+        """
+        from antigravity_provider.cloudcode import antigravity_user_agent, load_or_onboard_project
+        from antigravity_provider.oauth import refresh_access_token
+
+        now = _utc_now()
+        token_data = auth_data.get("token") or auth_data.get("tokens") or auth_data
+        if not isinstance(token_data, dict):
+            raise RuntimeError("В профиле Antigravity отсутствует структура OAuth-токена")
+        access_token = token_data.get("access_token") or token_data.get("access")
+        if not access_token:
+            raise RuntimeError("В профиле Antigravity отсутствует access token")
+
+        refresh_token = token_data.get("refresh_token") or token_data.get("refresh")
+
+        def _refresh_and_save() -> str:
+            if not refresh_token:
+                raise RuntimeError("OAuth-сессия истекла, refresh token отсутствует")
+            refreshed = refresh_access_token(str(refresh_token))
+            token_data.update(refreshed)
+            auth_data["token"] = token_data
+            ProfileAuthManager.save_profile_auth("antigravity", profile_id, auth_data)
+            return str(refreshed["access_token"])
+
+        expiry = _parse_datetime(token_data.get("expires_at") or token_data.get("expiry"))
+        if expiry and expiry <= now + timedelta(seconds=60):
+            access_token = _refresh_and_save()
+
+        project_id = auth_data.get("project_id") or auth_data.get("projectId")
+        if not project_id:
+            try:
+                project_id = load_or_onboard_project(str(access_token))
+            except Exception as exc:
+                if (getattr(exc, "status", None) != 401 and "401" not in str(exc)) or not refresh_token:
+                    raise
+                access_token = _refresh_and_save()
+                project_id = load_or_onboard_project(str(access_token))
+            auth_data["project_id"] = project_id
+            ProfileAuthManager.save_profile_auth("antigravity", profile_id, auth_data)
+
+        def _fetch(token: str, operation: str) -> dict[str, Any]:
+            request = urllib.request.Request(
+                f"https://daily-cloudcode-pa.googleapis.com/v1internal:{operation}",
+                data=json.dumps({"project": project_id}).encode("utf-8"),
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                    "User-Agent": antigravity_user_agent(),
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.loads(response.read().decode("utf-8") or "{}")
+
+        def _fetch_with_refresh(operation: str) -> dict[str, Any]:
+            nonlocal access_token
+            try:
+                return _fetch(str(access_token), operation)
+            except urllib.error.HTTPError as exc:
+                if exc.code != 401 or not refresh_token:
+                    raise
+                access_token = _refresh_and_save()
+                return _fetch(access_token, operation)
+
+        # This is the endpoint used by the Antigravity usage screen. It
+        # exposes the four semantic buckets: Gemini and Claude/GPT, each with
+        # a five-hour and weekly window. Treat it as best-effort so older
+        # accounts can still fall back to per-model capacity below.
+        try:
+            summary_payload = _fetch_with_refresh("retrieveUserQuotaSummary")
+        except Exception as exc:
+            logger.info("Grouped Antigravity quota unavailable for %s: %s", profile_id, exc)
+            summary_payload = {}
+
+        summary_groups = summary_payload.get("groups") if isinstance(summary_payload, dict) else None
+        grouped: dict[tuple[str, str], QuotaBucket] = {}
+        if isinstance(summary_groups, list):
+            for group in summary_groups:
+                if not isinstance(group, dict):
+                    continue
+                group_name = str(group.get("displayName") or group.get("description") or "").lower()
+                family = "gemini" if "gemini" in group_name else "claude" if "claude" in group_name else None
+                family_label = "Gemini" if family == "gemini" else "Claude/GPT"
+                if family is None:
+                    continue
+                for bucket_data in group.get("buckets") or []:
+                    if not isinstance(bucket_data, dict):
+                        continue
+                    remaining_fraction = bucket_data.get("remainingFraction")
+                    window_raw = str(bucket_data.get("window") or "").lower()
+                    window = "7d" if "week" in window_raw or window_raw == "7d" else "5h" if "5" in window_raw else ""
+                    if not isinstance(remaining_fraction, (int, float)) or not window:
+                        continue
+                    window_label = "неделя" if window == "7d" else "5 часов"
+                    grouped[(family, window)] = QuotaBucket(
+                        id=f"antigravity.{family}.{window}",
+                        display_name=f"{family_label} • {window_label}",
+                        model_family=family,
+                        remaining_percent=max(0.0, min(100.0, float(remaining_fraction) * 100.0)),
+                        reset_at=_parse_datetime(bucket_data.get("resetTime")),
+                        period=window,
+                        unit="model capacity",
+                        scope="model_family",
+                    )
+        ordered_keys = (("claude", "5h"), ("gemini", "5h"), ("claude", "7d"), ("gemini", "7d"))
+        if all(key in grouped for key in ordered_keys):
+            return QuotaSnapshot(
+                account_id=profile_id,
+                provider="antigravity",
+                buckets=[grouped[key] for key in ordered_keys],
+                fetched_at=now,
+                source="provider_api",
+            )
+
+        payload = _fetch_with_refresh("fetchAvailableModels")
+
+        models = payload.get("models") or {}
+        if not isinstance(models, dict):
+            raise RuntimeError("Cloud Code вернул некорректный список моделей")
+
+        family_values: dict[str, list[tuple[float, Optional[datetime]]]] = {"claude": [], "gemini": []}
+        for model_id, model_data in models.items():
+            if not isinstance(model_data, dict):
+                continue
+            lowered = str(model_id).lower()
+            family = "claude" if "claude" in lowered else ("gemini" if "gemini" in lowered else None)
+            quota_info = model_data.get("quotaInfo") or {}
+            remaining_fraction = quota_info.get("remainingFraction") if isinstance(quota_info, dict) else None
+            if family is None or not isinstance(remaining_fraction, (int, float)):
+                continue
+            reset_at = _parse_datetime(quota_info.get("resetTime"))
+            family_values[family].append((max(0.0, min(100.0, float(remaining_fraction) * 100.0)), reset_at))
+
+        buckets: list[QuotaBucket] = []
+        for family, display_name in (("claude", "Claude • модели"), ("gemini", "Gemini • модели")):
+            values = family_values[family]
+            if not values:
+                continue
+            remaining, reset_at = min(values, key=lambda item: item[0])
+            buckets.append(
+                QuotaBucket(
+                    id=f"antigravity.{family}.model_pool",
+                    display_name=display_name,
+                    model_family=family,
+                    remaining_percent=remaining,
+                    reset_at=reset_at,
+                    period="provider",
+                    unit="model capacity",
+                    scope="model_family",
+                )
+            )
+        if not buckets:
+            raise RuntimeError("Cloud Code не вернул измеряемые квоты Claude или Gemini")
 
         return QuotaSnapshot(
             account_id=profile_id,
             provider="antigravity",
-            buckets=[b_claude_5h, b_claude_weekly, b_gemini_5h, b_gemini_weekly],
+            buckets=buckets,
             fetched_at=now,
-            source="baseline",
+            source="provider_api",
         )
 
     def _collect_codex_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
@@ -402,44 +533,85 @@ class AccountQuotaService:
         )
 
     def _collect_opencode_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
-        """Collect Sliding, Weekly, and Monthly usage for OpenCode Go."""
+        """Validate OpenCode Go entitlement and read usage when its API exposes it."""
         now = _utc_now()
-        b_sliding = QuotaBucket(
-            id="opencode.sliding",
-            display_name="Скользящее",
-            model_family="opencode",
-            used_percent=None,
-            remaining_percent=None,
-            period="sliding",
-            status="unknown",
+        api_key = auth_data.get("api_key")
+        if not api_key:
+            raise RuntimeError("Ключ OpenCode Go не сохранён")
+
+        base_url = "https://opencode.ai/zen/go/v1"
+
+        def _get(path: str) -> dict[str, Any]:
+            request = urllib.request.Request(
+                f"{base_url}{path}",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Accept": "application/json",
+                    "User-Agent": "hermes-hub/1.0",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=20) as response:
+                return json.loads(response.read().decode("utf-8") or "{}")
+
+        # /models is the documented read-only endpoint and confirms that the
+        # key is accepted without spending a request from the user's limit.
+        _get("/models")
+        usage: dict[str, Any] = {}
+        unavailable_reason: Optional[str] = None
+        try:
+            usage = _get("/usage")
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", "replace")
+            if exc.code == 403 and "subscription required" in raw.lower():
+                unavailable_reason = "Для этого ключа не активна подписка OpenCode Go"
+            elif exc.code in (403, 404):
+                unavailable_reason = "OpenCode Go не предоставляет остаток через публичный API"
+            else:
+                raise
+
+        def _metric(*names: str) -> dict[str, Any]:
+            for name in names:
+                value = usage.get(name)
+                if isinstance(value, dict):
+                    return value
+            return {}
+
+        buckets: list[QuotaBucket] = []
+        specs = (
+            ("5h", "Лимит 5 часов", 12, _metric("five_hour", "fiveHour", "sliding")),
+            ("7d", "Недельный лимит", 30, _metric("weekly", "seven_day", "sevenDay")),
+            ("30d", "Месячный лимит", 60, _metric("monthly", "thirty_day", "thirtyDay")),
         )
-        b_weekly = QuotaBucket(
-            id="opencode.weekly",
-            display_name="Недельное",
-            model_family="opencode",
-            used_percent=None,
-            remaining_percent=None,
-            period="7d",
-            reset_at=now + timedelta(days=7),
-            status="unknown",
-        )
-        b_monthly = QuotaBucket(
-            id="opencode.monthly",
-            display_name="Ежемесячное",
-            model_family="opencode",
-            used_percent=None,
-            remaining_percent=None,
-            period="30d",
-            reset_at=now + timedelta(days=30),
-            status="unknown",
-        )
+        for period, label, limit_value, metric in specs:
+            remaining_percent = metric.get("remaining_percent", metric.get("remainingPercentage"))
+            remaining_absolute = metric.get("remaining", metric.get("remaining_amount"))
+            used_absolute = metric.get("used", metric.get("used_amount"))
+            reset_at = _parse_datetime(metric.get("reset_at") or metric.get("resetTime"))
+            buckets.append(
+                QuotaBucket(
+                    id=f"opencode.{period}",
+                    display_name=label,
+                    model_family="opencode",
+                    remaining_percent=float(remaining_percent) if isinstance(remaining_percent, (int, float)) else None,
+                    used_absolute=int(used_absolute) if isinstance(used_absolute, (int, float)) else None,
+                    remaining_absolute=(
+                        int(remaining_absolute) if isinstance(remaining_absolute, (int, float)) else None
+                    ),
+                    limit_absolute=limit_value,
+                    reset_at=reset_at,
+                    period=period,
+                    unit="USD",
+                    scope="account",
+                )
+            )
 
         return QuotaSnapshot(
             account_id=profile_id,
             provider="opencode-go",
-            buckets=[b_sliding, b_weekly, b_monthly],
+            buckets=buckets,
             fetched_at=now,
-            source="baseline",
+            source="provider_api",
+            unavailable_reason=unavailable_reason,
         )
 
     def _collect_claude_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:

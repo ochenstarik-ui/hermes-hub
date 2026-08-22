@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import time
 
 import pytest
@@ -21,6 +22,7 @@ from antigravity_provider.router.unified_health import (
     AgentViewModel,
     PipelineNode,
     ProfileViewModel,
+    ProviderSummary,
     RolePipeline,
     SystemReadiness,
 )
@@ -91,6 +93,29 @@ def test_plan_badge_distinguishes_trusted_inferred_and_unknown(ui_root) -> None:
         card.update_account(_profile("UNKNOWN", "unknown"))
         ui_root.update_idletasks()
         assert card.plan_badge.winfo_manager() == ""
+    finally:
+        card.destroy()
+
+
+@pytest.mark.ui
+def test_live_quota_overrides_stale_exhausted_card_status(ui_root) -> None:
+    card = AccountCardWidget(ui_root, "account-1", "user@example.test", "Antigravity")
+    profile = replace(_profile(), health_state="quota_exhausted", health_label_ru="Квота исчерпана")
+    snapshot = QuotaSnapshot(
+        account_id="account-1",
+        provider="antigravity",
+        source="provider_api",
+        buckets=[
+            QuotaBucket(id="claude", display_name="Claude", remaining_percent=100.0),
+            QuotaBucket(id="gemini", display_name="Gemini", remaining_percent=100.0),
+        ],
+    )
+    try:
+        card.pack()
+        card.update_account(profile, snapshot)
+        ui_root.update_idletasks()
+        assert card.status.label.cget("text") == "Работает"
+        assert card.status.dot.cget("text_color") == Theme.STATUS_HEALTHY
     finally:
         card.destroy()
 
@@ -187,6 +212,58 @@ def test_agent_quota_and_failover_reason_are_bound_to_their_models(ui_root) -> N
         team_card.destroy()
 
 
+def test_dashboard_agent_quota_measurement_drives_progress_percent() -> None:
+    agent = AgentViewModel(
+        role_id="coder-primary",
+        role_name_ru="Кодер 1",
+        role_description_ru="Основной кодер",
+        assigned_profile_id="ag-w1",
+        assigned_display_name="Primary",
+        provider="antigravity",
+        provider_display_name="Google Antigravity",
+        model="gemini-3.1-pro",
+        account_identity="user@example.test",
+        routing_position="Primary",
+        status="healthy",
+        status_label_ru="Работает",
+        is_active=True,
+        is_main_orchestrator=False,
+        active_quota_status="healthy",
+        active_quota_label="Осталось 73%",
+    )
+    snapshot = HubSnapshot(
+        generation=1,
+        seq=1,
+        timestamp=time.time(),
+        profiles_by_provider={},
+        all_profiles={},
+        readiness=_readiness(),
+        agents=[agent],
+        providers=[],
+        routing={},
+        quotas={
+            "ag-w1": QuotaSnapshot(
+                account_id="ag-w1",
+                provider="antigravity",
+                source="provider_api",
+                buckets=[
+                    QuotaBucket(
+                        id="antigravity.gemini.7d",
+                        display_name="Gemini • неделя",
+                        model_family="gemini",
+                        remaining_percent=73.0,
+                    )
+                ],
+            )
+        },
+    )
+
+    label, percent = DashboardView._agent_quota_measurement(snapshot, agent)
+
+    assert label == "Осталось 73%"
+    assert percent == 73.0
+
+
 @pytest.mark.ui
 def test_stale_snapshot_is_visibly_marked_with_sequence(ui_root) -> None:
     snapshot = HubSnapshot(
@@ -211,6 +288,54 @@ def test_stale_snapshot_is_visibly_marked_with_sequence(ui_root) -> None:
         assert "#11" in label
         assert "устарели" in label
         assert view.snapshot_freshness.cget("text_color") == Theme.STATUS_WARNING
+    finally:
+        view.destroy()
+
+
+@pytest.mark.ui
+def test_dashboard_makes_all_connected_accounts_visible_in_provider_summary(ui_root) -> None:
+    profiles = [
+        replace(
+            _profile(),
+            profile_id=f"ag-{index}",
+            account_identity=f"user{index}@example.test",
+            email=f"user{index}@example.test",
+        )
+        for index in range(6)
+    ]
+    readiness = replace(_readiness(), accounts_connected_count=6, total_accounts=6)
+    provider = ProviderSummary(
+        provider_id="antigravity",
+        provider_name="Google Antigravity",
+        total_slots=10,
+        connected_count=6,
+        online_count=6,
+        auth_required_count=0,
+        quota_exhausted_count=0,
+        cold_spare_count=0,
+        discovered_models=["gemini-3.7-flash"],
+        last_refresh_at="12:00:00",
+    )
+    snapshot = HubSnapshot(
+        generation=1,
+        seq=1,
+        timestamp=time.time(),
+        profiles_by_provider={"antigravity": profiles},
+        all_profiles={profile.profile_id: profile for profile in profiles},
+        readiness=readiness,
+        agents=[],
+        providers=[provider],
+        routing={},
+        quotas={},
+    )
+    view = DashboardView(ui_root)
+    try:
+        view.pack()
+        view.update_data(snapshot)
+        ui_root.update_idletasks()
+        assert view.agents_metric.val_label.cget("text") == "6"
+        assert "6 аккаунт" in view._provider_cards["antigravity"].subtitle.cget("text")
+        assert "6/6 онлайн" in view._provider_status_rows["antigravity"].detail.cget("text")
     finally:
         view.destroy()
 
