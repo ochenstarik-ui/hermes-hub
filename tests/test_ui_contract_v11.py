@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import time
 
 import pytest
@@ -21,6 +22,7 @@ from antigravity_provider.router.unified_health import (
     AgentViewModel,
     PipelineNode,
     ProfileViewModel,
+    ProviderSummary,
     RolePipeline,
     SystemReadiness,
 )
@@ -211,6 +213,54 @@ def test_stale_snapshot_is_visibly_marked_with_sequence(ui_root) -> None:
         assert "#11" in label
         assert "устарели" in label
         assert view.snapshot_freshness.cget("text_color") == Theme.STATUS_WARNING
+    finally:
+        view.destroy()
+
+
+@pytest.mark.ui
+def test_dashboard_makes_all_connected_accounts_visible_in_provider_summary(ui_root) -> None:
+    profiles = [
+        replace(
+            _profile(),
+            profile_id=f"ag-{index}",
+            account_identity=f"user{index}@example.test",
+            email=f"user{index}@example.test",
+        )
+        for index in range(6)
+    ]
+    readiness = replace(_readiness(), accounts_connected_count=6, total_accounts=6)
+    provider = ProviderSummary(
+        provider_id="antigravity",
+        provider_name="Google Antigravity",
+        total_slots=10,
+        connected_count=6,
+        online_count=6,
+        auth_required_count=0,
+        quota_exhausted_count=0,
+        cold_spare_count=0,
+        discovered_models=["gemini-3.7-flash"],
+        last_refresh_at="12:00:00",
+    )
+    snapshot = HubSnapshot(
+        generation=1,
+        seq=1,
+        timestamp=time.time(),
+        profiles_by_provider={"antigravity": profiles},
+        all_profiles={profile.profile_id: profile for profile in profiles},
+        readiness=readiness,
+        agents=[],
+        providers=[provider],
+        routing={},
+        quotas={},
+    )
+    view = DashboardView(ui_root)
+    try:
+        view.pack()
+        view.update_data(snapshot)
+        ui_root.update_idletasks()
+        assert view.agents_metric.val_label.cget("text") == "6"
+        assert "6 аккаунт" in view._provider_cards["antigravity"].subtitle.cget("text")
+        assert "6/6 онлайн" in view._provider_status_rows["antigravity"].detail.cget("text")
     finally:
         view.destroy()
 

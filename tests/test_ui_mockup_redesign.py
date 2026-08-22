@@ -15,6 +15,7 @@ import customtkinter as ctk
 
 from antigravity_provider.router.ui.components import AccountCardWidget
 from antigravity_provider.router.ui.theme import Theme
+from antigravity_provider.router import hermes_hub_app as app_module
 
 
 @pytest.fixture(scope="module")
@@ -124,3 +125,23 @@ def test_restored_account_buttons_invoke_each_action(ui_root) -> None:
         assert calls == [(action, "profile-1") for action, _label in AccountCardWidget.MANAGEMENT_ACTIONS]
     finally:
         card.destroy()
+
+
+@pytest.mark.ui
+def test_assign_role_error_stays_visible_in_open_modal(ui_root, monkeypatch) -> None:
+    policy = SimpleNamespace(preferred_chain=[])
+    monkeypatch.setattr(app_module, "load_router_config", lambda: SimpleNamespace(roles={"orchestrator": policy}))
+    monkeypatch.setattr(
+        app_module.AutoAssigner,
+        "assign_profile_to_role",
+        lambda *_args, **_kwargs: (False, "Профиль не найден"),
+    )
+    ui_root._show_account_action_result = lambda *_args: None
+    modal = app_module.HermesHubApp._open_assign_role_modal(ui_root, "missing", "Claude")
+    try:
+        modal.save_button.invoke()
+        modal.update_idletasks()
+        assert modal.winfo_exists()
+        assert "Профиль не найден" in modal.result_label.cget("text")
+    finally:
+        modal.destroy()

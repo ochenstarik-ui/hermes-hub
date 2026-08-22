@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -8,6 +9,7 @@ pytest.importorskip("customtkinter")
 
 from antigravity_provider.router.ui import routing_graph as graph_module
 from antigravity_provider.router.ui import add_account_wizard as wizard_module
+from antigravity_provider.router.ui.views import team_view as team_module
 from antigravity_provider.router import hermes_hub_app as app_module
 from antigravity_provider.router.ui.routing_graph import (
     GraphEdge,
@@ -182,3 +184,139 @@ def test_wizard_finish_closes_logs_and_clears_reused_slot(monkeypatch):
     assert ("clear", "ag-orch-fallback") in calls
     assert any(item[0] == "log" for item in calls)
     assert calls[-1] == ("destroy",)
+
+
+def test_wizard_stops_when_provider_has_no_real_free_slot(monkeypatch):
+    calls = []
+    monkeypatch.setattr(wizard_module.AutoAssigner, "find_free_slot", lambda _provider: None)
+    fake = SimpleNamespace(
+        selected_provider="grok",
+        target_slot="old-value",
+        _clear_body=lambda: calls.append("clear"),
+        title_lbl=SimpleNamespace(configure=lambda **_kwargs: None),
+        _show_no_free_slot=lambda: calls.append("no-slot"),
+    )
+
+    wizard_module.AddAccountWizard._show_step_2_auth(fake)
+
+    assert fake.target_slot == ""
+    assert calls == ["clear", "no-slot"]
+
+
+def test_wizard_finish_without_slot_shows_error_and_does_not_assign(monkeypatch):
+    updates = []
+    monkeypatch.setattr(
+        wizard_module,
+        "ensure_profile_in_routing",
+        lambda _profile: pytest.fail("an invented or empty slot must not be assigned"),
+    )
+    fake = SimpleNamespace(
+        target_slot="",
+        finish_status_lbl=SimpleNamespace(configure=lambda **kwargs: updates.append(kwargs)),
+    )
+
+    wizard_module.AddAccountWizard._finish(fake)
+
+    assert "свободный слот" in updates[-1]["text"]
+
+
+def test_role_chain_order_and_removal_persist_through_auto_assigner(monkeypatch):
+    config = SimpleNamespace(
+        profiles={key: SimpleNamespace() for key in ("a", "b", "c")},
+        roles={
+            "orchestrator": SimpleNamespace(preferred_chain=["a", "b", "c"]),
+            "reviewer": SimpleNamespace(preferred_chain=["b"]),
+        },
+    )
+    calls = []
+
+    def assign(profile_id, role_id, is_primary=True):
+        calls.append((profile_id, role_id, is_primary))
+        if role_id == "spare":
+            for policy in config.roles.values():
+                policy.preferred_chain = [item for item in policy.preferred_chain if item != profile_id]
+            return True, "spare"
+        chain = config.roles[role_id].preferred_chain
+        chain = [item for item in chain if item != profile_id]
+        if is_primary:
+            chain.insert(0, profile_id)
+        else:
+            chain.append(profile_id)
+        config.roles[role_id].preferred_chain = chain
+        return True, "assigned"
+
+    monkeypatch.setattr(team_module, "load_router_config", lambda: config)
+    monkeypatch.setattr(team_module.AutoAssigner, "assign_profile_to_role", assign)
+
+    ok, _message = team_module.persist_role_chain("orchestrator", ["c", "a"])
+
+    assert ok
+    assert config.roles["orchestrator"].preferred_chain == ["c", "a"]
+    assert config.roles["reviewer"].preferred_chain == ["b"]
+    assert ("b", "spare", False) in calls
+
+
+def test_account_action_result_is_sent_to_originating_card():
+    calls = []
+    accounts = SimpleNamespace(
+        show_action_result=lambda profile_id, message, success: calls.append(
+            ("card", profile_id, message, success)
+        )
+    )
+    fake = SimpleNamespace(
+        _views={"accounts": accounts},
+        _show_toast=lambda message: calls.append(("toast", message)),
+    )
+
+    app_module.HermesHubApp._show_account_action_result(fake, "profile-1", "Не найден", False)
+
+    assert calls[0] == ("card", "profile-1", "Не найден", False)
+    assert calls[1][0] == "toast"
+
+
+def test_device_code_step_contains_numbered_instructions_and_copy_actions():
+    source = Path(wizard_module.__file__).read_text(encoding="utf-8")
+    assert "1. Откройте ссылку" in source
+    assert "2. Введите на странице код:" in source
+    assert "3. Подтвердите доступ" in source
+    assert source.count('text="Копировать ссылку"') == 2
+    assert source.count('text="📋 Копировать код"') == 2
+
+
+def test_grok_slot_is_registered_before_role_assignment(monkeypatch):
+    config = SimpleNamespace(profiles={})
+    saved = []
+    monkeypatch.setattr(wizard_module, "load_router_config", lambda: config)
+    monkeypatch.setattr(
+        "antigravity_provider.router.auto_assigner.load_router_config",
+        lambda: config,
+    )
+    monkeypatch.setattr(
+        "antigravity_provider.router.auto_assigner.save_router_config",
+        lambda current: saved.append(current) or True,
+    )
+
+    ok, _message = wizard_module.AutoAssigner.ensure_profile_definition("grok", "grok-orch")
+
+    assert ok
+    assert config.profiles["grok-orch"].provider == "grok"
+    assert config.profiles["grok-orch"].preferred_models[0] == "grok-3"
+    assert saved == [config]
+
+
+def test_opencode_paste_targets_entry_and_reports_success():
+    calls = []
+    entry = SimpleNamespace(
+        clipboard_get=lambda: "  opencode-token-123  ",
+        delete=lambda *_args: calls.append("delete"),
+        insert=lambda *_args: calls.append(("insert", _args[-1])),
+        focus_set=lambda: calls.append("focus"),
+        icursor=lambda *_args: calls.append("cursor"),
+    )
+    status = SimpleNamespace(configure=lambda **kwargs: calls.append(("status", kwargs["text"])))
+    fake = SimpleNamespace(key_entry=entry, key_status_lbl=status)
+
+    wizard_module.AddAccountWizard._paste_into_entry(fake, entry)
+
+    assert ("insert", "opencode-token-123") in calls
+    assert ("status", "✓ Ключ вставлен. Нажмите «Проверить и продолжить».") in calls

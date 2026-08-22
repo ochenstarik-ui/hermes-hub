@@ -25,6 +25,7 @@ from antigravity_provider.router.unified_health import (
     STATUS_AUTH_EXPIRED,
 )
 from antigravity_provider.router.state_store import HubSnapshot
+from antigravity_provider.router.auto_assigner import AutoAssigner
 from antigravity_provider.router.event_bus import (
     EVENT_ACCOUNT_ADDED,
     EVENT_ACCOUNT_AUTH_CHANGED,
@@ -36,6 +37,37 @@ from antigravity_provider.router.event_bus import (
 )
 from antigravity_provider.router.router_config import load_router_config
 from antigravity_provider.router.ui.routing_graph import EDGE_TYPES, GraphIssue, RoutingGraphController
+
+
+def persist_role_chain(role_id: str, desired_chain: List[str]) -> tuple[bool, str]:
+    """Persist one ordered chain using AutoAssigner while preserving other roles."""
+    config = load_router_config()
+    policy = config.roles.get(role_id)
+    if policy is None:
+        return False, f"Роль '{role_id}' не найдена"
+    if len(desired_chain) != len(set(desired_chain)):
+        return False, "Профиль не может повторяться в одной цепочке"
+    missing = [profile_id for profile_id in desired_chain if profile_id not in config.profiles]
+    if missing:
+        return False, f"Профиль '{missing[0]}' не найден"
+
+    original = {key: list(value.preferred_chain) for key, value in config.roles.items()}
+    removed = set(original[role_id]) - set(desired_chain)
+    affected = {role_id}
+    for profile_id in removed:
+        affected.update(key for key, chain in original.items() if profile_id in chain)
+        ok, message = AutoAssigner.assign_profile_to_role(profile_id, "spare", is_primary=False)
+        if not ok:
+            return False, message
+
+    chains = {key: original[key] for key in affected}
+    chains[role_id] = list(desired_chain)
+    for target_role, chain in chains.items():
+        for profile_id in reversed(chain):
+            ok, message = AutoAssigner.assign_profile_to_role(profile_id, target_role, is_primary=True)
+            if not ok:
+                return False, message
+    return True, f"Цепочка '{role_id}' сохранена"
 
 
 class AgentCardWidget(HubCard):
@@ -128,6 +160,27 @@ class AgentCardWidget(HubCard):
             command=self._open_menu,
         )
         self.menu_btn.pack(side="right")
+        self._bind_settings_click(self)
+
+    def _bind_settings_click(self, widget: Any) -> None:
+        if isinstance(widget, ctk.CTkButton):
+            return
+        widget.bind("<Button-1>", self._open_settings, add="+")
+        for child in widget.winfo_children():
+            self._bind_settings_click(child)
+
+    def _open_settings(self, _event: Any = None) -> None:
+        if not self.agent_data or not self.on_action:
+            return
+        agent = self.agent_data
+        self.on_action(
+            "agent_settings",
+            {
+                "role_id": agent.role_id,
+                "profile_id": agent.assigned_profile_id or "",
+                "provider": agent.provider,
+            },
+        )
 
     def update_agent(self, a: AgentViewModel):
         self.agent_data = a
@@ -651,10 +704,88 @@ class TeamView(ctk.CTkFrame):
                 font=Theme.font_micro(),
                 text_color=Theme.TEXT_SECONDARY,
             ).pack(fill="x", padx=8, pady=(2, 7))
+            controls = ctk.CTkFrame(card, fg_color="transparent")
+            controls.pack(fill="x", padx=6, pady=(0, 6))
+            HubButton(
+                controls,
+                text="↑",
+                variant="secondary",
+                width=34,
+                height=26,
+                command=lambda pid=profile_id: self._move_chain_profile(pid, -1),
+            ).pack(side="left", padx=2)
+            HubButton(
+                controls,
+                text="↓",
+                variant="secondary",
+                width=34,
+                height=26,
+                command=lambda pid=profile_id: self._move_chain_profile(pid, 1),
+            ).pack(side="left", padx=2)
+            HubButton(
+                controls,
+                text="Удалить",
+                variant="ghost",
+                width=76,
+                height=26,
+                command=lambda pid=profile_id: self._remove_chain_profile(pid),
+            ).pack(side="right", padx=2)
         if not chain:
             ctk.CTkLabel(
                 self.chain_frame, text="Профили не назначены", font=Theme.font_caption(), text_color=Theme.STATUS_WARNING
             ).pack(anchor="w", padx=6, pady=8)
+
+        available = [profile_id for profile_id in config.profiles if profile_id not in chain]
+        add_row = ctk.CTkFrame(self.chain_frame, fg_color="transparent")
+        add_row.pack(fill="x", pady=(8, 2))
+        add_menu = ctk.CTkOptionMenu(
+            add_row,
+            values=available or ["—"],
+            font=Theme.font_caption(),
+            fg_color=Theme.SURFACE_MUTED,
+            button_color=Theme.SECONDARY,
+            button_hover_color=Theme.SURFACE_HOVER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        add_menu.pack(side="left", fill="x", expand=True, padx=(0, 4))
+        HubButton(
+            add_row,
+            text="Добавить",
+            variant="secondary",
+            width=88,
+            command=lambda: self._add_chain_profile(add_menu.get()),
+            state="normal" if available else "disabled",
+        ).pack(side="right")
+
+    def _persist_selected_chain(self, chain: List[str]) -> None:
+        ok, message = persist_role_chain(self.selected_role, chain)
+        self.state_label.configure(text=message, text_color=Theme.STATUS_HEALTHY if ok else Theme.STATUS_ERROR)
+        if ok:
+            self._update_inspector()
+
+    def _move_chain_profile(self, profile_id: str, direction: int) -> None:
+        chain = list(self.controller.role_chain(self.selected_role))
+        if profile_id not in chain:
+            return
+        source = chain.index(profile_id)
+        target = source + direction
+        if target < 0 or target >= len(chain):
+            self.state_label.configure(text="Профиль уже на границе цепочки", text_color=Theme.STATUS_WARNING)
+            return
+        chain[source], chain[target] = chain[target], chain[source]
+        self._persist_selected_chain(chain)
+
+    def _remove_chain_profile(self, profile_id: str) -> None:
+        chain = [item for item in self.controller.role_chain(self.selected_role) if item != profile_id]
+        self._persist_selected_chain(chain)
+
+    def _add_chain_profile(self, profile_id: str) -> None:
+        if not profile_id or profile_id == "—":
+            return
+        chain = list(self.controller.role_chain(self.selected_role))
+        if profile_id not in chain:
+            chain.append(profile_id)
+        self._persist_selected_chain(chain)
 
     def _on_runtime_event(self, name: str, data: Any) -> None:
         # EventBus may publish from a worker. Tk mutation is always marshalled.

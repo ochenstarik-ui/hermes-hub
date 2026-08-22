@@ -203,6 +203,7 @@ class AccountsView(ctk.CTkFrame):
             return
         self._snapshot = snapshot
         live_ids = {profile.profile_id for profile in self._profiles()}
+        collapse_new_collection = len(self._cards) <= 1 and len(live_ids) > 1
         for profile_id in list(self._cards):
             if profile_id not in live_ids:
                 self._cards.pop(profile_id).destroy()
@@ -220,11 +221,15 @@ class AccountsView(ctk.CTkFrame):
                     profile.profile_id,
                     AccountCardWidget.resolve_identity(profile),
                     profile.provider_display_name,
+                    compact=len(live_ids) > 1,
                     on_action=self._emit,
                 )
                 self._cards[profile.profile_id] = card
                 self.cards_created += 1
             card.update_account(profile, snapshot.quotas.get(profile.profile_id))
+        if collapse_new_collection:
+            for card in self._cards.values():
+                card.set_compact(True)
         self._render_visibility()
 
     def _render_visibility(self) -> None:
@@ -267,3 +272,11 @@ class AccountsView(ctk.CTkFrame):
             "quota_widgets_created": sum(card.widgets_created for card in self._cards.values()),
             "quota_widgets_destroyed": sum(card.widgets_destroyed for card in self._cards.values()),
         }
+
+    def show_action_result(self, profile_id: str, message: str, success: Optional[bool]) -> bool:
+        """Keep account action feedback next to the originating controls."""
+        card = self._cards.get(profile_id)
+        if card is None:
+            return False
+        card.set_action_feedback(message, success)
+        return True

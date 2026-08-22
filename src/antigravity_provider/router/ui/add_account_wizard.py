@@ -212,9 +212,10 @@ class AddAccountWizard(HubModal):
         self._clear_body()
         self.title_lbl.configure(text="Шаг 2 из 4: Авторизация учетной записи")
 
-        self.target_slot = (
-            AutoAssigner.find_free_slot(self.selected_provider) or f"{self.selected_provider[:3]}-spare-1"
-        )
+        self.target_slot = AutoAssigner.find_free_slot(self.selected_provider) or ""
+        if not self.target_slot:
+            self._show_no_free_slot()
+            return
 
         if self.selected_provider == "antigravity":
             self._build_antigravity_oauth_flow()
@@ -235,6 +236,36 @@ class AddAccountWizard(HubModal):
                 self._build_api_key_flow()
         else:
             self._build_api_key_flow()
+
+    def _show_no_free_slot(self) -> None:
+        """Stop before OAuth when the configured provider has no real free slot."""
+        provider_labels = {
+            "antigravity": "Google Antigravity",
+            "openai-codex": "OpenAI Codex",
+            "opencode-go": "OpenCode Go",
+            "claude": "Claude",
+            "grok": "Grok",
+        }
+        card = HubCard(self.body, border_color=Theme.STATUS_WARNING, fg_color=Theme.SURFACE_MUTED)
+        card.pack(fill="x", pady=20)
+        ctk.CTkLabel(
+            card,
+            text="Нет свободного слота",
+            font=Theme.font_heading(),
+            text_color=Theme.STATUS_WARNING,
+        ).pack(anchor="w", padx=16, pady=(14, 6))
+        ctk.CTkLabel(
+            card,
+            text=(
+                f"Все слоты провайдера {provider_labels.get(self.selected_provider, self.selected_provider)} заняты.\n"
+                "Освободите один слот или удалите неиспользуемый аккаунт, затем повторите подключение."
+            ),
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_PRIMARY,
+            justify="left",
+            wraplength=520,
+        ).pack(anchor="w", padx=16, pady=(0, 14))
+        self._build_step_2_footer()
 
     # ─────────────────────────────────────────────────────────────
     #  GOOGLE ANTIGRAVITY OAUTH FLOW
@@ -484,22 +515,10 @@ class AddAccountWizard(HubModal):
 
         ctk.CTkLabel(
             auth_card,
-            text=(
-                "1. Нажмите «Открыть в браузере».  2. Вставьте показанный ниже код на странице OpenAI.  "
-                "3. Вернитесь в Hub — поле для этого кода в приложении не требуется."
-            ),
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_SECONDARY,
-            wraplength=520,
-            justify="left",
-        ).pack(anchor="w", padx=10, pady=(7, 2))
-
-        ctk.CTkLabel(
-            auth_card,
-            text="Ссылка для входа в OpenAI (ChatGPT):",
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_SECONDARY,
-        ).pack(anchor="w", padx=10, pady=(6, 2))
+            text="1. Откройте ссылку — кнопка ниже откроет страницу OpenAI",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(anchor="w", padx=10, pady=(8, 2))
 
         url_row = ctk.CTkFrame(auth_card, fg_color="transparent")
         url_row.pack(fill="x", padx=10, pady=(0, 6))
@@ -516,9 +535,9 @@ class AddAccountWizard(HubModal):
 
         HubButton(
             url_row,
-            text="📋",
+            text="Копировать ссылку",
             variant="secondary",
-            width=40,
+            width=130,
             height=32,
             command=self._copy_codex_url,
         ).pack(side="right")
@@ -528,7 +547,7 @@ class AddAccountWizard(HubModal):
 
         ctk.CTkLabel(
             code_card,
-            text="Код подтверждения:",
+            text="2. Введите на странице код:",
             font=Theme.font_body_bold(),
             text_color=Theme.TEXT_PRIMARY,
         ).pack(side="left", padx=(0, 8))
@@ -536,7 +555,7 @@ class AddAccountWizard(HubModal):
         self.codex_code_lbl = ctk.CTkLabel(
             code_card,
             text="...",
-            font=Theme.font_mono_bold(),
+            font=("Consolas", 18, "bold"),
             text_color=Theme.ACCENT,
         )
         self.codex_code_lbl.pack(side="left", padx=(0, 8))
@@ -560,6 +579,13 @@ class AddAccountWizard(HubModal):
             width=180,
             command=self._open_codex_browser,
         ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkLabel(
+            auth_card,
+            text="3. Подтвердите доступ — мастер продолжит автоматически",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(anchor="w", padx=10, pady=(0, 8))
 
         # Manual Fallback Card
         manual_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
@@ -779,9 +805,9 @@ class AddAccountWizard(HubModal):
 
         HubButton(
             url_row,
-            text="📋",
+            text="Копировать ссылку",
             variant="secondary",
-            width=40,
+            width=130,
             height=32,
             command=self._copy_claude_url,
         ).pack(side="right")
@@ -940,22 +966,10 @@ class AddAccountWizard(HubModal):
 
         ctk.CTkLabel(
             auth_card,
-            text=(
-                "1. Нажмите «Открыть в браузере».  2. Вставьте показанный ниже код на странице xAI.  "
-                "3. Вернитесь в Hub — поле для этого кода в приложении не требуется."
-            ),
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_SECONDARY,
-            wraplength=520,
-            justify="left",
-        ).pack(anchor="w", padx=10, pady=(7, 2))
-
-        ctk.CTkLabel(
-            auth_card,
-            text="Ссылка для входа в xAI Grok:",
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_SECONDARY,
-        ).pack(anchor="w", padx=10, pady=(6, 2))
+            text="1. Откройте ссылку — кнопка ниже откроет страницу xAI",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(anchor="w", padx=10, pady=(8, 2))
 
         url_row = ctk.CTkFrame(auth_card, fg_color="transparent")
         url_row.pack(fill="x", padx=10, pady=(0, 6))
@@ -984,7 +998,7 @@ class AddAccountWizard(HubModal):
 
         ctk.CTkLabel(
             code_card,
-            text="Код подтверждения:",
+            text="2. Введите на странице код:",
             font=Theme.font_body_bold(),
             text_color=Theme.TEXT_PRIMARY,
         ).pack(side="left", padx=(0, 8))
@@ -992,7 +1006,7 @@ class AddAccountWizard(HubModal):
         self.grok_code_lbl = ctk.CTkLabel(
             code_card,
             text="...",
-            font=Theme.font_mono_bold(),
+            font=("Consolas", 18, "bold"),
             text_color=Theme.PROVIDER_GROK,
         )
         self.grok_code_lbl.pack(side="left", padx=(0, 8))
@@ -1016,6 +1030,13 @@ class AddAccountWizard(HubModal):
             width=180,
             command=self._open_grok_browser,
         ).pack(side="left", padx=(0, 8))
+
+        ctk.CTkLabel(
+            auth_card,
+            text="3. Подтвердите доступ — мастер продолжит автоматически",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(anchor="w", padx=10, pady=(0, 8))
 
         # Manual Entry Card
         manual_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
@@ -1277,13 +1298,14 @@ class AddAccountWizard(HubModal):
             entry_row,
             placeholder_text=placeholder_map.get(self.selected_provider, "sk-..."),
             font=Theme.font_mono(),
-            show="*",
+            show="" if self.selected_provider == "opencode-go" else "*",
             height=38,
             fg_color=Theme.PRIMARY,
             border_color=Theme.BORDER,
             text_color=Theme.TEXT_PRIMARY,
         )
         self.key_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+        self.key_entry.focus_set()
 
         HubButton(
             entry_row,
@@ -1359,12 +1381,19 @@ class AddAccountWizard(HubModal):
 
     def _paste_into_entry(self, entry_widget: HubEntry):
         try:
-            content = self.clipboard_get().strip()
+            content = entry_widget.clipboard_get().strip()
             if content:
                 entry_widget.delete(0, "end")
                 entry_widget.insert(0, content)
-        except Exception:
-            pass
+                entry_widget.focus_set()
+                entry_widget.icursor("end")
+                if hasattr(self, "key_status_lbl") and entry_widget is getattr(self, "key_entry", None):
+                    self.key_status_lbl.configure(text="✓ Ключ вставлен. Нажмите «Проверить и продолжить».")
+            elif hasattr(self, "key_status_lbl"):
+                self.key_status_lbl.configure(text="Буфер обмена пуст.")
+        except Exception as exc:
+            if hasattr(self, "key_status_lbl"):
+                self.key_status_lbl.configure(text=f"Не удалось вставить: {exc}")
 
     # ═══════════════════════════════════════════════════════════════
     #  STEP 3: Validation & Identity
@@ -1512,6 +1541,19 @@ class AddAccountWizard(HubModal):
         ).pack(side="right", padx=10, pady=10)
 
     def _finish(self):
+        if not self.target_slot:
+            self.finish_status_lbl.configure(
+                text="❌ Подключение невозможно: свободный слот не найден.",
+                text_color=Theme.STATUS_ERROR,
+            )
+            return
+        profile_ok, profile_message = AutoAssigner.ensure_profile_definition(
+            self.selected_provider,
+            self.target_slot,
+        )
+        if not profile_ok:
+            self.finish_status_lbl.configure(text=f"❌ {profile_message}", text_color=Theme.STATUS_ERROR)
+            return
         # Most built-in slots already occur in a default chain.  Custom or
         # repaired configs may not, so completion makes that invariant explicit
         # without reordering a slot that is already assigned.

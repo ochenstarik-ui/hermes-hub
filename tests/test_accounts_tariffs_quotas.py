@@ -187,13 +187,30 @@ def test_quota_snapshot_model_availability():
 
 def test_antigravity_separate_claude_and_gemini_buckets():
     service = AccountQuotaService()
-    snap = service._collect_antigravity_quota("ag-w1", {"tokens": {}})
+    response = MagicMock()
+    response.__enter__.return_value.read.return_value = json.dumps(
+        {
+            "models": {
+                "claude-sonnet-4-6": {
+                    "quotaInfo": {"remainingFraction": 0.42, "resetTime": "2026-08-23T00:00:00Z"}
+                },
+                "gemini-3.7-flash": {
+                    "quotaInfo": {"remainingFraction": 0.87, "resetTime": "2026-08-23T00:00:00Z"}
+                },
+            }
+        }
+    ).encode()
+    with patch("antigravity_provider.cloudcode.load_or_onboard_project", return_value="project-1"), patch(
+        "antigravity_provider.router.quota_collector.urllib.request.urlopen", return_value=response
+    ):
+        snap = service._collect_antigravity_quota(
+            "ag-w1", {"tokens": {"access_token": "access-token"}}
+        )
 
     bucket_ids = [b.id for b in snap.buckets]
-    assert "antigravity.claude.5h" in bucket_ids
-    assert "antigravity.claude.weekly" in bucket_ids
-    assert "antigravity.gemini.5h" in bucket_ids
-    assert "antigravity.gemini.weekly" in bucket_ids
+    assert "antigravity.claude.model_pool" in bucket_ids
+    assert "antigravity.gemini.model_pool" in bucket_ids
+    assert snap.source == "provider_api"
 
     # Claude bucket and Gemini bucket are independent
     b_c = snap.get_bucket_for_model("claude-3-7-sonnet")
@@ -201,6 +218,8 @@ def test_antigravity_separate_claude_and_gemini_buckets():
 
     assert b_c is not None and b_c.model_family == "claude"
     assert b_g is not None and b_g.model_family == "gemini"
+    assert b_c.remaining_percent == 42.0
+    assert b_g.remaining_percent == 87.0
 
 
 def test_health_tracker_antigravity_claude_exhaustion_does_not_block_gemini(tmp_path):

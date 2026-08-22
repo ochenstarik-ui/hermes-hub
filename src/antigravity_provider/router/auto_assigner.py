@@ -173,6 +173,48 @@ class AutoAssigner:
         return candidates[0] if candidates else None
 
     @staticmethod
+    def ensure_profile_definition(provider: str, profile_id: str) -> Tuple[bool, str]:
+        """Persist a router profile for provider slots introduced by the UI.
+
+        Claude and Grok were added after the original static router profile
+        list.  Their OAuth credentials could therefore be saved successfully
+        while role assignment failed because the profile did not exist in the
+        router YAML.
+        """
+        config = load_router_config()
+        if profile_id in config.profiles:
+            return True, "Профиль уже зарегистрирован"
+        defaults = {
+            "grok": (["grok-3", "grok-3-mini", "grok-2"], ["reasoning", "coding", "research"]),
+            "claude": (
+                ["claude-sonnet-4-6", "claude-3-7-sonnet", "claude-3-5-haiku"],
+                ["reasoning", "coding", "review"],
+            ),
+            "opencode-go": (
+                ["qwen3.8-max", "kimi-k2.7-code", "deepseek-v3"],
+                ["coding", "research", "fast"],
+            ),
+            "openai-codex": (["gpt-4o", "o3-mini", "codex"], ["coding", "reasoning"]),
+            "antigravity": (
+                ["gemini-3.7-flash", "claude-sonnet-4-6", "gemini-3.5-flash"],
+                ["coding", "reasoning", "research", "fast"],
+            ),
+        }
+        models, capabilities = defaults.get(provider, (["default"], []))
+        config.profiles[profile_id] = RouterProfileConfig(
+            profile_id=profile_id,
+            provider=provider,
+            account_id=profile_id,
+            capabilities=list(capabilities),
+            preferred_models=list(models),
+            enabled=True,
+            max_concurrency=1,
+        )
+        if not save_router_config(config):
+            return False, f"Не удалось сохранить профиль '{profile_id}' в конфигурации"
+        return True, f"Профиль '{profile_id}' зарегистрирован"
+
+    @staticmethod
     def recommend_assignment(provider: str) -> Tuple[str, str, str]:
         """Analyze team health and return (recommended_slot, role_title_ru, reason_ru)."""
         config = load_router_config()

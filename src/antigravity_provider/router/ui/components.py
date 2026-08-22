@@ -888,6 +888,31 @@ class AccountCardWidget(HubCard):
         self.status = StatusBadge(self, status)
         self.status.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_SM)
 
+        self.compact_quota = ctk.CTkFrame(self, fg_color="transparent")
+        self.compact_quota_labels = [
+            ctk.CTkLabel(
+                self.compact_quota,
+                text="",
+                font=Theme.font_micro(),
+                text_color=Theme.TEXT_SECONDARY,
+                anchor="w",
+            )
+            for _ in range(4)
+        ]
+        for index, label in enumerate(self.compact_quota_labels):
+            label.grid(row=index // 2, column=index % 2, sticky="ew", padx=(0, 8), pady=2)
+            self.compact_quota.grid_columnconfigure(index % 2, weight=1)
+        self.compact_actions = ctk.CTkFrame(self, fg_color="transparent")
+        for text, action in (("⚡", "test"), ("↻", "refresh_account"), ("Роль", "assign_role")):
+            ActionButton(
+                self.compact_actions,
+                text=text,
+                variant="ghost",
+                width=48,
+                height=Theme.HEIGHT_BTN_SM,
+                command=lambda action_name=action: self._trigger(action_name),
+            ).pack(side="left", padx=(0, Theme.SPACE_XS))
+
         self.details = ctk.CTkFrame(self, fg_color="transparent")
         self.details.pack(fill="x")
         self.quota_box = ctk.CTkFrame(self.details, fg_color="transparent")
@@ -897,6 +922,15 @@ class AccountCardWidget(HubCard):
         )
         self.actions = ctk.CTkFrame(self.details, fg_color="transparent")
         self.actions.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_SM, Theme.CARD_PAD_Y))
+        self.action_feedback = ctk.CTkLabel(
+            self.actions,
+            text="",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+            wraplength=330,
+            justify="left",
+            anchor="w",
+        )
         self.action_buttons: Dict[str, ActionButton] = {}
         management = ctk.CTkFrame(self.actions, fg_color="transparent")
         management.pack(fill="x", pady=(0, Theme.SPACE_XS))
@@ -944,7 +978,18 @@ class AccountCardWidget(HubCard):
 
     def _trigger(self, action: str) -> None:
         if self.on_action and self.profile_model is not None:
+            self.set_action_feedback("Выполняется…", None)
             self.on_action(action, self.profile_model)
+
+    def set_action_feedback(self, message: str, success: Optional[bool]) -> None:
+        """Show an action result where the user initiated it."""
+        color = Theme.TEXT_SECONDARY
+        if success is True:
+            color = Theme.STATUS_HEALTHY
+        elif success is False:
+            color = Theme.STATUS_ERROR
+        self.action_feedback.configure(text=message, text_color=color)
+        self.action_feedback.pack(fill="x", pady=(0, Theme.SPACE_XS), before=self.actions.winfo_children()[1])
 
     def toggle_compact(self) -> None:
         self.set_compact(not self.compact)
@@ -954,7 +999,11 @@ class AccountCardWidget(HubCard):
         self.toggle.configure(text="▸" if compact else "▾")
         if compact:
             self.details.pack_forget()
+            self.compact_quota.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(0, Theme.SPACE_XS))
+            self.compact_actions.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(0, Theme.CARD_PAD_Y))
         else:
+            self.compact_quota.pack_forget()
+            self.compact_actions.pack_forget()
             self.details.pack(fill="x")
 
     def update_account(self, profile: Any, quota_snapshot: Optional[Any] = None) -> None:
@@ -981,6 +1030,22 @@ class AccountCardWidget(HubCard):
         snapshot = quota_snapshot or getattr(profile, "quota_snapshot", None)
         buckets = list(getattr(snapshot, "buckets", None) or [])
         estimated = bool(getattr(snapshot, "is_estimated", True)) if snapshot else True
+        for index, label in enumerate(self.compact_quota_labels):
+            if index < len(buckets):
+                bucket = buckets[index]
+                label.configure(
+                    text=f"{bucket.display_name}: {bucket.formatted_remaining()}",
+                    text_color=(
+                        Theme.STATUS_HEALTHY
+                        if getattr(bucket, "status", "unknown") == "healthy"
+                        else Theme.STATUS_WARNING
+                        if getattr(bucket, "status", "unknown") == "warning"
+                        else Theme.TEXT_MUTED
+                    ),
+                )
+                label.grid()
+            else:
+                label.grid_remove()
         seen: set[str] = set()
         for bucket in buckets:
             key = str(getattr(bucket, "id", "") or getattr(bucket, "display_name", "bucket"))

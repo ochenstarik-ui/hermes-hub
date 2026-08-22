@@ -27,7 +27,7 @@ class RoutingRoleWidget(HubCard):
         self.meta.pack(side="left", padx=Theme.SPACE_SM)
         ActionButton(
             top,
-            text="Настроить",
+            text="Изменить цепочку →",
             variant="secondary",
             width=90,
             command=lambda: self.on_action and self.on_action("edit_route", {"role_id": self.pipeline.role_id}),
