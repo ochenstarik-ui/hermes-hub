@@ -75,6 +75,24 @@ from antigravity_provider.router.ui.views.quotas_view import QuotasView
 
 logger = logging.getLogger("hermes.hub.gui")
 
+AGENT_MODEL_OPTIONS = {
+    "antigravity": [
+        # User-facing logical IDs. The provider layer maps Gemini 3.1 Pro
+        # to the current low/high wire variants according to reasoning effort.
+        "gemini-3.1-pro",
+        "gemini-2.5-pro",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash-high",
+        "gemini-3.5-flash",
+        "claude-sonnet-4-6",
+        "claude-opus-4-6-thinking",
+    ],
+    "openai-codex": ["gpt-4o", "o3-mini", "codex"],
+    "opencode-go": ["qwen3.8-max", "kimi-k2.7-code", "deepseek-v3"],
+    "claude": ["claude-sonnet-4-6", "claude-3-7-sonnet", "claude-3-5-haiku"],
+    "grok": ["grok-3", "grok-3-mini", "grok-2"],
+}
+
 
 def _load_saved_theme() -> str:
     settings_file = paths.get_hermes_home() / "hub_settings.json"
@@ -953,24 +971,12 @@ class HermesHubApp(ctk.CTk):
         quota_rows = ctk.CTkFrame(quota_card, fg_color="transparent")
         quota_rows.pack(fill="both", expand=True, padx=12, pady=(0, 8))
 
-        provider_models = {
-            "antigravity": [
-                "gemini-3.7-flash",
-                "gemini-3.6-flash-high",
-                "gemini-3.5-flash",
-                "claude-sonnet-4-6",
-                "claude-opus-4-6-thinking",
-            ],
-            "openai-codex": ["gpt-4o", "o3-mini", "codex"],
-            "opencode-go": ["qwen3.8-max", "kimi-k2.7-code", "deepseek-v3"],
-            "claude": ["claude-sonnet-4-6", "claude-3-7-sonnet", "claude-3-5-haiku"],
-            "grok": ["grok-3", "grok-3-mini", "grok-2"],
-        }
-
         def _refresh_account_panel(_choice: Optional[str] = None) -> None:
             current_pid = choices[account_var.get()]
             current_cfg = load_router_config().profiles[current_pid]
-            available = list(dict.fromkeys(current_cfg.preferred_models + provider_models.get(current_cfg.provider, [])))
+            available = list(
+                dict.fromkeys(current_cfg.preferred_models + AGENT_MODEL_OPTIONS.get(current_cfg.provider, []))
+            )
             if not available:
                 available = ["default"]
             model_menu.configure(values=available)

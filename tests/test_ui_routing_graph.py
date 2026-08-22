@@ -38,6 +38,12 @@ def _config():
     return SimpleNamespace(roles=roles, profiles=profiles)
 
 
+def test_antigravity_agent_catalog_keeps_gemini_pro_choices():
+    choices = app_module.AGENT_MODEL_OPTIONS["antigravity"]
+    assert "gemini-3.1-pro" in choices
+    assert "gemini-2.5-pro" in choices
+
+
 def test_default_graph_migrates_six_roles_without_changing_chains():
     config = _config()
     before = {key: list(value.preferred_chain) for key, value in config.roles.items()}
