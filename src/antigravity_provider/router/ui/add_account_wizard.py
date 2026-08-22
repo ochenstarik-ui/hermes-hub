@@ -484,6 +484,18 @@ class AddAccountWizard(HubModal):
 
         ctk.CTkLabel(
             auth_card,
+            text=(
+                "1. Нажмите «Открыть в браузере».  2. Вставьте показанный ниже код на странице OpenAI.  "
+                "3. Вернитесь в Hub — поле для этого кода в приложении не требуется."
+            ),
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=(7, 2))
+
+        ctk.CTkLabel(
+            auth_card,
             text="Ссылка для входа в OpenAI (ChatGPT):",
             font=Theme.font_caption(),
             text_color=Theme.TEXT_SECONDARY,
@@ -655,6 +667,14 @@ class AddAccountWizard(HubModal):
 
     def _open_codex_browser(self):
         if self.codex_url:
+            self._copy_codex_code()
+            self.codex_status_lbl.configure(
+                text=(
+                    "Код скопирован. Вставьте его на открывшейся странице OpenAI; "
+                    "затем вернитесь сюда — Hub продолжит автоматически."
+                ),
+                text_color=Theme.TEXT_SECONDARY,
+            )
             webbrowser.open(self.codex_url)
 
     def _handle_codex_manual_submit(self):
@@ -920,6 +940,18 @@ class AddAccountWizard(HubModal):
 
         ctk.CTkLabel(
             auth_card,
+            text=(
+                "1. Нажмите «Открыть в браузере».  2. Вставьте показанный ниже код на странице xAI.  "
+                "3. Вернитесь в Hub — поле для этого кода в приложении не требуется."
+            ),
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+            wraplength=520,
+            justify="left",
+        ).pack(anchor="w", padx=10, pady=(7, 2))
+
+        ctk.CTkLabel(
+            auth_card,
             text="Ссылка для входа в xAI Grok:",
             font=Theme.font_caption(),
             text_color=Theme.TEXT_SECONDARY,
@@ -1091,6 +1123,14 @@ class AddAccountWizard(HubModal):
 
     def _open_grok_browser(self):
         if self.grok_url:
+            self._copy_grok_code()
+            self.grok_status_lbl.configure(
+                text=(
+                    "Код скопирован. Вставьте его на открывшейся странице xAI; "
+                    "затем вернитесь сюда — Hub продолжит автоматически."
+                ),
+                text_color=Theme.TEXT_SECONDARY,
+            )
             webbrowser.open(self.grok_url)
 
     def _handle_grok_manual_submit(self):
@@ -1455,6 +1495,15 @@ class AddAccountWizard(HubModal):
             anchor="w",
         ).pack(fill="x", pady=8)
 
+        self.finish_status_lbl = ctk.CTkLabel(
+            self.body,
+            text="Нажмите «Завершить подключение», чтобы сохранить роль и обновить Hub.",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+            anchor="w",
+        )
+        self.finish_status_lbl.pack(fill="x", pady=(0, 4))
+
         HubButton(
             self.footer,
             text="✓ Завершить подключение",
@@ -1466,13 +1515,19 @@ class AddAccountWizard(HubModal):
         # Most built-in slots already occur in a default chain.  Custom or
         # repaired configs may not, so completion makes that invariant explicit
         # without reordering a slot that is already assigned.
-        ensure_profile_in_routing(self.target_slot)
-        EventLogService.get().log_event(
-            event_type="ACCOUNT_CONNECTED",
-            title=f"Подключен аккаунт {self.selected_provider}",
-            detail=f"Слот: {self.target_slot} ({self.discovered_identity})",
-            provider=self.selected_provider,
-            profile_id=self.target_slot,
+        ok, message = ensure_profile_in_routing(self.target_slot)
+        if not ok:
+            self.finish_status_lbl.configure(text=f"❌ {message}", text_color=Theme.STATUS_ERROR)
+            return
+        # A reused slot can carry cooldown from an older account.  Fresh OAuth
+        # credentials must start with fresh health state.
+        from antigravity_provider.router.router_engine import get_router_engine
+
+        get_router_engine().health.clear_cooldown(self.target_slot)
+        EventLogService.get().log(
+            "account",
+            f"Подключен аккаунт {self.selected_provider}; слот {self.target_slot}; роль сохранена.",
+            level="success",
         )
         if self.on_complete:
             self.on_complete(

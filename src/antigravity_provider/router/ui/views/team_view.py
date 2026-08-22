@@ -712,6 +712,18 @@ class TeamView(ctk.CTkFrame):
                 break
         return "break"
 
+    def focus_role(self, role_id: str) -> None:
+        """Select a role when Routing delegates editing to this single editor."""
+        if not any(node.role_id == role_id for node in self.controller.graph.nodes):
+            self.state_label.configure(text=f"Роль {role_id} не найдена", text_color=Theme.STATUS_WARNING)
+            return
+        self.selected_role = role_id
+        self.selected_edge = ""
+        target = next((node.role_id for node in self.controller.graph.nodes if node.role_id != role_id), role_id)
+        self.edge_target.set(target)
+        self._draw_graph(rebuild=True)
+        self.state_label.configure(text=f"Редактируется цепочка: {role_id}", text_color=Theme.TEXT_ACCENT)
+
     def _connect_selected(self) -> None:
         if len(self.controller.graph.nodes) < 2:
             return

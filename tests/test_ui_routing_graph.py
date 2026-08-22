@@ -8,6 +8,7 @@ pytest.importorskip("customtkinter")
 
 from antigravity_provider.router.ui import routing_graph as graph_module
 from antigravity_provider.router.ui import add_account_wizard as wizard_module
+from antigravity_provider.router import hermes_hub_app as app_module
 from antigravity_provider.router.ui.routing_graph import (
     GraphEdge,
     GraphNode,
@@ -128,3 +129,56 @@ def test_wizard_keeps_existing_chain_rank_and_assigns_missing_slot(monkeypatch):
     )
     assert wizard_module.ensure_profile_in_routing("new-slot")[0]
     assert calls == [("new-slot", "coder", False)]
+
+
+def test_profile_test_does_not_invoke_model_or_oauth(monkeypatch):
+    profile = SimpleNamespace(provider="antigravity", preferred_models=["gemini"], profile_id="connected")
+    config = SimpleNamespace(get_profile=lambda _profile_id: profile)
+
+    class Adapter:
+        @staticmethod
+        def health_check(_profile):
+            return True
+
+        @staticmethod
+        def invoke(*_args, **_kwargs):
+            raise AssertionError("profile test must never invoke inference")
+
+    monkeypatch.setattr(app_module, "load_router_config", lambda: config)
+    monkeypatch.setattr(app_module.ProfileAuthManager, "get_profile_status", lambda *_args: {"authenticated": True})
+    monkeypatch.setattr(app_module.ProfileAuthManager, "load_profile_auth", lambda *_args: {"token": "present"})
+    monkeypatch.setattr(app_module, "get_adapter", lambda _provider: Adapter())
+    monkeypatch.setattr(app_module.EventLogService, "get", lambda: SimpleNamespace(log=lambda *_args, **_kwargs: None))
+
+    result = app_module.do_test_profile("antigravity", "connected")
+    assert result["success"] is True
+    assert "runtime" in result["response"]
+
+
+def test_wizard_finish_closes_logs_and_clears_reused_slot(monkeypatch):
+    calls = []
+    monkeypatch.setattr(wizard_module, "ensure_profile_in_routing", lambda _profile: (True, "ok"))
+    monkeypatch.setattr(
+        wizard_module.EventLogService,
+        "get",
+        lambda: SimpleNamespace(log=lambda *args, **kwargs: calls.append(("log", args, kwargs))),
+    )
+    from antigravity_provider.router import router_engine
+
+    monkeypatch.setattr(
+        router_engine,
+        "get_router_engine",
+        lambda: SimpleNamespace(health=SimpleNamespace(clear_cooldown=lambda profile: calls.append(("clear", profile)))),
+    )
+    fake = SimpleNamespace(
+        target_slot="ag-orch-fallback",
+        selected_provider="antigravity",
+        discovered_identity="account",
+        finish_status_lbl=SimpleNamespace(configure=lambda **_kwargs: None),
+        on_complete=lambda payload: calls.append(("complete", payload)),
+        destroy=lambda: calls.append(("destroy",)),
+    )
+    wizard_module.AddAccountWizard._finish(fake)
+    assert ("clear", "ag-orch-fallback") in calls
+    assert any(item[0] == "log" for item in calls)
+    assert calls[-1] == ("destroy",)

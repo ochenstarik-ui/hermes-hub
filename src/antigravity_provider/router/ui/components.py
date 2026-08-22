@@ -481,7 +481,8 @@ class HubModal(ctk.CTkToplevel):
             self,
             corner_radius=Theme.RADIUS_LG,
             border_color=Theme.BORDER_ACCENT,
-            fg_color=Theme.DARK,
+            # Contrast-safe in dark, hybrid and light palettes.
+            fg_color=Theme.SURFACE,
         )
         self.container.pack(fill="both", expand=True, padx=Theme.SPACE_LG, pady=Theme.SPACE_LG)
 

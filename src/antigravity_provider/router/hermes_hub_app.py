@@ -109,7 +109,7 @@ def do_set_orchestrator(profile_id: str) -> Tuple[bool, str]:
 
 
 def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
-    """Strictly tests stored credentials WITHOUT triggering OAuth or opening browsers."""
+    """Check local profile readiness without inference, OAuth, or a browser."""
     config = load_router_config()
     pcfg = config.get_profile(profile_id)
     if not pcfg:
@@ -119,22 +119,30 @@ def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
     if not status.get("authenticated"):
         return {"success": False, "error": "Аккаунт не добавлен. Сначала выполните подключение."}
 
-    adapter = get_adapter(pcfg.provider)
     model = pcfg.preferred_models[0] if pcfg.preferred_models else "default"
     t0 = time.time()
     try:
-        resp = adapter.invoke(
-            pcfg,
-            {
-                "model": model,
-                "messages": [{"role": "user", "content": f"Respond strictly with: TEST_OK_FOR_{profile_id}"}],
-                "temperature": 0.1,
-            },
-        )
+        auth_data = ProfileAuthManager.load_profile_auth(pcfg.provider, profile_id)
+        if not auth_data:
+            return {"success": False, "error": "Сохранённые данные авторизации не найдены"}
+        adapter = get_adapter(pcfg.provider)
+        runtime_ready = adapter.health_check(pcfg)
         el = round(time.time() - t0, 2)
-        content = resp.get("choices", [{}])[0].get("message", {}).get("content", "").strip()
-        EventLogService.get().log("system", f"Тест {profile_id} ({model}) успешно пройден за {el}s.", level="success")
-        return {"success": True, "model": model, "duration_sec": el, "response": content[:120]}
+        if not runtime_ready:
+            return {
+                "success": False,
+                "duration_sec": el,
+                "error": "Локальный runtime провайдера недоступен; повторная авторизация не запускалась",
+            }
+        EventLogService.get().log(
+            "system", f"Локальная проверка профиля {profile_id} ({model}) пройдена за {el}s.", level="success"
+        )
+        return {
+            "success": True,
+            "model": model,
+            "duration_sec": el,
+            "response": "Авторизация сохранена; runtime провайдера доступен",
+        }
     except Exception as e:
         EventLogService.get().log("system", f"Ошибка теста {profile_id} ({model}): {e}", level="error")
         return {"success": False, "model": model, "duration_sec": round(time.time() - t0, 2), "error": str(e)}
@@ -630,7 +638,12 @@ class HermesHubApp(ctk.CTk):
                 on_complete=lambda: self.after(0, self._refresh_data),
             )
         elif action == "edit_route":
-            self._show_toast("Редактор цепочки использует кнопки и селекторы; drag-and-drop отключён.")
+            role_id = data.get("role_id", "")
+            self._show_view("team")
+            team = self._views.get("team")
+            if team and hasattr(team, "focus_role"):
+                team.focus_role(role_id)
+            self._show_toast(f"Настройка цепочки роли: {role_id}")
         elif action == "open_routing":
             self._show_view("routing")
             routing = self._views.get("routing")
@@ -672,14 +685,19 @@ class HermesHubApp(ctk.CTk):
             justify="left",
         ).pack(anchor="w", pady=(0, 12))
 
-        role_var = ctk.StringVar(value="orchestrator")
+        config = load_router_config()
+        current_role = next(
+            (role_id for role_id, policy in config.roles.items() if profile_id in policy.preferred_chain),
+            "orchestrator",
+        )
+        role_var = ctk.StringVar(value=current_role)
         roles = [
             ("orchestrator", "👑 Главный оркестратор"),
-            ("coder", "💻 Кодер (Code Generation)"),
+            ("coder-primary", "💻 Основной кодер"),
+            ("coder-secondary", "💻 Резервный кодер"),
             ("reviewer", "🔍 Ревьюер (Code Review)"),
-            ("researcher", "🌐 Исследователь (Search / Docs)"),
-            ("tester", "🧪 Тестировщик (Deterministic Tests)"),
-            ("general", "⚡ Агент общего назначения (Subagent)"),
+            ("research", "🌐 Исследователь (Search / Docs)"),
+            ("fast", "⚡ Быстрый агент"),
             ("spare", "🛡️ Резерв (Spare)"),
         ]
 
@@ -695,9 +713,24 @@ class HermesHubApp(ctk.CTk):
                 hover_color=Theme.ACCENT_HOVER,
             ).pack(anchor="w", padx=8, pady=3)
 
+        primary_var = ctk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            modal.body,
+            text="Сделать основным в выбранной цепочке",
+            variable=primary_var,
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_PRIMARY,
+            fg_color=Theme.ACCENT,
+            hover_color=Theme.ACCENT_HOVER,
+        ).pack(anchor="w", padx=8, pady=(12, 3))
+
         def _save():
             chosen = role_var.get()
-            ok, msg = AutoAssigner.assign_profile_to_role(profile_id, chosen, is_primary=(chosen != "spare"))
+            ok, msg = AutoAssigner.assign_profile_to_role(
+                profile_id,
+                chosen,
+                is_primary=primary_var.get() and chosen != "spare",
+            )
             modal.destroy()
             self._show_toast(f"✅ {msg}" if ok else f"❌ {msg}")
             self._refresh_data()
@@ -714,7 +747,7 @@ class HermesHubApp(ctk.CTk):
 
     def _show_test_result(self, result: Dict[str, Any]):
         if result.get("success"):
-            msg = f"✓ Тест успешен | Модель: {result.get('model')} | Время: {result.get('duration_sec')}s"
+            msg = f"✓ Профиль готов | Модель: {result.get('model')} | Время: {result.get('duration_sec')}s"
         else:
             msg = f"✕ Ошибка теста: {result.get('error', 'Неизвестная ошибка')}"
         self._show_toast(msg)
