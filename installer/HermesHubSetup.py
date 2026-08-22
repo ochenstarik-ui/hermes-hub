@@ -68,7 +68,15 @@ def run_installation(silent: bool = False):
     print(f" Hermes Hub Setup — Master Installer v{__version__}")
     print("=" * 60)
 
-    # 1. Prerequisite check
+    # 1. Prerequisite & Previous Install check
+    manifest_file = paths.get_hermes_home() / "plugins" / "antigravity-provider" / "deployment_manifest.json"
+    if manifest_file.exists():
+        try:
+            m = json.loads(manifest_file.read_text(encoding="utf-8"))
+            print(f" [РЕЖИМ ПЕРЕУСТАНОВКИ] Обнаружена установленная копия: v{m.get('version', '0.1.0')} ({m.get('deployed_at', 'unknown')})")
+        except Exception:
+            print(" [РЕЖИМ ПЕРЕУСТАНОВКИ] Обнаружена установленная копия Hermes Hub.")
+
     print("\n[1/5] Проверка наличия установленного Hermes Agent...")
     if not check_hermes_agent_installed():
         agent_dir, _ = get_hermes_agent_paths()
@@ -103,7 +111,7 @@ def run_installation(silent: bool = False):
     else:
         print(" ✓ Все необходимые зависимости уже присутствуют в venv.")
 
-    # 3. Destination Setup
+    # 3. Destination Setup (Mirroring: purge deleted/stale source files)
     hermes_home = paths.get_hermes_home()
     hub_dest = hermes_home / "plugins" / "antigravity-provider"
     print(f"\n[3/5] Развертывание файлов Hermes Hub в: {hub_dest}")
@@ -116,8 +124,8 @@ def run_installation(silent: bool = False):
         if src_folder.exists():
             if dest_folder.exists():
                 shutil.rmtree(dest_folder, ignore_errors=True)
-            shutil.copytree(src_folder, dest_folder)
-            print(f" ✓ Скопирована папка: {folder}")
+            shutil.copytree(src_folder, dest_folder, ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+            print(f" ✓ Скопирована папка (зеркало): {folder}")
 
     # Copy root files if available
     for f in ["pyproject.toml", "README.md"]:
@@ -173,10 +181,11 @@ def run_installation(silent: bool = False):
     print(" ✓ AppUserModelID: HermesHub.Desktop")
     print(" ✓ Theme & Branding: Obsidian Forest")
     print("\n" + "=" * 60)
-    print(" [УСПЕХ] Установка Hermes Hub успешно завершена!")
+    print(" [УСПЕХ] Установка / Переустановка Hermes Hub успешно завершена!")
     print("=" * 60)
 
 
 if __name__ == "__main__":
-    is_silent = "/silent" in [a.lower() for a in sys.argv] or "-s" in sys.argv
+    args_lower = [a.lower() for a in sys.argv]
+    is_silent = "/silent" in args_lower or "-s" in args_lower or "/reinstall" in args_lower or "/repair" in args_lower
     run_installation(silent=is_silent)

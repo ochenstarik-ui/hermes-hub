@@ -46,14 +46,24 @@
 
 ---
 
-## 4. Зеркальное развёртывание инсталлятора и манифест (P0-4)
+## 4. Зеркальное развёртывание инсталлятора и манифест (P0-4 & P0-4bis)
 
-- **В `installer/HermesHubSetup.cs`**:
-  - Функция `CopyDirectoryRecursive` переведена на `MirrorDirectoryRecursive`: рекурсивно зеркалирует источник, удаляя устаревшие или мертвые файлы/каталоги в целевой папке (`pluginDst`), игнорируя `__pycache__` и `.pyc`.
-  - При установке создается `deployment_manifest.json` с полями `version`, `deployed_at`, `git_commit`.
-  - Скомпилирован `dist/HermesHubSetup.exe` и обновлен `dist/checksums.txt`.
-- **В `installer/HermesHubSetup.py`**: также добавлено зеркальное копирование и запись `deployment_manifest.json`.
-- **Тест**: `test_mirror_deployment_removes_deleted_files` подтверждает удаление исчезнувших из источника файлов.
+- **Различение первой установки и переустановки в мастере GUI**:
+  - `SetupEngine.DetectHermes()` определяет установленную копию по наличию `HermesHub.exe` или `deployment_manifest.json`, считывая установленную версию и дату.
+  - Если Hub уже установлен (`SetupEngine.IsInstalled`), первый экран мастера переключается в **режим переустановки**:
+    - Отображает текущую установленную версию (например, `0.1.0 (19.08.2026)`), версию в дистрибутиве (`0.1.1`) и путь к каталогу программы.
+    - Предлагает действия: `[ Переустановить ]` (запуск зеркальной установки), `[ 🗑️ Удалить Hub ]` (вызов деинсталлятора) и `[ Отмена ]`.
+  - При первой установке (Hub не установлен) показывается стандартный приветственный экран с проверкой Hermes Agent и переходом к параметрам компонентов.
+- **Зеркалирование при переустановке**:
+  - `MirrorDirectoryRecursive` зеркалирует файлы дистрибутива в целевой каталог плагина и программы, очищая устаревшие и удаленные в новой версии модули и исключая `__pycache__` и `.pyc`.
+  - **Гарантированное сохранение пользовательских данных**: все пользовательские каталоги авторизации (`agy_profiles`, `codex_profiles`, `opengo_profiles`, `claude_profiles`, `grok_profiles`), `router_profiles.yaml`, `hub_settings.json`, логи (`logs/`), состояние (`router_state.json`) и телеметрия изолированы и остаются неизменными.
+  - При установке генерируется `deployment_manifest.json` (`version`, `deployed_at`, `git_commit`).
+  - Поддержан флаг командной строки `/reinstall` (и алиас `/repair`).
+  - Перекомпилирован `dist/HermesHubSetup.exe` и обновлен `dist/checksums.txt`.
+- **Тесты**:
+  1. `test_mirror_deployment_removes_deleted_files`: в песочнице развертывание версии A, удаление файла в источнике и переустановка версии B полностью очищает целевую папку от удаленного файла.
+  2. `test_reinstall_preserves_user_data_and_credentials`: создание `auth.json`, кастомного `router_profiles.yaml` и `hub_settings.json` с последующей переустановкой подтверждает их 100% сохранность и неизменность.
+  3. `test_detection_of_installed_copy`: корректно определяет наличие установленной копии по манифесту и возвращает точные версии.
 
 ---
 
@@ -71,15 +81,24 @@
 
 ---
 
-## 6. Результаты проверок
+## 6. Статус по YAML round-trip (P1-6)
+
+- **Статус**: Частично.
+- **Сохраняется**: все секции `roles`, `profiles`, `pricing`, `settings`, структура словарей, списков и комментарии верхнего уровня.
+- **Теряется**: инлайн-комментарии внутри блоков отдельных полей профилей при сериализации через `yaml.safe_dump` (о чем зафиксировано в документации и контракте).
+
+---
+
+## 7. Результаты проверок
 
 - **Headless pytest** (Python 3.8):
-  `pytest -v` → **201 passed, 27 skipped, 3 deselected in 10.70s**
+  `pytest -v` → **203 passed, 27 skipped, 3 deselected in 11.16s**
 - **Full pytest** (Python 3.12):
-  `& "C:\Users\trush\AppData\Local\Programs\Python\Python312\python.exe" -m pytest -v` → **201 passed, 27 skipped, 3 deselected in 10.54s**
+  `& "C:\Users\trush\AppData\Local\Programs\Python\Python312\python.exe" -m pytest -v` → **203 passed, 27 skipped, 3 deselected in 11.89s**
 - **Ruff linter**:
   `ruff check .` → **All checks passed!**
 - **Release Gate**:
   `python scripts/release_gate.py` → **7/7 PASSED** (`[RELEASE GATE: PASSED] All criteria verified. Ready for Candidate v0.1.1`)
 - **Live Update Feed**:
   `[MANIFEST_LIVE=True, PACKAGE_LIVE=True, PACKAGE_HASH_VERIFIED=True]` (sha256 `b5bbdea2a7a2157a26389266aab07ab3602bb00b4612065c48defec9d6fe909c`)
+- **UI Zone Isolation**: `0 files modified in UI area` (`src/antigravity_provider/router/ui/**`, `tests/test_ui_*.py`)

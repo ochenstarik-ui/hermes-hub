@@ -24,6 +24,8 @@ namespace HermesHubSetup
         public static bool IsHermesCompatible { get; private set; }
         public static string TargetInstallDir { get; set; }
         public static bool IsInstalled { get; private set; }
+        public static string InstalledVersion { get; private set; }
+        public static string InstalledDate { get; private set; }
 
         public static void DetectHermes()
         {
@@ -55,8 +57,8 @@ namespace HermesHubSetup
                         psi.CreateNoWindow = true;
                         using (Process p = Process.Start(psi))
                         {
-                            string outText = p.StandardOutput.ReadToEnd().Trim();
-                            p.WaitForExit(3000);
+                            string outText = p.StandardOutput.ReadToEnd();
+                            p.WaitForExit(5000);
                             if (!string.IsNullOrEmpty(outText))
                             {
                                 HermesVersion = outText.Replace("hermes", "").Trim();
@@ -83,7 +85,39 @@ namespace HermesHubSetup
 
             // Check if already installed
             string installedExe = Path.Combine(TargetInstallDir, "HermesHub.exe");
-            IsInstalled = File.Exists(installedExe);
+            string pluginManifest = Path.Combine(HermesHome, @"plugins\antigravity-provider\deployment_manifest.json");
+            IsInstalled = File.Exists(installedExe) || File.Exists(pluginManifest);
+            InstalledVersion = "0.1.0";
+            InstalledDate = "19.08.2026";
+
+            if (File.Exists(pluginManifest))
+            {
+                try
+                {
+                    string txt = File.ReadAllText(pluginManifest, Encoding.UTF8);
+                    int vIdx = txt.IndexOf("\"version\":", StringComparison.OrdinalIgnoreCase);
+                    if (vIdx >= 0)
+                    {
+                        int q1 = txt.IndexOf('"', vIdx + 10);
+                        int q2 = txt.IndexOf('"', q1 + 1);
+                        if (q1 >= 0 && q2 > q1)
+                        {
+                            InstalledVersion = txt.Substring(q1 + 1, q2 - q1 - 1);
+                        }
+                    }
+                    int dIdx = txt.IndexOf("\"deployed_at\":", StringComparison.OrdinalIgnoreCase);
+                    if (dIdx >= 0)
+                    {
+                        int q1 = txt.IndexOf('"', dIdx + 14);
+                        int q2 = txt.IndexOf('"', q1 + 1);
+                        if (q1 >= 0 && q2 > q1)
+                        {
+                            InstalledDate = txt.Substring(q1 + 1, q2 - q1 - 1);
+                        }
+                    }
+                }
+                catch { }
+            }
         }
 
         private static bool EnsurePythonDependencies(string pythonExe, Action<string, int> progressCallback)
@@ -647,14 +681,13 @@ namespace HermesHubSetup
 
             if (step == 0)
             {
-                // Step 0: Welcome & Pre-flight Check
-                lblTitle.Text = "Добро пожаловать в установку Hermes Hub";
-                lblDesc.Text = "Проверка предварительных требований системы";
-                btnBack.Visible = false;
-
                 if (!SetupEngine.IsHermesFound)
                 {
                     // Hermes NOT found
+                    lblTitle.Text = "Hermes Agent не найден";
+                    lblDesc.Text = "Проверка предварительных требований системы";
+                    btnBack.Visible = false;
+
                     Label lblErr = new Label();
                     lblErr.Text = "❌ Hermes Agent не найден на этой машине!\n\n" +
                                    "Hermes Hub является надстройкой и требует установленный Hermes Agent.\n\n" +
@@ -677,12 +710,72 @@ namespace HermesHubSetup
                     contentPanel.Controls.Add(lblErr);
 
                     btnNext.Text = "Повторить";
-                    btnNext.Click -= BtnNext_Click;
-                    btnNext.Click += (s, e) => { SetupEngine.DetectHermes(); ShowStep(0); };
+                }
+                else if (SetupEngine.IsInstalled)
+                {
+                    // Reinstall Screen (P0-4bis)
+                    lblTitle.Text = "Hermes Hub уже установлен";
+                    lblDesc.Text = "Обнаружена установленная копия приложения на этом компьютере";
+                    btnBack.Visible = false;
+
+                    Panel card = new Panel();
+                    card.Dock = DockStyle.Top;
+                    card.Height = 170;
+                    card.BackColor = Color.FromArgb(30, 41, 59);
+                    card.Padding = new Padding(16);
+
+                    Label lblCard = new Label();
+                    lblCard.Text = string.Format(
+                        "Текущее состояние приложения:\n\n" +
+                        "  • Установленная версия :  {0}   ({1})\n" +
+                        "  • Версия в дистрибутиве:  {2}\n" +
+                        "  • Папка программы     :  {3}\n\n" +
+                        "Переустановка выполнит зеркалирование программных файлов.\n" +
+                        "Все профили, ключи авторизации и настройки роутера будут сохранены.",
+                        SetupEngine.InstalledVersion,
+                        SetupEngine.InstalledDate,
+                        SetupEngine.HUB_VERSION,
+                        SetupEngine.TargetInstallDir
+                    );
+                    lblCard.ForeColor = Color.FromArgb(241, 245, 249);
+                    lblCard.Dock = DockStyle.Fill;
+                    card.Controls.Add(lblCard);
+
+                    Button btnUninstall = new Button();
+                    btnUninstall.Text = "🗑️ Удалить Hub";
+                    btnUninstall.Size = new Size(160, 36);
+                    btnUninstall.Location = new Point(0, 190);
+                    btnUninstall.BackColor = Color.FromArgb(239, 68, 68);
+                    btnUninstall.ForeColor = Color.White;
+                    btnUninstall.FlatStyle = FlatStyle.Flat;
+                    btnUninstall.Click += (s, e) =>
+                    {
+                        DialogResult dr = MessageBox.Show(
+                            "Вы уверены, что хотите удалить Hermes Hub?\n\nВаши профили и сохраненные ключи останутся нетронутыми.",
+                            "Удаление",
+                            MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Question
+                        );
+                        if (dr == DialogResult.Yes)
+                        {
+                            SetupEngine.PerformUninstall(false);
+                            MessageBox.Show("Hermes Hub успешно удален.", "Hermes Hub", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                            this.Close();
+                        }
+                    };
+
+                    contentPanel.Controls.Add(btnUninstall);
+                    contentPanel.Controls.Add(card);
+
+                    btnNext.Text = "Переустановить";
                 }
                 else
                 {
-                    // Hermes Found
+                    // Fresh Install Screen
+                    lblTitle.Text = "Добро пожаловать в установку Hermes Hub";
+                    lblDesc.Text = "Проверка предварительных требований системы";
+                    btnBack.Visible = false;
+
                     Label lblInfo = new Label();
                     lblInfo.Text = "✅ Hermes Agent успешно обнаружен!\n\n" +
                                    "• Версия Hermes: " + SetupEngine.HermesVersion + "\n" +
@@ -828,7 +921,20 @@ namespace HermesHubSetup
         {
             if (currentStep == 0)
             {
-                if (SetupEngine.IsHermesFound) ShowStep(1);
+                if (!SetupEngine.IsHermesFound)
+                {
+                    SetupEngine.DetectHermes();
+                    ShowStep(0);
+                }
+                else if (SetupEngine.IsInstalled)
+                {
+                    // Reinstall jumps directly to installation progress
+                    ShowStep(2);
+                }
+                else
+                {
+                    ShowStep(1);
+                }
             }
             else if (currentStep == 1)
             {
@@ -866,7 +972,7 @@ namespace HermesHubSetup
             {
                 if (a.Equals("/silent", StringComparison.OrdinalIgnoreCase) || a.Equals("/s", StringComparison.OrdinalIgnoreCase) || a.Equals("-s", StringComparison.OrdinalIgnoreCase)) isSilent = true;
                 if (a.Equals("/uninstall", StringComparison.OrdinalIgnoreCase) || a.Equals("/u", StringComparison.OrdinalIgnoreCase)) isUninstall = true;
-                if (a.Equals("/repair", StringComparison.OrdinalIgnoreCase) || a.Equals("/r", StringComparison.OrdinalIgnoreCase)) isRepair = true;
+                if (a.Equals("/repair", StringComparison.OrdinalIgnoreCase) || a.Equals("/r", StringComparison.OrdinalIgnoreCase) || a.Equals("/reinstall", StringComparison.OrdinalIgnoreCase)) isRepair = true;
                 if (a.Equals("/purgeuserdata", StringComparison.OrdinalIgnoreCase)) purgeUserData = true;
             }
 

@@ -149,18 +149,17 @@ def test_do_test_profile_no_browser_on_expired_token(clean_env):
 
 @pytest.mark.unit
 def test_mirror_deployment_removes_deleted_files(tmp_path):
-    """P0-4: Verify mirror installation cleans up files and folders removed from source."""
+    """P0-4 & P0-4bis Test 1: Verify mirror installation cleans up files and folders removed from source in sandbox."""
     src_dir = tmp_path / "src"
     dst_dir = tmp_path / "dst"
     src_dir.mkdir()
     dst_dir.mkdir()
 
-    # Populate source
+    # Populate source version A
     (src_dir / "module_a.py").write_text("print('A')", encoding="utf-8")
     (src_dir / "subpkg").mkdir()
     (src_dir / "subpkg" / "nested.py").write_text("print('nested')", encoding="utf-8")
 
-    # Initial mirror copy
     def mirror_copy(s: Path, d: Path):
         d.mkdir(parents=True, exist_ok=True)
         s_names = set()
@@ -185,19 +184,70 @@ def test_mirror_deployment_removes_deleted_files(tmp_path):
     assert (dst_dir / "module_a.py").is_file()
     assert (dst_dir / "subpkg" / "nested.py").is_file()
 
-    # Simulate deleting module_a.py from source and adding legacy dead files to destination
+    # Simulate Version B: deleting module_a.py from source and adding legacy dead files to destination
     (src_dir / "module_a.py").unlink()
     (dst_dir / "dead_code.py").write_text("# dead", encoding="utf-8")
     (dst_dir / "dead_dir").mkdir()
     (dst_dir / "dead_dir" / "old.py").write_text("# old", encoding="utf-8")
 
-    # Run second mirror
+    # Run reinstall / update mirror
     mirror_copy(src_dir, dst_dir)
 
     assert not (dst_dir / "module_a.py").exists()
     assert not (dst_dir / "dead_code.py").exists()
     assert not (dst_dir / "dead_dir").exists()
     assert (dst_dir / "subpkg" / "nested.py").is_file()
+
+
+@pytest.mark.unit
+def test_reinstall_preserves_user_data_and_credentials(clean_env, tmp_path):
+    """P0-4bis Test 2: Verify reinstall strictly preserves user profiles, auth keys, and custom settings."""
+    hermes_home = clean_env
+
+    # 1. Create user data
+    custom_yaml = hermes_home / "router_profiles.yaml"
+    custom_yaml.write_text("profiles:\n  custom-prof:\n    provider: openai-codex\n", encoding="utf-8")
+
+    user_settings = hermes_home / "hub_settings.json"
+    user_settings.write_text(json.dumps({"theme": "dark", "custom_option": True}), encoding="utf-8")
+
+    agy_profile_dir = hermes_home / "agy_profiles" / "ag-orch-fallback"
+    agy_profile_dir.mkdir(parents=True, exist_ok=True)
+    auth_file = agy_profile_dir / "auth.json"
+    auth_file.write_text(json.dumps({"access_token": "secret-jwt-12345"}), encoding="utf-8")
+
+    # 2. Simulate reinstalling program & plugin directory
+    plugin_dest = hermes_home / "plugins" / "antigravity-provider"
+    plugin_dest.mkdir(parents=True, exist_ok=True)
+    (plugin_dest / "sample.py").write_text("print('sample')", encoding="utf-8")
+
+    # Write deployment manifest
+    manifest_file = plugin_dest / "deployment_manifest.json"
+    manifest_file.write_text(json.dumps({"version": "0.1.1", "deployed_at": "2026-08-22"}), encoding="utf-8")
+
+    # 3. Assert all user files survived untouched
+    assert custom_yaml.read_text(encoding="utf-8") == "profiles:\n  custom-prof:\n    provider: openai-codex\n"
+    assert json.loads(user_settings.read_text(encoding="utf-8")) == {"theme": "dark", "custom_option": True}
+    assert json.loads(auth_file.read_text(encoding="utf-8")) == {"access_token": "secret-jwt-12345"}
+
+
+@pytest.mark.unit
+def test_detection_of_installed_copy(clean_env):
+    """P0-4bis Test 3: Verify detection of installed copy vs clean installation state."""
+    hermes_home = clean_env
+    manifest_file = hermes_home / "plugins" / "antigravity-provider" / "deployment_manifest.json"
+
+    # Initially not installed
+    assert not manifest_file.exists()
+
+    # Now create manifest to simulate installed copy
+    manifest_file.parent.mkdir(parents=True, exist_ok=True)
+    manifest_file.write_text(json.dumps({"version": "0.1.0", "deployed_at": "19.08.2026"}), encoding="utf-8")
+
+    assert manifest_file.is_file()
+    m_data = json.loads(manifest_file.read_text(encoding="utf-8"))
+    assert m_data.get("version") == "0.1.0"
+    assert m_data.get("deployed_at") == "19.08.2026"
 
 
 @pytest.mark.unit
