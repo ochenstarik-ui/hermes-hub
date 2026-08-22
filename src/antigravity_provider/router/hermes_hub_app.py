@@ -119,6 +119,9 @@ def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
     if not status.get("authenticated"):
         return {"success": False, "error": "Аккаунт не добавлен. Сначала выполните подключение."}
 
+    if status.get("expired"):
+        return {"success": False, "error": "Авторизация истекла, требуется повторный вход."}
+
     adapter = get_adapter(pcfg.provider)
     model = pcfg.preferred_models[0] if pcfg.preferred_models else "default"
     t0 = time.time()

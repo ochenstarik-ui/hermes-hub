@@ -161,7 +161,7 @@ class AutoAssigner:
                 candidates.remove("ag-orch-fallback")
                 candidates.insert(0, "ag-orch-fallback")
 
-        # Find first slot without saved auth
+        # Find first slot without saved auth that exists in config
         for pid in candidates:
             pcfg = config.get_profile(pid)
             if not pcfg:
@@ -170,7 +170,7 @@ class AutoAssigner:
             if not status.get("authenticated"):
                 return pid
 
-        return candidates[0] if candidates else None
+        return None
 
     @staticmethod
     def recommend_assignment(provider: str) -> Tuple[str, str, str]:
@@ -207,7 +207,7 @@ class AutoAssigner:
             dname, _, _ = AutoAssigner.get_display_name_and_role(slot)
             return slot, dname, "Оптимальный свободный слот для расширения мощности команды."
 
-        return "ag-spare-1", "Резерв", "Дополнительный слот резерва."
+        return "", "Нет свободных слотов", "Все доступные слоты провайдера уже подключены либо отсутствуют в конфигурации."
 
     @staticmethod
     def assign_profile_to_role(profile_id: str, role_name: str, is_primary: bool = True) -> Tuple[bool, str]:
