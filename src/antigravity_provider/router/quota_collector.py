@@ -159,6 +159,22 @@ class AccountQuotaService:
         with self._cache_lock:
             self._snapshots[key] = snap
 
+        if snap.source == "provider_api":
+            measured_by_family: dict[str, float] = {}
+            for bucket in snap.buckets:
+                family = bucket.model_family
+                remaining = bucket.remaining_percent
+                if not family or remaining is None:
+                    continue
+                measured_by_family[family] = min(measured_by_family.get(family, 100.0), float(remaining))
+            if measured_by_family:
+                try:
+                    from .router_engine import get_router_engine
+
+                    get_router_engine().health.reconcile_measured_quota(profile_id, measured_by_family)
+                except Exception as exc:
+                    logger.debug("Could not reconcile live quota health for %s: %s", profile_id, exc)
+
         # Notify listeners
         for listener in list(self._listeners):
             try:
@@ -362,9 +378,9 @@ class AccountQuotaService:
             auth_data["project_id"] = project_id
             ProfileAuthManager.save_profile_auth("antigravity", profile_id, auth_data)
 
-        def _fetch(token: str) -> dict[str, Any]:
+        def _fetch(token: str, operation: str) -> dict[str, Any]:
             request = urllib.request.Request(
-                "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels",
+                f"https://daily-cloudcode-pa.googleapis.com/v1internal:{operation}",
                 data=json.dumps({"project": project_id}).encode("utf-8"),
                 headers={
                     "Authorization": f"Bearer {token}",
@@ -376,12 +392,67 @@ class AccountQuotaService:
             with urllib.request.urlopen(request, timeout=30) as response:
                 return json.loads(response.read().decode("utf-8") or "{}")
 
+        def _fetch_with_refresh(operation: str) -> dict[str, Any]:
+            nonlocal access_token
+            try:
+                return _fetch(str(access_token), operation)
+            except urllib.error.HTTPError as exc:
+                if exc.code != 401 or not refresh_token:
+                    raise
+                access_token = _refresh_and_save()
+                return _fetch(access_token, operation)
+
+        # This is the endpoint used by the Antigravity usage screen. It
+        # exposes the four semantic buckets: Gemini and Claude/GPT, each with
+        # a five-hour and weekly window. Treat it as best-effort so older
+        # accounts can still fall back to per-model capacity below.
         try:
-            payload = _fetch(str(access_token))
-        except urllib.error.HTTPError as exc:
-            if exc.code != 401 or not refresh_token:
-                raise
-            payload = _fetch(_refresh_and_save())
+            summary_payload = _fetch_with_refresh("retrieveUserQuotaSummary")
+        except Exception as exc:
+            logger.info("Grouped Antigravity quota unavailable for %s: %s", profile_id, exc)
+            summary_payload = {}
+
+        summary_groups = summary_payload.get("groups") if isinstance(summary_payload, dict) else None
+        grouped: dict[tuple[str, str], QuotaBucket] = {}
+        if isinstance(summary_groups, list):
+            for group in summary_groups:
+                if not isinstance(group, dict):
+                    continue
+                group_name = str(group.get("displayName") or group.get("description") or "").lower()
+                family = "gemini" if "gemini" in group_name else "claude" if "claude" in group_name else None
+                family_label = "Gemini" if family == "gemini" else "Claude/GPT"
+                if family is None:
+                    continue
+                for bucket_data in group.get("buckets") or []:
+                    if not isinstance(bucket_data, dict):
+                        continue
+                    remaining_fraction = bucket_data.get("remainingFraction")
+                    window_raw = str(bucket_data.get("window") or "").lower()
+                    window = "7d" if "week" in window_raw or window_raw == "7d" else "5h" if "5" in window_raw else ""
+                    if not isinstance(remaining_fraction, (int, float)) or not window:
+                        continue
+                    window_label = "неделя" if window == "7d" else "5 часов"
+                    grouped[(family, window)] = QuotaBucket(
+                        id=f"antigravity.{family}.{window}",
+                        display_name=f"{family_label} • {window_label}",
+                        model_family=family,
+                        remaining_percent=max(0.0, min(100.0, float(remaining_fraction) * 100.0)),
+                        reset_at=_parse_datetime(bucket_data.get("resetTime")),
+                        period=window,
+                        unit="model capacity",
+                        scope="model_family",
+                    )
+        ordered_keys = (("claude", "5h"), ("gemini", "5h"), ("claude", "7d"), ("gemini", "7d"))
+        if all(key in grouped for key in ordered_keys):
+            return QuotaSnapshot(
+                account_id=profile_id,
+                provider="antigravity",
+                buckets=[grouped[key] for key in ordered_keys],
+                fetched_at=now,
+                source="provider_api",
+            )
+
+        payload = _fetch_with_refresh("fetchAvailableModels")
 
         models = payload.get("models") or {}
         if not isinstance(models, dict):

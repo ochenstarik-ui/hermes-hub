@@ -519,6 +519,16 @@ class DashboardView(ctk.CTkFrame):
         return "Нет данных API", None
 
     @staticmethod
+    def _agent_quota_measurement(snapshot: HubSnapshot, agent: Any) -> tuple[str, Optional[float]]:
+        quota = snapshot.quotas.get(agent.assigned_profile_id)
+        if quota and not getattr(quota, "is_estimated", True):
+            bucket = quota.get_bucket_for_model(agent.model)
+            if bucket and bucket.remaining_percent is not None:
+                remaining = float(bucket.remaining_percent)
+                return bucket.formatted_remaining(), remaining
+        return agent.active_quota_label or "Нет данных API", None
+
+    @staticmethod
     def _sync_endpoint_cards(
         slots: list[Any],
         cache: Dict[str, _EndpointCard],
@@ -626,22 +636,25 @@ class DashboardView(ctk.CTkFrame):
             self.route_diagram.orchestrator.update_node("Не назначен", "Н/Д", False)
 
         agents = [agent for agent in snapshot.agents if not agent.is_main_orchestrator][:5]
-        self._sync_endpoint_cards(
-            self.route_diagram.agent_slots,
-            self._agent_cards,
-            (
+        agent_items = []
+        for agent in agents:
+            agent_quota_text, agent_quota_percent = self._agent_quota_measurement(snapshot, agent)
+            agent_items.append(
                 (
                     agent.role_id,
                     agent.provider,
                     agent.role_name_ru,
                     f"{agent.provider_display_name} • {agent.model}",
                     "Здорово" if agent.is_active else agent.status_label_ru,
-                    agent.active_quota_label or "Нет данных API",
-                    None,
+                    agent_quota_text,
+                    agent_quota_percent,
                     "healthy" if agent.is_active else "warning",
                 )
-                for agent in agents
-            ),
+            )
+        self._sync_endpoint_cards(
+            self.route_diagram.agent_slots,
+            self._agent_cards,
+            agent_items,
         )
         for agent in agents:
             card = self._agent_cards.get(agent.role_id)

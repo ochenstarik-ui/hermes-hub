@@ -273,6 +273,36 @@ class HealthTracker:
 
             self._save_state()
 
+    def reconcile_measured_quota(self, profile_id: str, remaining_by_family: Dict[str, float]) -> bool:
+        """Clear stale quota-exhausted flags when the provider reports live capacity.
+
+        A successful quota read is authoritative for quota exhaustion, but it
+        must not erase unrelated authentication or runtime failures.
+        """
+        measured = {family: float(value) for family, value in remaining_by_family.items()}
+        if not measured:
+            return False
+        with self._lock:
+            record = self.get_or_create(profile_id)
+            changed = False
+            for family, remaining in measured.items():
+                family_record = record.families.get(family)
+                if remaining > 0 and family_record and family_record.state == QUOTA_EXHAUSTED:
+                    family_record.state = HEALTHY
+                    family_record.reset_at = None
+                    family_record.reason = None
+                    family_record.last_error = None
+                    family_record.simulated = False
+                    changed = True
+            if all(value > 0 for value in measured.values()) and record.overall_state == QUOTA_EXHAUSTED:
+                record.overall_state = HEALTHY
+                record.last_error = None
+                record.simulated = False
+                changed = True
+            if changed:
+                self._save_state()
+            return changed
+
     def mark_quota_exhausted(
         self,
         profile_id: str,

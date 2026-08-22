@@ -376,6 +376,8 @@ class HermesHubApp(ctk.CTk):
             text_color=Theme.STATUS_HEALTHY,
         )
         self.status_left.pack(side="left", padx=Theme.SPACE_LG)
+        self.status_left.configure(cursor="hand2")
+        self.status_left.bind("<Button-1>", lambda _event: self._show_view("health"), add="+")
 
         self.global_search = ctk.CTkEntry(
             self.statusbar,
@@ -580,7 +582,7 @@ class HermesHubApp(ctk.CTk):
 
         freshness = "⚠ Данные устарели" if snap.is_stale else f"Snapshot #{snap.seq}"
         self.status_left.configure(
-            text=f"● {readiness.title_ru}",
+            text=f"● {readiness.title_ru}{' · Подробнее' if readiness.state != 'healthy' else ''}",
             text_color=Theme.STATUS_HEALTHY
             if readiness.state == "healthy"
             else Theme.STATUS_WARNING
@@ -1108,7 +1110,7 @@ class HermesHubApp(ctk.CTk):
 
         readiness = HubStateStore.get().get_snapshot().readiness
         self.status_left.configure(
-            text=f"● {readiness.title_ru}",
+            text=f"● {readiness.title_ru}{' · Подробнее' if readiness.state != 'healthy' else ''}",
             text_color=Theme.STATUS_HEALTHY
             if readiness.state == "healthy"
             else Theme.STATUS_WARNING

@@ -212,6 +212,58 @@ def test_agent_quota_and_failover_reason_are_bound_to_their_models(ui_root) -> N
         team_card.destroy()
 
 
+def test_dashboard_agent_quota_measurement_drives_progress_percent() -> None:
+    agent = AgentViewModel(
+        role_id="coder-primary",
+        role_name_ru="Кодер 1",
+        role_description_ru="Основной кодер",
+        assigned_profile_id="ag-w1",
+        assigned_display_name="Primary",
+        provider="antigravity",
+        provider_display_name="Google Antigravity",
+        model="gemini-3.1-pro",
+        account_identity="user@example.test",
+        routing_position="Primary",
+        status="healthy",
+        status_label_ru="Работает",
+        is_active=True,
+        is_main_orchestrator=False,
+        active_quota_status="healthy",
+        active_quota_label="Осталось 73%",
+    )
+    snapshot = HubSnapshot(
+        generation=1,
+        seq=1,
+        timestamp=time.time(),
+        profiles_by_provider={},
+        all_profiles={},
+        readiness=_readiness(),
+        agents=[agent],
+        providers=[],
+        routing={},
+        quotas={
+            "ag-w1": QuotaSnapshot(
+                account_id="ag-w1",
+                provider="antigravity",
+                source="provider_api",
+                buckets=[
+                    QuotaBucket(
+                        id="antigravity.gemini.7d",
+                        display_name="Gemini • неделя",
+                        model_family="gemini",
+                        remaining_percent=73.0,
+                    )
+                ],
+            )
+        },
+    )
+
+    label, percent = DashboardView._agent_quota_measurement(snapshot, agent)
+
+    assert label == "Осталось 73%"
+    assert percent == 73.0
+
+
 @pytest.mark.ui
 def test_stale_snapshot_is_visibly_marked_with_sequence(ui_root) -> None:
     snapshot = HubSnapshot(

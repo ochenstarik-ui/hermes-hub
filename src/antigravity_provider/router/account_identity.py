@@ -265,12 +265,14 @@ class QuotaSnapshot:
         return f"Обновлено: {hrs} ч назад"
 
     def get_bucket_for_model(self, model_or_family: str) -> Optional[QuotaBucket]:
-        """Find the relevant quota bucket for a given model or model family."""
+        """Find the most constraining quota bucket for a model family."""
         target = model_or_family.lower()
-        # Direct family match
-        for b in self.buckets:
-            if b.model_family and b.model_family.lower() in target:
-                return b
+        matches = [b for b in self.buckets if b.model_family and b.model_family.lower() in target]
+        if matches:
+            measured = [b for b in matches if b.remaining_percent is not None]
+            if measured:
+                return min(measured, key=lambda bucket: float(bucket.remaining_percent or 0.0))
+            return matches[0]
         # Fallback to first available bucket
         return self.buckets[0] if self.buckets else None
 

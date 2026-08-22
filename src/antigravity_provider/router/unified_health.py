@@ -511,10 +511,17 @@ class UnifiedHealthService:
         dead_roles = 0
         warnings: List[str] = []
 
-        total_accounts = sum(len(profs) for profs in profiles_by_prov.values())
-        connected_accounts = sum(
-            1 for profs in profiles_by_prov.values() for p in profs if p.auth_state == "AUTHENTICATED"
-        )
+        # Empty/cold placeholders are capacity for future accounts, not broken
+        # accounts. They remain visible in provider slot counts but must not
+        # downgrade a system whose configured routes are all operational.
+        configured_profiles = [
+            profile
+            for profiles in profiles_by_prov.values()
+            for profile in profiles
+            if not profile.is_empty_slot
+        ]
+        total_accounts = len(configured_profiles)
+        connected_accounts = sum(1 for profile in configured_profiles if profile.auth_state == "AUTHENTICATED")
 
         providers_online = sum(
             1 for profs in profiles_by_prov.values() if any(p.health_state == STATUS_HEALTHY for p in profs)
