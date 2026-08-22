@@ -150,6 +150,11 @@ class AccountQuotaService:
         except Exception as e:
             logger.warning("Error fetching quota for %s/%s: %s", provider, profile_id, e)
             snap = self._generate_baseline_snapshot(provider, profile_id)
+            status = getattr(e, "status", None)
+            if status == 401 or "401" in str(e) or "unauthenticated" in str(e).lower():
+                snap.unavailable_reason = "Авторизация истекла — обновите подключение"
+            else:
+                snap.unavailable_reason = "Провайдер не вернул данные лимитов"
 
         with self._cache_lock:
             self._snapshots[key] = snap
@@ -330,9 +335,32 @@ class AccountQuotaService:
         if not access_token:
             raise RuntimeError("В профиле Antigravity отсутствует access token")
 
+        refresh_token = token_data.get("refresh_token") or token_data.get("refresh")
+
+        def _refresh_and_save() -> str:
+            if not refresh_token:
+                raise RuntimeError("OAuth-сессия истекла, refresh token отсутствует")
+            refreshed = refresh_access_token(str(refresh_token))
+            token_data.update(refreshed)
+            auth_data["token"] = token_data
+            ProfileAuthManager.save_profile_auth("antigravity", profile_id, auth_data)
+            return str(refreshed["access_token"])
+
+        expiry = _parse_datetime(token_data.get("expires_at") or token_data.get("expiry"))
+        if expiry and expiry <= now + timedelta(seconds=60):
+            access_token = _refresh_and_save()
+
         project_id = auth_data.get("project_id") or auth_data.get("projectId")
         if not project_id:
-            project_id = load_or_onboard_project(str(access_token))
+            try:
+                project_id = load_or_onboard_project(str(access_token))
+            except Exception as exc:
+                if (getattr(exc, "status", None) != 401 and "401" not in str(exc)) or not refresh_token:
+                    raise
+                access_token = _refresh_and_save()
+                project_id = load_or_onboard_project(str(access_token))
+            auth_data["project_id"] = project_id
+            ProfileAuthManager.save_profile_auth("antigravity", profile_id, auth_data)
 
         def _fetch(token: str) -> dict[str, Any]:
             request = urllib.request.Request(
@@ -351,15 +379,9 @@ class AccountQuotaService:
         try:
             payload = _fetch(str(access_token))
         except urllib.error.HTTPError as exc:
-            refresh_token = token_data.get("refresh_token") or token_data.get("refresh")
             if exc.code != 401 or not refresh_token:
                 raise
-            refreshed = refresh_access_token(str(refresh_token))
-            token_data.update(refreshed)
-            auth_data["token"] = token_data
-            auth_data["project_id"] = project_id
-            ProfileAuthManager.save_profile_auth("antigravity", profile_id, auth_data)
-            payload = _fetch(str(refreshed["access_token"]))
+            payload = _fetch(_refresh_and_save())
 
         models = payload.get("models") or {}
         if not isinstance(models, dict):
@@ -440,44 +462,85 @@ class AccountQuotaService:
         )
 
     def _collect_opencode_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
-        """Collect Sliding, Weekly, and Monthly usage for OpenCode Go."""
+        """Validate OpenCode Go entitlement and read usage when its API exposes it."""
         now = _utc_now()
-        b_sliding = QuotaBucket(
-            id="opencode.sliding",
-            display_name="Скользящее",
-            model_family="opencode",
-            used_percent=None,
-            remaining_percent=None,
-            period="sliding",
-            status="unknown",
+        api_key = auth_data.get("api_key")
+        if not api_key:
+            raise RuntimeError("Ключ OpenCode Go не сохранён")
+
+        base_url = "https://opencode.ai/zen/go/v1"
+
+        def _get(path: str) -> dict[str, Any]:
+            request = urllib.request.Request(
+                f"{base_url}{path}",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Accept": "application/json",
+                    "User-Agent": "hermes-hub/1.0",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=20) as response:
+                return json.loads(response.read().decode("utf-8") or "{}")
+
+        # /models is the documented read-only endpoint and confirms that the
+        # key is accepted without spending a request from the user's limit.
+        _get("/models")
+        usage: dict[str, Any] = {}
+        unavailable_reason: Optional[str] = None
+        try:
+            usage = _get("/usage")
+        except urllib.error.HTTPError as exc:
+            raw = exc.read().decode("utf-8", "replace")
+            if exc.code == 403 and "subscription required" in raw.lower():
+                unavailable_reason = "Для этого ключа не активна подписка OpenCode Go"
+            elif exc.code in (403, 404):
+                unavailable_reason = "OpenCode Go не предоставляет остаток через публичный API"
+            else:
+                raise
+
+        def _metric(*names: str) -> dict[str, Any]:
+            for name in names:
+                value = usage.get(name)
+                if isinstance(value, dict):
+                    return value
+            return {}
+
+        buckets: list[QuotaBucket] = []
+        specs = (
+            ("5h", "Лимит 5 часов", 12, _metric("five_hour", "fiveHour", "sliding")),
+            ("7d", "Недельный лимит", 30, _metric("weekly", "seven_day", "sevenDay")),
+            ("30d", "Месячный лимит", 60, _metric("monthly", "thirty_day", "thirtyDay")),
         )
-        b_weekly = QuotaBucket(
-            id="opencode.weekly",
-            display_name="Недельное",
-            model_family="opencode",
-            used_percent=None,
-            remaining_percent=None,
-            period="7d",
-            reset_at=now + timedelta(days=7),
-            status="unknown",
-        )
-        b_monthly = QuotaBucket(
-            id="opencode.monthly",
-            display_name="Ежемесячное",
-            model_family="opencode",
-            used_percent=None,
-            remaining_percent=None,
-            period="30d",
-            reset_at=now + timedelta(days=30),
-            status="unknown",
-        )
+        for period, label, limit_value, metric in specs:
+            remaining_percent = metric.get("remaining_percent", metric.get("remainingPercentage"))
+            remaining_absolute = metric.get("remaining", metric.get("remaining_amount"))
+            used_absolute = metric.get("used", metric.get("used_amount"))
+            reset_at = _parse_datetime(metric.get("reset_at") or metric.get("resetTime"))
+            buckets.append(
+                QuotaBucket(
+                    id=f"opencode.{period}",
+                    display_name=label,
+                    model_family="opencode",
+                    remaining_percent=float(remaining_percent) if isinstance(remaining_percent, (int, float)) else None,
+                    used_absolute=int(used_absolute) if isinstance(used_absolute, (int, float)) else None,
+                    remaining_absolute=(
+                        int(remaining_absolute) if isinstance(remaining_absolute, (int, float)) else None
+                    ),
+                    limit_absolute=limit_value,
+                    reset_at=reset_at,
+                    period=period,
+                    unit="USD",
+                    scope="account",
+                )
+            )
 
         return QuotaSnapshot(
             account_id=profile_id,
             provider="opencode-go",
-            buckets=[b_sliding, b_weekly, b_monthly],
+            buckets=buckets,
             fetched_at=now,
-            source="baseline",
+            source="provider_api",
+            unavailable_reason=unavailable_reason,
         )
 
     def _collect_claude_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:

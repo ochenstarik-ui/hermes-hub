@@ -868,7 +868,7 @@ class AccountCardWidget(HubCard):
         self.profile_id = profile_id
         self.profile_model: Any = None
         self.on_action = on_action
-        self.compact = compact
+        self.compact = True
         self._quota_widgets: Dict[str, QuotaBucketWidget] = {}
         self.widgets_created = 0
         self.widgets_destroyed = 0
@@ -877,8 +877,8 @@ class AccountCardWidget(HubCard):
         top.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(Theme.CARD_PAD_Y, Theme.SPACE_XS))
         self.provider = ctk.CTkLabel(top, text=provider, font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
         self.provider.pack(side="left")
-        self.toggle = IconButton(top, text="▾", command=self.toggle_compact)
-        self.toggle.pack(side="right")
+        self.profile_mark = ctk.CTkLabel(top, text="◇", font=Theme.font_caption(), text_color=Theme.TEXT_ACCENT)
+        self.profile_mark.pack(side="right")
 
         self.identity = EllipsizedLabel(self, text=identity, font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY)
         self.identity.pack(anchor="w", padx=Theme.CARD_PAD_X)
@@ -889,21 +889,37 @@ class AccountCardWidget(HubCard):
         self.status.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_SM)
 
         self.compact_quota = ctk.CTkFrame(self, fg_color="transparent")
-        self.compact_quota_labels = [
-            ctk.CTkLabel(
-                self.compact_quota,
-                text="",
-                font=Theme.font_micro(),
-                text_color=Theme.TEXT_SECONDARY,
-                anchor="w",
+        self.compact_quota_cells: list[dict[str, Any]] = []
+        for index in range(4):
+            cell = ctk.CTkFrame(self.compact_quota, fg_color="transparent")
+            cell.grid(row=index // 2, column=index % 2, sticky="nsew", padx=(0, 10), pady=(2, 6))
+            title = ctk.CTkLabel(cell, text="", font=Theme.font_micro(), text_color=Theme.TEXT_PRIMARY, anchor="w")
+            title.pack(fill="x")
+            value = ctk.CTkLabel(cell, text="", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY, anchor="e")
+            value.pack(fill="x")
+            progress = ctk.CTkProgressBar(
+                cell,
+                height=5,
+                corner_radius=3,
+                fg_color=Theme.SURFACE_MUTED,
+                progress_color=Theme.STATUS_HEALTHY,
             )
-            for _ in range(4)
-        ]
-        for index, label in enumerate(self.compact_quota_labels):
-            label.grid(row=index // 2, column=index % 2, sticky="ew", padx=(0, 8), pady=2)
+            progress.pack(fill="x", pady=(2, 1))
+            progress.set(0)
+            reset = ctk.CTkLabel(cell, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED, anchor="w")
+            reset.pack(fill="x")
+            self.compact_quota_cells.append(
+                {"frame": cell, "title": title, "value": value, "progress": progress, "reset": reset}
+            )
             self.compact_quota.grid_columnconfigure(index % 2, weight=1)
         self.compact_actions = ctk.CTkFrame(self, fg_color="transparent")
-        for text, action in (("⚡", "test"), ("↻", "refresh_account"), ("Роль", "assign_role")):
+        for text, action in (
+            ("⚡", "test"),
+            ("★", "set_main"),
+            ("♛", "set_orchestrator"),
+            ("Роль", "assign_role"),
+            ("↻", "refresh_account"),
+        ):
             ActionButton(
                 self.compact_actions,
                 text=text,
@@ -961,7 +977,7 @@ class AccountCardWidget(HubCard):
             width=72,
             command=lambda: self._trigger("delete_credentials"),
         ).pack(side="right")
-        self.set_compact(compact)
+        self.set_compact(True)
 
     @staticmethod
     def resolve_identity(profile: Any) -> str:
@@ -992,19 +1008,14 @@ class AccountCardWidget(HubCard):
         self.action_feedback.pack(fill="x", pady=(0, Theme.SPACE_XS), before=self.actions.winfo_children()[1])
 
     def toggle_compact(self) -> None:
-        self.set_compact(not self.compact)
+        # Account cards intentionally have one fixed Cockpit-style layout.
+        self.set_compact(True)
 
     def set_compact(self, compact: bool) -> None:
-        self.compact = compact
-        self.toggle.configure(text="▸" if compact else "▾")
-        if compact:
-            self.details.pack_forget()
-            self.compact_quota.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(0, Theme.SPACE_XS))
-            self.compact_actions.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(0, Theme.CARD_PAD_Y))
-        else:
-            self.compact_quota.pack_forget()
-            self.compact_actions.pack_forget()
-            self.details.pack(fill="x")
+        self.compact = True
+        self.details.pack_forget()
+        self.compact_quota.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(0, Theme.SPACE_XS))
+        self.compact_actions.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(0, Theme.CARD_PAD_Y))
 
     def update_account(self, profile: Any, quota_snapshot: Optional[Any] = None) -> None:
         self.profile_model = profile
@@ -1024,28 +1035,53 @@ class AccountCardWidget(HubCard):
             )
         else:
             self.plan_badge.pack_forget()
-        self.status.set_status(profile.health_state, getattr(profile, "health_label_ru", None))
         self.configure(border_color=Theme.BORDER_ACCENT if profile.is_main_account else Theme.BORDER)
 
         snapshot = quota_snapshot or getattr(profile, "quota_snapshot", None)
         buckets = list(getattr(snapshot, "buckets", None) or [])
         estimated = bool(getattr(snapshot, "is_estimated", True)) if snapshot else True
-        for index, label in enumerate(self.compact_quota_labels):
+        unavailable_reason = getattr(snapshot, "unavailable_reason", None) if snapshot else None
+        measured_remaining = [
+            float(bucket.remaining_percent)
+            for bucket in buckets
+            if getattr(bucket, "remaining_percent", None) is not None
+        ]
+        if measured_remaining and not estimated:
+            if all(remaining <= 0 for remaining in measured_remaining):
+                card_health, card_label = "quota_exhausted", "Квота исчерпана"
+            elif any(remaining <= 0 for remaining in measured_remaining):
+                card_health, card_label = "warning", "Часть квот исчерпана"
+            else:
+                card_health, card_label = "healthy", "Работает"
+        else:
+            card_health = profile.health_state
+            card_label = getattr(profile, "health_label_ru", None)
+        self.status.set_status(card_health, card_label)
+        for index, cell in enumerate(self.compact_quota_cells):
             if index < len(buckets):
                 bucket = buckets[index]
-                label.configure(
-                    text=f"{bucket.display_name}: {bucket.formatted_remaining()}",
-                    text_color=(
-                        Theme.STATUS_HEALTHY
-                        if getattr(bucket, "status", "unknown") == "healthy"
-                        else Theme.STATUS_WARNING
-                        if getattr(bucket, "status", "unknown") == "warning"
-                        else Theme.TEXT_MUTED
-                    ),
+                remaining = getattr(bucket, "remaining_percent", None)
+                color = (
+                    Theme.STATUS_HEALTHY
+                    if getattr(bucket, "status", "unknown") == "healthy"
+                    else Theme.STATUS_WARNING
+                    if getattr(bucket, "status", "unknown") == "warning"
+                    else Theme.TEXT_MUTED
                 )
-                label.grid()
+                detail = bucket.formatted_remaining()
+                if detail == "Н/Д" and unavailable_reason:
+                    limit = getattr(bucket, "limit_absolute", None)
+                    unit = getattr(bucket, "unit", None)
+                    prefix = f"Лимит ${limit} • " if limit is not None and unit == "USD" else ""
+                    detail = f"{prefix}{unavailable_reason}"
+                cell["title"].configure(text=bucket.display_name)
+                cell["value"].configure(text=detail, text_color=color)
+                cell["progress"].configure(progress_color=color)
+                cell["progress"].set(float(remaining) / 100.0 if remaining is not None else 0)
+                cell["reset"].configure(text=bucket.formatted_reset() or "Период указан провайдером")
+                cell["frame"].grid()
             else:
-                label.grid_remove()
+                cell["frame"].grid_remove()
         seen: set[str] = set()
         for bucket in buckets:
             key = str(getattr(bucket, "id", "") or getattr(bucket, "display_name", "bucket"))

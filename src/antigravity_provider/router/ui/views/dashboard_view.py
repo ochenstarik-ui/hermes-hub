@@ -83,10 +83,10 @@ class _EndpointCard(HubCard):
         self.subtitle.pack(anchor="w", pady=(0, 1))
         self.status = ctk.CTkLabel(text, text="", font=Theme.font_micro(), text_color=Theme.STATUS_HEALTHY)
         self.status.pack(anchor="w")
-        quota = ctk.CTkFrame(self, fg_color="transparent", width=58)
+        quota = ctk.CTkFrame(self, fg_color="transparent", width=92)
         quota.pack(side="right", fill="y", padx=(3, 8), pady=8)
         quota.pack_propagate(False)
-        self.quota_label = ctk.CTkLabel(quota, text="Н/Д", font=Theme.font_micro(), text_color=Theme.TEXT_SECONDARY)
+        self.quota_label = ctk.CTkLabel(quota, text="—", font=Theme.font_micro(), text_color=Theme.TEXT_SECONDARY)
         self.quota_label.pack(anchor="e")
         self.progress = ctk.CTkProgressBar(
             quota, height=4, corner_radius=2, progress_color=Theme.STATUS_HEALTHY, fg_color=Theme.SURFACE_MUTED
@@ -195,7 +195,10 @@ class _RouteDiagram(ctk.CTkFrame):
             self.context, text="▤  Хранилище контекста", font=Theme.font_caption(), text_color=Theme.TEXT_PRIMARY
         ).pack(pady=(6, 0))
         self.context_status = ctk.CTkLabel(
-            self.context, text="●  Состояние: Н/Д", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED
+            self.context,
+            text="●  Нет телеметрии хранилища",
+            font=Theme.font_micro(),
+            text_color=Theme.TEXT_MUTED,
         )
         self.context_status.pack()
         self._left_labels = ["", "", ""]
@@ -513,7 +516,7 @@ class DashboardView(ctk.CTkFrame):
             for bucket in quota.buckets:
                 if bucket.remaining_percent is not None:
                     return f"{bucket.remaining_percent:.0f}%", float(bucket.remaining_percent)
-        return "Н/Д", None
+        return "Нет данных API", None
 
     @staticmethod
     def _sync_endpoint_cards(
@@ -633,7 +636,7 @@ class DashboardView(ctk.CTkFrame):
                     agent.role_name_ru,
                     f"{agent.provider_display_name} • {agent.model}",
                     "Здорово" if agent.is_active else agent.status_label_ru,
-                    agent.active_quota_label or "Н/Д",
+                    agent.active_quota_label or "Нет данных API",
                     None,
                     "healthy" if agent.is_active else "warning",
                 )
@@ -658,12 +661,12 @@ class DashboardView(ctk.CTkFrame):
         left_labels: list[str] = []
         for provider in providers:
             share = dict(provider_telemetry.get(provider.provider_id) or {}).get("call_share")
-            left_labels.append(f"{share:.0%}" if share is not None else "Н/Д")
+            left_labels.append(f"{share:.0%}" if share is not None else "")
         right_labels: list[str] = []
         for agent in agents:
             measured = dict(role_telemetry.get(agent.role_id) or {})
             calls = measured.get("total_calls") if measured.get("has_data") else None
-            right_labels.append(f"{calls} выз." if calls is not None else "Н/Д")
+            right_labels.append(f"{calls} выз." if calls is not None else "")
         self.route_diagram.set_labels(left_labels, right_labels)
 
         live_provider_ids = {provider.provider_id for provider in providers}

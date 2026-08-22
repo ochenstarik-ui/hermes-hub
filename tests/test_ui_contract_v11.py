@@ -98,6 +98,29 @@ def test_plan_badge_distinguishes_trusted_inferred_and_unknown(ui_root) -> None:
 
 
 @pytest.mark.ui
+def test_live_quota_overrides_stale_exhausted_card_status(ui_root) -> None:
+    card = AccountCardWidget(ui_root, "account-1", "user@example.test", "Antigravity")
+    profile = replace(_profile(), health_state="quota_exhausted", health_label_ru="Квота исчерпана")
+    snapshot = QuotaSnapshot(
+        account_id="account-1",
+        provider="antigravity",
+        source="provider_api",
+        buckets=[
+            QuotaBucket(id="claude", display_name="Claude", remaining_percent=100.0),
+            QuotaBucket(id="gemini", display_name="Gemini", remaining_percent=100.0),
+        ],
+    )
+    try:
+        card.pack()
+        card.update_account(profile, snapshot)
+        ui_root.update_idletasks()
+        assert card.status.label.cget("text") == "Работает"
+        assert card.status.dot.cget("text_color") == Theme.STATUS_HEALTHY
+    finally:
+        card.destroy()
+
+
+@pytest.mark.ui
 def test_quota_missing_is_not_rendered_as_zero_and_reason_is_visible(ui_root) -> None:
     widget = QuotaBucketWidget(ui_root, "bucket", "Claude 5h")
     try:

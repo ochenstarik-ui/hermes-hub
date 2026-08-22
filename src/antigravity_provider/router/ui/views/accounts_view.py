@@ -29,7 +29,7 @@ PROVIDER_LABELS = {
 
 
 class ProviderGroup(ctk.CTkFrame):
-    """Collapsible provider section that retains its account cards while hidden."""
+    """Fixed provider section with always-visible Cockpit-style cards."""
 
     def __init__(self, master: Any, provider: str):
         super().__init__(master, fg_color="transparent")
@@ -37,21 +37,13 @@ class ProviderGroup(ctk.CTkFrame):
         self.collapsed = False
         self.header = ctk.CTkFrame(self, fg_color=Theme.BG_HEADER, corner_radius=Theme.RADIUS_SM)
         self.header.pack(fill="x", pady=(Theme.SPACE_SM, Theme.SPACE_XS))
-        self.toggle = ActionButton(
-            self.header,
-            text="▾",
-            variant="ghost",
-            width=34,
-            command=self.toggle_collapsed,
-        )
-        self.toggle.pack(side="left", padx=(Theme.SPACE_SM, 0))
         self.title = ctk.CTkLabel(
             self.header,
             text=PROVIDER_LABELS.get(provider, provider),
             font=Theme.font_heading(),
             text_color=Theme.TEXT_PRIMARY,
         )
-        self.title.pack(side="left", padx=Theme.SPACE_SM, pady=Theme.SPACE_SM)
+        self.title.pack(side="left", padx=Theme.SPACE_MD, pady=Theme.SPACE_SM)
         self.count = ctk.CTkLabel(self.header, text="0", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED)
         self.count.pack(side="right", padx=Theme.SPACE_MD)
         self.body = ctk.CTkFrame(self, fg_color="transparent")
@@ -60,12 +52,8 @@ class ProviderGroup(ctk.CTkFrame):
             self.body.grid_columnconfigure(column, weight=1)
 
     def toggle_collapsed(self) -> None:
-        self.collapsed = not self.collapsed
-        self.toggle.configure(text="▸" if self.collapsed else "▾")
-        if self.collapsed:
-            self.body.pack_forget()
-        else:
-            self.body.pack(fill="x")
+        self.collapsed = False
+        self.body.pack(fill="x")
 
 
 class AccountsView(ctk.CTkFrame):
@@ -91,7 +79,7 @@ class AccountsView(ctk.CTkFrame):
         header = SectionHeader(
             self,
             title="Аккаунты и квоты",
-            subtitle="Реальные идентичности, независимые лимитные корзины и резервные роли",
+            subtitle="Компактные карточки аккаунтов, реальные остатки и быстрые действия",
             action_text="+ Добавить аккаунт",
             action_cmd=lambda: self._emit("add_account", {}),
         )
@@ -203,7 +191,6 @@ class AccountsView(ctk.CTkFrame):
             return
         self._snapshot = snapshot
         live_ids = {profile.profile_id for profile in self._profiles()}
-        collapse_new_collection = len(self._cards) <= 1 and len(live_ids) > 1
         for profile_id in list(self._cards):
             if profile_id not in live_ids:
                 self._cards.pop(profile_id).destroy()
@@ -221,15 +208,12 @@ class AccountsView(ctk.CTkFrame):
                     profile.profile_id,
                     AccountCardWidget.resolve_identity(profile),
                     profile.provider_display_name,
-                    compact=len(live_ids) > 1,
+                    compact=True,
                     on_action=self._emit,
                 )
                 self._cards[profile.profile_id] = card
                 self.cards_created += 1
             card.update_account(profile, snapshot.quotas.get(profile.profile_id))
-        if collapse_new_collection:
-            for card in self._cards.values():
-                card.set_compact(True)
         self._render_visibility()
 
     def _render_visibility(self) -> None:
