@@ -1449,19 +1449,28 @@ class AddAccountWizard(HubModal):
         ).pack(side="right", padx=10, pady=10)
 
     def _finish(self):
-        EventLogService.get().log_event(
-            event_type="ACCOUNT_CONNECTED",
-            title=f"Подключен аккаунт {self.selected_provider}",
-            detail=f"Слот: {self.target_slot} ({self.discovered_identity})",
-            provider=self.selected_provider,
-            profile_id=self.target_slot,
-        )
-        if self.on_complete:
-            self.on_complete(
-                {
-                    "provider": self.selected_provider,
-                    "profile_id": self.target_slot,
-                    "identity": self.discovered_identity,
-                }
+        # Ни журналирование, ни обратный вызов не должны мешать закрытию окна:
+        # исключение здесь оставляло мастер открытым без единого признака ошибки.
+        try:
+            EventLogService.get().log(
+                "account",
+                f"Подключен аккаунт {self.selected_provider}: {self.discovered_identity}",
+                details=f"Слот: {self.target_slot}",
+                level="success",
             )
+        except Exception:
+            pass
+
+        if self.on_complete:
+            try:
+                self.on_complete(
+                    {
+                        "provider": self.selected_provider,
+                        "profile_id": self.target_slot,
+                        "identity": self.discovered_identity,
+                    }
+                )
+            except Exception:
+                pass
+
         self.destroy()
