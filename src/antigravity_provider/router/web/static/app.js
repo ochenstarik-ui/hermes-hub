@@ -413,6 +413,12 @@ function renderAccountCard(profile) {
   const quotaSnap = profile.quota_snapshot || (currentSnapshot.quotas || {})[profile.profile_id];
   const buckets = (quotaSnap && quotaSnap.buckets) ? quotaSnap.buckets : [];
   const unavailableReason = quotaSnap ? quotaSnap.unavailable_reason : null;
+  // Опрос провайдера идёт в фоне и занимает секунды. Пока он не завершился,
+  // корзины пусты — но это НЕ «данных нет». Показывать в этот момент «Н/Д»
+  // значит выдавать загрузку за отсутствие данных: владелец видел ровно это
+  // и решил, что лимиты не подтягиваются. Причина отказа важнее флага: если
+  // провайдер уже ответил «лимитов не даю», это не загрузка.
+  const isLoading = Boolean(quotaSnap && quotaSnap.is_loading) && !unavailableReason;
 
   let quotaGridHtml = '';
 
@@ -420,11 +426,11 @@ function renderAccountCard(profile) {
     const visibleBuckets = buckets.slice(0, 4);
     quotaGridHtml = `
       <div class="account-quota-grid ${visibleBuckets.length === 1 ? 'single-cell' : ''}">
-        ${visibleBuckets.map((b) => renderQuotaCell(b, unavailableReason)).join('')}
+        ${visibleBuckets.map((b) => renderQuotaCell(b, unavailableReason, isLoading)).join('')}
       </div>
     `;
   } else {
-    const reasonText = unavailableReason || (
+    const reasonText = (isLoading ? 'Опрашиваем провайдера…' : null) || unavailableReason || (
       profile.health_state === 'not_configured' || profile.health_state === 'auth_required'
         ? 'Аккаунт не подключён'
         : 'Провайдер не отдаёт лимиты'
@@ -434,7 +440,7 @@ function renderAccountCard(profile) {
         <div class="quota-cell">
           <div class="quota-cell-top">
             <span class="quota-cell-title">Квота</span>
-            <span class="quota-cell-value text-muted">Н/Д</span>
+            <span class="quota-cell-value text-muted">${isLoading ? 'Загрузка…' : 'Н/Д'}</span>
           </div>
           <div class="quota-bar-track">
             <div class="quota-bar-fill" style="width: 0%; background-color: var(--status-disabled);"></div>
@@ -469,9 +475,9 @@ function renderAccountCard(profile) {
   `;
 }
 
-function renderQuotaCell(bucket, unavailableReason) {
+function renderQuotaCell(bucket, unavailableReason, isLoading) {
   const remaining = bucket.remaining_percent;
-  let formattedValue = 'Н/Д';
+  let formattedValue = isLoading ? 'Загрузка…' : 'Н/Д';
   let barWidth = 0;
   let colorClass = 'var(--status-disabled)';
 
@@ -488,6 +494,10 @@ function renderQuotaCell(bucket, unavailableReason) {
   let resetText = bucket.reset_at
     ? `Сброс: ${formatIsoDate(bucket.reset_at)}`
     : (bucket.period ? `Период: ${bucket.period}` : (unavailableReason || 'Период провайдера'));
+
+  if (isLoading && typeof remaining !== 'number') {
+    resetText = 'Опрашиваем провайдера…';
+  }
 
   return `
     <div class="quota-cell">

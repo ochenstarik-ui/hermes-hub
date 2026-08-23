@@ -103,3 +103,24 @@ def test_actions_contract_handling():
     assert "/api/action" in app_js
     assert "executeAction" in app_js
     assert "modal-feedback-area" in app_js
+
+
+def test_client_distinguishes_loading_from_missing_data():
+    """Загрузка не должна выглядеть как отсутствие данных.
+
+    Опрос провайдера идёт в фоне и занимает секунды. Пока он не завершился,
+    корзины квот пусты. Клиент показывал в этот момент «Н/Д» — то же самое,
+    что при подключённом аккаунте без лимитов, — и владелец решил, что
+    лимиты не подтягиваются вовсе. Сервер отдаёт признак is_loading;
+    клиент обязан его учитывать.
+    """
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "is_loading" in app_js, "клиент игнорирует признак загрузки из снапшота"
+    assert "Загрузка" in app_js, "нет отдельного текста для состояния загрузки"
+
+    # Причина отказа важнее флага: если провайдер уже ответил «лимитов не
+    # даю», это не загрузка, и показывать «Загрузка…» бесконечно нельзя.
+    assert "!unavailableReason" in app_js or "! unavailableReason" in app_js, (
+        "состояние загрузки не подавляется при известной причине отказа"
+    )
