@@ -37,7 +37,27 @@ class OpenCodeGoAdapter(BaseProviderAdapter):
         if "api_key" in profile.auth_config and profile.auth_config["api_key"]:
             return profile.auth_config["api_key"]
 
-        # 2. Account-specific environment variable (e.g. OPENCODE_GO_KEY_OPENGO_1, OPENCODE_GO_KEY_1)
+        # 2. Профиль в хранилище учётных данных.
+        # Мастер подключения сохраняет ключ именно сюда, а адаптер его не читал:
+        # смотрел только YAML-конфиг и переменные окружения. Из-за этого любой
+        # аккаунт OpenCode, подключённый через интерфейс, не работал никогда —
+        # маршрутизация падала с «No API key found», хотя ключ лежал на диске.
+        # Остальные адаптеры (grok, claude, codex) читают профиль; этот — нет.
+        try:
+            from ..profile_manager import ProfileAuthManager
+
+            creds = ProfileAuthManager.load_profile_auth("opencode-go", profile.profile_id)
+            if creds:
+                for key in ("api_key", "access_token", "token"):
+                    value = creds.get(key)
+                    if isinstance(value, dict):
+                        value = value.get("api_key") or value.get("access_token")
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
+        except Exception:
+            pass
+
+        # 3. Account-specific environment variable (e.g. OPENCODE_GO_KEY_OPENGO_1, OPENCODE_GO_KEY_1)
         suffix = profile.profile_id.upper().replace("-", "_")
         for candidate in (
             f"OPENCODE_GO_KEY_{suffix}",
@@ -56,7 +76,7 @@ class OpenCodeGoAdapter(BaseProviderAdapter):
             if candidate in os.environ and os.environ[candidate].strip():
                 return os.environ[candidate].strip()
 
-        # 3. Global OpenCode Go keys
+        # 4. Global OpenCode Go keys
         for global_env in ("OPENCODE_GO_API_KEY", "OPENCODE_ZEN_API_KEY", "OPENCODE_API_KEY"):
             if global_env in os.environ and os.environ[global_env].strip():
                 return os.environ[global_env].strip()
