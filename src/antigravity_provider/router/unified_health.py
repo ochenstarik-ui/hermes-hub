@@ -703,6 +703,16 @@ class UnifiedHealthService:
             for p in profs:
                 for m in p.preferred_models:
                     models_set.add(m)
+                    
+            # Add discovered models from ModelDiscoveryService cache
+            try:
+                from antigravity_provider.router.model_discovery_service import ModelDiscoveryService
+                cached = ModelDiscoveryService.get().get_cached(prov_id)
+                if cached and cached.get("has_cache") and cached.get("models"):
+                    for m in cached["models"]:
+                        models_set.add(m)
+            except Exception:
+                pass
 
             summaries.append(ProviderSummary(
                 provider_id=prov_id,

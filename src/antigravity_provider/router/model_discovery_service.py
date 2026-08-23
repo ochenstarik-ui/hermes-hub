@@ -198,7 +198,7 @@ class ModelDiscoveryService:
                 return list(entry["models"]) if entry and "models" in entry else None
 
         models = result_holder[0]
-        if models is not None:
+        if models:
             with self._cache_lock:
                 self._cache[provider.lower()] = {
                     "models": models,
@@ -208,7 +208,7 @@ class ModelDiscoveryService:
             logger.info("Discovered %d models for provider '%s': %s", len(models), provider, models)
             return models
 
-        # If probe returned None, retain existing cache if any
+        # If probe returned None or empty, retain existing cache if any
         with self._cache_lock:
             entry = self._cache.get(provider.lower())
             return list(entry["models"]) if entry and "models" in entry else None

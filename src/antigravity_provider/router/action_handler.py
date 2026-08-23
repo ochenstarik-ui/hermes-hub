@@ -139,6 +139,28 @@ def do_save_settings(settings: Dict[str, Any]) -> Tuple[bool, str]:
     return True, "Настройки сохранены"
  
  
+def _model_matches_discovered(model: str, discovered: list[str]) -> bool:
+    if model in discovered:
+        return True
+    model_short = model.split("/")[-1]
+    for d in discovered:
+        if d == model or d == model_short:
+            return True
+        d_short = d.split("/")[-1]
+        if d_short == model or d_short == model_short:
+            return True
+        if d.startswith(model + "-") or d.startswith(model + ":"):
+            return True
+        if d_short.startswith(model_short + "-") or d_short.startswith(model_short + ":"):
+            return True
+        import re
+        d_base = re.sub(r"-(high|medium|low|none|thought|thinking)(?:-(high|medium|low|none))?$", "", d_short)
+        model_base = re.sub(r"-(high|medium|low|none|thought|thinking)(?:-(high|medium|low|none))?$", "", model_short)
+        if d_base == model_short or d_base == model_base or d_short == model_base:
+            return True
+    return False
+
+
 def do_set_model(profile_id: str, model: str, role_id: Optional[str] = None) -> Tuple[bool, str]:
     if not model or not str(model).strip() or str(model).strip() == "Список моделей ещё не получен":
         return False, "Не указана модель для установки"
@@ -160,11 +182,27 @@ def do_set_model(profile_id: str, model: str, role_id: Optional[str] = None) -> 
     from antigravity_provider.router.model_registry import ModelRegistry
 
     discovered = ModelDiscoveryService.get().get_models(provider)
+    if discovered is None:
+        try:
+            discovered = ModelDiscoveryService.get().discover_models_sync(provider, timeout=5.0)
+        except Exception:
+            discovered = None
+
     canonical = [m.model_id for m in ModelRegistry.get().list_models(provider=provider)]
     canonical_short = [m.split("/")[-1] for m in canonical]
 
-    if discovered is not None:
-        if model not in discovered and model not in canonical and model not in canonical_short:
+    is_canonical = (
+        model in canonical
+        or model in canonical_short
+        or _model_matches_discovered(model, canonical)
+    )
+
+    if not discovered:
+        if not is_canonical:
+            return False, f"Кэш моделей для провайдера '{provider}' пуст, а модель '{model}' не найдена в списке известных моделей."
+    else:
+        matches_discovered = _model_matches_discovered(model, discovered)
+        if not matches_discovered and not is_canonical:
             return False, f"Модель '{model}' отсутствует в списке обнаруженных моделей провайдера '{provider}'"
 
     updated = load_router_config()
@@ -257,6 +295,24 @@ class ActionExecutor:
             else:
                 HermesRefreshScheduler.get().trigger_refresh_account(prov, pid)
                 return {'ok': True, 'message': 'Успешно'}
+
+        elif action == 'refresh_models':
+            from antigravity_provider.router.model_discovery_service import ModelDiscoveryService
+            service = ModelDiscoveryService.get()
+            if prov:
+                if async_runner:
+                    async_runner(lambda: service.discover_models_sync(prov), 'RefreshModels')
+                    return {'ok': True, 'message': 'запущено'}
+                else:
+                    res = service.discover_models_sync(prov)
+                    return {'ok': True, 'message': 'Успешно', 'data': res}
+            else:
+                if async_runner:
+                    async_runner(lambda: service.refresh_all_async(), 'RefreshAllModels')
+                    return {'ok': True, 'message': 'запущено'}
+                else:
+                    service.refresh_all_async()
+                    return {'ok': True, 'message': 'запущено'}
                 
         elif action == 'save_settings':
             ok, msg = do_save_settings(data)

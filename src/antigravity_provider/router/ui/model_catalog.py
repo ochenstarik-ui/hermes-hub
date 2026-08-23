@@ -27,6 +27,13 @@ def _service() -> Any:
         getter = getattr(ModelDiscoveryService, "get", None)
         return getter() if callable(getter) else ModelDiscoveryService()
     except (ImportError, AttributeError, TypeError):
+        pass
+    try:
+        from antigravity_provider.router.model_discovery_service import ModelDiscoveryService
+
+        getter = getattr(ModelDiscoveryService, "get", None)
+        return getter() if callable(getter) else ModelDiscoveryService()
+    except (ImportError, AttributeError, TypeError):
         return None
 
 
@@ -80,7 +87,7 @@ def refresh_models_async(provider: str, on_complete: Callable[[CachedModels], No
     if service is None:
         on_complete(get_cached_models(provider))
         return False
-    for name in ("refresh_provider_async", "refresh_async", "discover_async"):
+    for name in ("refresh_models_async", "refresh_models", "refresh_provider_async", "refresh_async", "discover_async"):
         method = getattr(service, name, None)
         if not callable(method):
             continue

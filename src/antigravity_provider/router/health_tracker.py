@@ -49,6 +49,7 @@ class ProfileHealthRecord:
     last_used: Optional[float] = None
     last_success: Optional[float] = None
     last_error: Optional[str] = None
+    auth_error_at: Optional[float] = None
     simulated: bool = False
 
 
@@ -76,12 +77,18 @@ class _FileLock:
             self._fd = os.open(str(self.lock_path), os.O_CREAT | os.O_RDWR)
             if os.name == "nt":
                 import msvcrt
-                msvcrt.locking(self._fd, msvcrt.LK_NBLCK, 1)
+                msvcrt.locking(self._fd, msvcrt.LK_LOCK, 1)
             else:
                 import fcntl
-                fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(self._fd, fcntl.LOCK_EX)
         except Exception:
-            pass
+            if self._fd is not None:
+                try:
+                    os.close(self._fd)
+                except Exception:
+                    pass
+                self._fd = None
+            raise
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
@@ -118,6 +125,99 @@ class HealthTracker:
         self._profiles: dict[str, ProfileHealthRecord] = {}
         self._load_state()
 
+        try:
+            from antigravity_provider.router.event_bus import (
+                EVENT_ACCOUNT_ADDED,
+                EVENT_ACCOUNT_AUTH_CHANGED,
+                EventBus,
+            )
+            EventBus.get().subscribe(EVENT_ACCOUNT_ADDED, self._on_account_event)
+            EventBus.get().subscribe(EVENT_ACCOUNT_AUTH_CHANGED, self._on_account_event)
+        except Exception:
+            pass
+
+    def _on_account_event(self, _event_name: str, payload: Any) -> None:
+        """Handle account lifecycle events by recovering profile from AUTH_REQUIRED state."""
+        profile_id = None
+        if isinstance(payload, dict):
+            profile_id = payload.get("profile_id")
+        elif hasattr(payload, "profile_id"):
+            profile_id = getattr(payload, "profile_id")
+        if not profile_id:
+            return
+        profile_id = str(profile_id)
+        with self._lock:
+            if profile_id in self._profiles:
+                rec = self._profiles[profile_id]
+                rec.overall_state = HEALTHY
+                rec.last_error = None
+                rec.auth_error_at = None
+                for frec in rec.families.values():
+                    if frec.state == AUTH_REQUIRED:
+                        frec.state = HEALTHY
+                        frec.reset_at = None
+                        frec.reason = None
+                        frec.last_error = None
+                self._save_state()
+
+    def _find_profile_auth_files(self, profile_id: str) -> list[Path]:
+        """Locate credentials and auth files for the specified profile."""
+        files: list[Path] = []
+        try:
+            pdir = paths.get_profile_dir(profile_id)
+            for cand in (pdir / "auth.json", pdir / ".gemini" / "oauth_creds.json", pdir / "oauth_creds.json"):
+                if cand.is_file():
+                    files.append(cand)
+        except Exception:
+            pass
+
+        try:
+            hermes_home = paths.get_hermes_home()
+            if hermes_home.is_dir():
+                for pdir in hermes_home.glob(f"*_profiles/{profile_id}"):
+                    if pdir.is_dir():
+                        for cand in (pdir / "auth.json", pdir / ".gemini" / "oauth_creds.json", pdir / "oauth_creds.json"):
+                            if cand.is_file() and cand not in files:
+                                files.append(cand)
+        except Exception:
+            pass
+        return files
+
+    def _check_and_recover_auth(self, record: ProfileHealthRecord) -> bool:
+        """Check if auth files exist, are valid, and were modified after an auth failure."""
+        auth_files = self._find_profile_auth_files(record.profile_id)
+        if not auth_files:
+            return False
+
+        recovered = False
+        for f in auth_files:
+            try:
+                stat = f.stat()
+                if stat.st_size == 0:
+                    continue
+                if record.auth_error_at is not None and stat.st_mtime <= record.auth_error_at:
+                    continue
+                content = json.loads(f.read_text(encoding="utf-8"))
+                if isinstance(content, dict) and len(content) > 0:
+                    recovered = True
+                    break
+            except Exception:
+                continue
+
+        if recovered:
+            record.overall_state = HEALTHY
+            record.last_error = None
+            record.auth_error_at = None
+            for frec in record.families.values():
+                if frec.state == AUTH_REQUIRED:
+                    frec.state = HEALTHY
+                    frec.reset_at = None
+                    frec.reason = None
+                    frec.last_error = None
+            self._save_state()
+            return True
+        return False
+
     def _load_state(self) -> None:
         if not self.state_file.is_file():
             return
@@ -130,6 +230,7 @@ class HealthTracker:
                     last_used=pdata.get("last_used"),
                     last_success=pdata.get("last_success"),
                     last_error=pdata.get("last_error"),
+                    auth_error_at=pdata.get("auth_error_at"),
                     simulated=pdata.get("simulated", False),
                 )
                 for fname, fdata in pdata.get("families", {}).items():
@@ -158,6 +259,7 @@ class HealthTracker:
                     "last_used": precord.last_used,
                     "last_success": precord.last_success,
                     "last_error": precord.last_error,
+                    "auth_error_at": precord.auth_error_at,
                     "simulated": precord.simulated,
                     "families": {},
                 }
@@ -211,6 +313,9 @@ class HealthTracker:
             if record.overall_state == DISABLED:
                 return False
 
+            if record.overall_state == AUTH_REQUIRED:
+                self._check_and_recover_auth(record)
+
             # Check profile-level default family
             if "default" in record.families:
                 def_rec = record.families["default"]
@@ -257,6 +362,7 @@ class HealthTracker:
             record.last_used = now
             record.last_success = now
             record.overall_state = HEALTHY
+            record.auth_error_at = None
             record.simulated = False
 
             family = extract_model_family(model_name)
@@ -378,6 +484,7 @@ class HealthTracker:
             record = self.get_or_create(profile_id)
             record.overall_state = AUTH_REQUIRED
             record.last_error = reason
+            record.auth_error_at = time.time()
             self._save_state()
 
     def clear_cooldown(self, profile_id: Optional[str] = None, model_name: Optional[str] = None) -> None:
@@ -385,10 +492,14 @@ class HealthTracker:
             if profile_id is None:
                 for rec in self._profiles.values():
                     rec.overall_state = HEALTHY
+                    rec.last_error = None
+                    rec.auth_error_at = None
                     rec.simulated = False
                     for frec in rec.families.values():
                         frec.state = HEALTHY
                         frec.reset_at = None
+                        frec.reason = None
+                        frec.last_error = None
                         frec.simulated = False
                 self._save_state()
                 return
@@ -397,16 +508,22 @@ class HealthTracker:
                 return
             record = self._profiles[profile_id]
             record.overall_state = HEALTHY
+            record.last_error = None
+            record.auth_error_at = None
             record.simulated = False
             if model_name:
                 family = extract_model_family(model_name)
                 if family in record.families:
                     record.families[family].state = HEALTHY
                     record.families[family].reset_at = None
+                    record.families[family].reason = None
+                    record.families[family].last_error = None
                     record.families[family].simulated = False
             else:
                 for frec in record.families.values():
                     frec.state = HEALTHY
                     frec.reset_at = None
+                    frec.reason = None
+                    frec.last_error = None
                     frec.simulated = False
             self._save_state()

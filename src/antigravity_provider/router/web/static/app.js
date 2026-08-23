@@ -1375,7 +1375,7 @@ async function handleSaveRoleModel(roleId, profileId) {
 
 async function handleRefreshProviderModels(providerId, profileId = null) {
   showToast(`Запрос списка моделей для ${providerId}...`, 'info');
-  const res = await executeAction('refresh_data', { provider: providerId });
+  const res = await executeAction('refresh_models', { provider: providerId });
   if (res.ok) {
     showToast('Запрос обновления моделей отправлен', 'success');
     if (profileId) {
