@@ -19,8 +19,8 @@ from antigravity_provider.router.ui.add_account_wizard import AddAccountWizard
 
 
 @pytest.fixture(scope="module")
-def ui_root():
-    app = ctk.CTk()
+def ui_root(tk_root):
+    app = ctk.CTkToplevel(tk_root)
     app.withdraw()
     yield app
     try:

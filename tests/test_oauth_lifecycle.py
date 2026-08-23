@@ -151,14 +151,14 @@ def test_d_oauth_error_callback(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-def test_e_repeated_open_browser_invariance(tmp_path, monkeypatch):
+def test_e_repeated_open_browser_invariance(tmp_path, monkeypatch, tk_root):
     """TEST E: Repeated 'Открыть в браузере' does NOT change session, state, verifier, or URL."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     pytest.importorskip("customtkinter")
     import customtkinter as ctk
     from antigravity_provider.router.ui.add_account_wizard import AddAccountWizard
 
-    root = ctk.CTk()
+    root = ctk.CTkToplevel(tk_root)
     root.withdraw()
     try:
         wizard = AddAccountWizard(root)
@@ -195,14 +195,14 @@ def test_e_repeated_open_browser_invariance(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-def test_f_copy_before_open_browser(tmp_path, monkeypatch):
+def test_f_copy_before_open_browser(tmp_path, monkeypatch, tk_root):
     """TEST F: Copy button works immediately upon entering Step 2 without opening browser."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     pytest.importorskip("customtkinter")
     import customtkinter as ctk
     from antigravity_provider.router.ui.add_account_wizard import AddAccountWizard
 
-    root = ctk.CTk()
+    root = ctk.CTkToplevel(tk_root)
     root.withdraw()
     try:
         wizard = AddAccountWizard(root)

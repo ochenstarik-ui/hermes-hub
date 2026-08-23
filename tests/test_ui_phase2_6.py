@@ -23,8 +23,8 @@ from antigravity_provider.router.unified_health import ProfileViewModel, SystemR
 
 
 @pytest.fixture(scope="module")
-def ui_root():
-    root = ctk.CTk()
+def ui_root(tk_root):
+    root = ctk.CTkToplevel(tk_root)
     root.withdraw()
     yield root
     root.destroy()

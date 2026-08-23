@@ -56,3 +56,15 @@ def pytest_collection_modifyitems(config, items):
         for item in items:
             if "ui" in item.keywords:
                 item.add_marker(skip_ui)
+
+@pytest.fixture(scope="session")
+def tk_root():
+    """Shared Tkinter root for all UI tests to avoid Tcl resource exhaustion."""
+    try:
+        import customtkinter as ctk
+        root = ctk.CTk()
+        root.withdraw()
+        yield root
+        root.destroy()
+    except Exception as e:
+        pytest.skip(f"Tkinter could not be initialized: {e}")
