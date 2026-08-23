@@ -1,0 +1,283 @@
+﻿<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Hermes Hub — Панель управления</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+</head>
+<body>
+  <div id="app" class="app-layout">
+    <!-- Sidebar Navigation -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-logo">⚡</div>
+        <div class="brand-text">
+          <span class="brand-title">HERMES HUB</span>
+          <span class="brand-subtitle">Multi-Account Router</span>
+        </div>
+      </div>
+
+      <nav class="nav-menu">
+        <button class="nav-item active" data-view="accounts">
+          <span class="nav-icon">👥</span>
+          <span class="nav-label">Аккаунты</span>
+          <span class="nav-badge" id="nav-accounts-count">0</span>
+        </button>
+        <button class="nav-item" data-view="overview">
+          <span class="nav-icon">📊</span>
+          <span class="nav-label">Обзор</span>
+        </button>
+        <button class="nav-item" data-view="routing">
+          <span class="nav-icon">🔀</span>
+          <span class="nav-label">Маршрутизация</span>
+        </button>
+        <button class="nav-item" data-view="providers">
+          <span class="nav-icon">🧩</span>
+          <span class="nav-label">Модели и провайдеры</span>
+        </button>
+        <button class="nav-item" data-view="team">
+          <span class="nav-icon">👑</span>
+          <span class="nav-label">Команда агентов</span>
+        </button>
+        <button class="nav-item" data-view="logs">
+          <span class="nav-icon">📜</span>
+          <span class="nav-label">Журнал событий</span>
+        </button>
+        <button class="nav-item" data-view="settings">
+          <span class="nav-icon">⚙️</span>
+          <span class="nav-label">Настройки</span>
+        </button>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="source-indicator" id="source-indicator">
+          <span class="status-dot healthy"></span>
+          <span class="source-text" id="source-text">Загрузка данных...</span>
+        </div>
+        <div class="version-tag" id="version-tag">Hermes Hub Web v0.1.1</div>
+      </div>
+    </aside>
+
+    <!-- Main Content Container -->
+    <main class="main-wrapper">
+      <!-- Top Header -->
+      <header class="top-header">
+        <div class="header-left">
+          <h1 class="header-title" id="page-title">Аккаунты и квоты</h1>
+          <span class="header-readiness-badge" id="header-readiness-badge">
+            <span class="status-dot"></span>
+            <span id="header-readiness-text">Инициализация...</span>
+          </span>
+        </div>
+        <div class="header-actions">
+          <button class="btn btn-secondary" id="btn-refresh-all" title="Обновить квоты всех профилей">
+            <span class="btn-icon">↻</span>
+            <span>Обновить всё</span>
+          </button>
+          <button class="btn btn-primary" id="btn-add-account">
+            <span class="btn-icon">+</span>
+            <span>Добавить аккаунт</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Dynamic Views -->
+      <div class="content-scroll">
+        <!-- 1. ACCOUNTS VIEW -->
+        <section id="view-accounts" class="view-pane active">
+          <div class="toolbar">
+            <div class="search-box">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="accounts-search" placeholder="Поиск по аккаунту, почте, роли или модели...">
+            </div>
+            <div class="filters-row">
+              <select id="filter-provider" class="select-filter">
+                <option value="all">Все провайдеры</option>
+                <option value="antigravity">Google Antigravity</option>
+                <option value="openai-codex">OpenAI Codex</option>
+                <option value="opencode-go">OpenCode Go</option>
+                <option value="claude">Claude (Anthropic)</option>
+                <option value="grok">Grok (xAI)</option>
+              </select>
+              <select id="filter-health" class="select-filter">
+                <option value="all">Все состояния</option>
+                <option value="healthy">Работает</option>
+                <option value="warning">Предупреждение</option>
+                <option value="quota_exhausted">Квота исчерпана</option>
+                <option value="auth_required">Требуется вход</option>
+                <option value="disabled">Отключён / Резерв</option>
+              </select>
+              <div class="toolbar-stats" id="accounts-stats-summary">
+                Показано: <strong>0</strong> из <strong>0</strong> аккаунтов
+              </div>
+            </div>
+          </div>
+
+          <div id="accounts-container" class="accounts-groups-container">
+            <!-- Rendered by app.js -->
+          </div>
+        </section>
+
+        <!-- 2. OVERVIEW VIEW -->
+        <section id="view-overview" class="view-pane">
+          <div class="overview-grid">
+            <div class="kpi-card">
+              <div class="kpi-label">Состояние системы</div>
+              <div class="kpi-value text-healthy" id="kpi-system-readiness">—</div>
+              <div class="kpi-sub" id="kpi-readiness-summary">—</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Подключено аккаунтов</div>
+              <div class="kpi-value text-accent" id="kpi-total-accounts">—</div>
+              <div class="kpi-sub" id="kpi-accounts-sub">—</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Готовых ролей</div>
+              <div class="kpi-value text-healthy" id="kpi-ready-roles">—</div>
+              <div class="kpi-sub" id="kpi-roles-sub">—</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Провайдеры ИИ</div>
+              <div class="kpi-value text-info" id="kpi-providers-count">—</div>
+              <div class="kpi-sub" id="kpi-providers-sub">5 поддерживаемых систем</div>
+            </div>
+          </div>
+
+          <div class="section-card">
+            <div class="section-card-header">
+              <div class="section-card-title">Схема маршрутизации запросов</div>
+              <div class="section-card-subtitle">Распределение агентов и цепочки отказоустойчивости</div>
+            </div>
+            <div class="route-diagram-container" id="overview-route-diagram">
+              <!-- Rendered by app.js -->
+            </div>
+          </div>
+
+          <div class="section-card">
+            <div class="section-card-header">
+              <div class="section-card-title">Провайдеры и доступность runtime</div>
+              <div class="section-card-subtitle">Статус локальных адаптеров и обнаруженные модели</div>
+            </div>
+            <div class="providers-grid" id="overview-providers-summary">
+              <!-- Rendered by app.js -->
+            </div>
+          </div>
+        </section>
+
+        <!-- 3. ROUTING VIEW -->
+        <section id="view-routing" class="view-pane">
+          <div class="view-header-note">
+            Цепочки маршрутизации: <strong>Основной → Резерв 1 → Резерв 2 → Резерв 3</strong>. Переключения выполняются автоматически при исчерпании квоты или ошибке провайдера.
+          </div>
+          <div class="routing-pipelines-list" id="routing-pipelines-container">
+            <!-- Rendered by app.js -->
+          </div>
+        </section>
+
+        <!-- 4. PROVIDERS & MODELS VIEW -->
+        <section id="view-providers" class="view-pane">
+          <div class="view-header-note">
+            Реально обнаруженные модели провайдеров и локальные адаптеры.
+          </div>
+          <div class="providers-full-list" id="providers-full-container">
+            <!-- Rendered by app.js -->
+          </div>
+        </section>
+
+        <!-- 5. TEAM VIEW -->
+        <section id="view-team" class="view-pane">
+          <div class="view-header-note">
+            Команда агентов Hermes Hub: роли, привязанные профили и оперативные квоты.
+          </div>
+          <div class="team-cards-grid" id="team-cards-container">
+            <!-- Rendered by app.js -->
+          </div>
+        </section>
+
+        <!-- 6. LOGS VIEW -->
+        <section id="view-logs" class="view-pane">
+          <div class="section-card">
+            <div class="section-card-header">
+              <div class="section-card-title">Журнал телеметрии и событий роутера</div>
+              <button class="btn btn-secondary btn-sm" id="btn-clear-logs">Очистить вид</button>
+            </div>
+            <div class="logs-container" id="logs-container">
+              <div class="empty-text">Журнал событий пуст или сбор ещё не выполнен.</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- 7. SETTINGS VIEW -->
+        <section id="view-settings" class="view-pane">
+          <div class="settings-card">
+            <h2 class="settings-group-title">Параметры веб-клиента</h2>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Источник данных</div>
+                <div class="setting-desc">Автоматическое переключение между живым сервером и фикстурой</div>
+              </div>
+              <div class="setting-control">
+                <select id="setting-source-mode" class="select-filter">
+                  <option value="auto">Авто (Live API с fallback на фикстуру)</option>
+                  <option value="live">Строго Live API (/api/snapshot)</option>
+                  <option value="fixture">Строго фикстура (snapshot.example.json)</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Интервал авто-опроса</div>
+                <div class="setting-desc">Частота обновления снимка состояния с сервера</div>
+              </div>
+              <div class="setting-control">
+                <select id="setting-poll-interval" class="select-filter">
+                  <option value="3000">3 секунды</option>
+                  <option value="5000" selected>5 секунд (стандарт)</option>
+                  <option value="10000">10 секунд</option>
+                  <option value="0">Отключить авто-опрос</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Токен безопасности (X-Hub-Token)</div>
+                <div class="setting-desc">Обязателен при запуске сервера на нелокальном IP адресе</div>
+              </div>
+              <div class="setting-control">
+                <input type="password" id="setting-auth-token" class="input-text" placeholder="Введите токен сервера...">
+              </div>
+            </div>
+            <div class="settings-actions">
+              <button class="btn btn-primary" id="btn-save-client-settings">Сохранить параметры</button>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <!-- Modal Layer -->
+  <div id="modal-backdrop" class="modal-backdrop hidden">
+    <div id="modal-container" class="modal-card">
+      <div class="modal-header">
+        <h2 id="modal-title" class="modal-title">Модальное окно</h2>
+        <button id="modal-close-btn" class="modal-close" title="Закрыть">✕</button>
+      </div>
+      <div id="modal-body" class="modal-body">
+        <!-- Injected dynamically -->
+      </div>
+      <div id="modal-footer" class="modal-footer">
+        <!-- Injected dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- Application Logic -->
+  <script src="app.js"></script>
+</body>
+</html>

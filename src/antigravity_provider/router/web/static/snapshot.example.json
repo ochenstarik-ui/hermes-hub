@@ -1,0 +1,5526 @@
+{
+  "generation": 1,
+  "seq": 1,
+  "timestamp": 1787486370.6373527,
+  "profiles_by_provider": {
+    "antigravity": [
+      {
+        "profile_id": "ag-cold-1",
+        "display_name": "Холодный резерв 1",
+        "account_identity": "Холодный резерв",
+        "provider": "antigravity",
+        "provider_display_name": "Google Antigravity",
+        "assigned_roles": [
+          "spare"
+        ],
+        "primary_role": "spare",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "disabled",
+        "health_label_ru": "Отключён",
+        "model_states": {},
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": false,
+        "is_cold_spare": true,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "ag-cold-1",
+          "provider": "antigravity",
+          "buckets": [
+            {
+              "id": "antigravity.claude.5h",
+              "display_name": "Claude 5h",
+              "model_family": "claude",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            },
+            {
+              "id": "antigravity.gemini.5h",
+              "display_name": "Gemini 5h",
+              "model_family": "gemini",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.446408+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "ag-cold-2",
+        "display_name": "Холодный резерв 2",
+        "account_identity": "Холодный резерв",
+        "provider": "antigravity",
+        "provider_display_name": "Google Antigravity",
+        "assigned_roles": [
+          "spare"
+        ],
+        "primary_role": "spare",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "disabled",
+        "health_label_ru": "Отключён",
+        "model_states": {},
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": false,
+        "is_cold_spare": true,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "ag-cold-2",
+          "provider": "antigravity",
+          "buckets": [
+            {
+              "id": "antigravity.claude.5h",
+              "display_name": "Claude 5h",
+              "model_family": "claude",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            },
+            {
+              "id": "antigravity.gemini.5h",
+              "display_name": "Gemini 5h",
+              "model_family": "gemini",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.447408+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "ag-cold-3",
+        "display_name": "Холодный резерв 3",
+        "account_identity": "Холодный резерв",
+        "provider": "antigravity",
+        "provider_display_name": "Google Antigravity",
+        "assigned_roles": [
+          "spare"
+        ],
+        "primary_role": "spare",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "disabled",
+        "health_label_ru": "Отключён",
+        "model_states": {},
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": false,
+        "is_cold_spare": true,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "ag-cold-3",
+          "provider": "antigravity",
+          "buckets": [
+            {
+              "id": "antigravity.claude.5h",
+              "display_name": "Claude 5h",
+              "model_family": "claude",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            },
+            {
+              "id": "antigravity.gemini.5h",
+              "display_name": "Gemini 5h",
+              "model_family": "gemini",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.448970+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "ag-orch-fallback",
+        "display_name": "Резервный оркестратор",
+        "account_identity": "user@example.test",
+        "provider": "antigravity",
+        "provider_display_name": "Google Antigravity",
+        "assigned_roles": [
+          "orchestrator (primary)"
+        ],
+        "primary_role": "orchestrator",
+        "is_main_account": true,
+        "is_main_orchestrator": true,
+        "auth_state": "AUTHENTICATED",
+        "health_state": "healthy",
+        "health_label_ru": "Работает",
+        "model_states": {
+          "gemini": {
+            "family": "gemini",
+            "display_name": "gemini-3.5-flash",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "claude": {
+            "family": "claude",
+            "display_name": "claude-sonnet-4-6",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": false,
+        "email": "user@example.test",
+        "plan": "PRO",
+        "plan_code": "PRO",
+        "plan_source": "provider_auth",
+        "quota_snapshot": {
+          "account_id": "ag-orch-fallback",
+          "provider": "antigravity",
+          "buckets": [
+            {
+              "id": "antigravity.claude.5h",
+              "display_name": "Claude/GPT • 5 часов",
+              "model_family": "claude",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-23T16:59:24+00:00",
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.gemini.5h",
+              "display_name": "Gemini • 5 часов",
+              "model_family": "gemini",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-23T16:59:24+00:00",
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.claude.7d",
+              "display_name": "Claude/GPT • неделя",
+              "model_family": "claude",
+              "used_percent": 33.864653000000004,
+              "remaining_percent": 66.135347,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-26T11:19:06+00:00",
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.gemini.7d",
+              "display_name": "Gemini • неделя",
+              "model_family": "gemini",
+              "used_percent": 0.0817700000000059,
+              "remaining_percent": 99.91823,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-26T11:21:42+00:00",
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:22.944899+00:00",
+          "stale_after_seconds": 300,
+          "source": "provider_api",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "gemini-3.7-flash",
+          "claude-sonnet-4-6",
+          "gemini-3.5-flash"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "ag-spare-1",
+        "display_name": "Резерв 1",
+        "account_identity": "user@example.test",
+        "provider": "antigravity",
+        "provider_display_name": "Google Antigravity",
+        "assigned_roles": [
+          "fast (primary)"
+        ],
+        "primary_role": "spare",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "AUTHENTICATED",
+        "health_state": "healthy",
+        "health_label_ru": "Работает",
+        "model_states": {
+          "gemini": {
+            "family": "gemini",
+            "display_name": "gemini-3.5-flash",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": false,
+        "email": "user@example.test",
+        "plan": "PRO",
+        "plan_code": "PRO",
+        "plan_source": "provider_auth",
+        "quota_snapshot": {
+          "account_id": "ag-spare-1",
+          "provider": "antigravity",
+          "buckets": [
+            {
+              "id": "antigravity.claude.5h",
+              "display_name": "Claude/GPT • 5 часов",
+              "model_family": "claude",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-23T16:59:29+00:00",
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.gemini.5h",
+              "display_name": "Gemini • 5 часов",
+              "model_family": "gemini",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-23T16:59:29+00:00",
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.claude.7d",
+              "display_name": "Claude/GPT • неделя",
+              "model_family": "claude",
+              "used_percent": 34.51999000000001,
+              "remaining_percent": 65.48001,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-27T10:00:06+00:00",
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.gemini.7d",
+              "display_name": "Gemini • неделя",
+              "model_family": "gemini",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-30T11:59:29+00:00",
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:27.764730+00:00",
+          "stale_after_seconds": 300,
+          "source": "provider_api",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "gemini-3.6-flash-high",
+          "gemini-3.7-flash",
+          "gemini-3.5-flash"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "ag-spare-2",
+        "display_name": "Резерв 2",
+        "account_identity": "Аккаунт не добавлен",
+        "provider": "antigravity",
+        "provider_display_name": "Google Antigravity",
+        "assigned_roles": [
+          "spare"
+        ],
+        "primary_role": "spare",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "not_configured",
+        "health_label_ru": "Аккаунт не добавлен",
+        "model_states": {
+          "gemini": {
+            "family": "gemini",
+            "display_name": "gemini-3.5-flash",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "ag-spare-2",
+          "provider": "antigravity",
+          "buckets": [
+            {
+              "id": "antigravity.claude.5h",
+              "display_name": "Claude 5h",
+              "model_family": "claude",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            },
+            {
+              "id": "antigravity.gemini.5h",
+              "display_name": "Gemini 5h",
+              "model_family": "gemini",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.453554+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "gemini-3.7-flash",
+          "gemini-3.5-flash"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "ag-w1",
+        "display_name": "Кодер 2",
+        "account_identity": "user@example.test",
+        "provider": "antigravity",
+        "provider_display_name": "Google Antigravity",
+        "assigned_roles": [
+          "coder-primary (primary)"
+        ],
+        "primary_role": "coder",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "AUTHENTICATED",
+        "health_state": "healthy",
+        "health_label_ru": "Работает",
+        "model_states": {
+          "gemini": {
+            "family": "gemini",
+            "display_name": "gemini-3.5-flash",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "claude": {
+            "family": "claude",
+            "display_name": "claude-sonnet-4-6",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": false,
+        "email": "user@example.test",
+        "plan": "PRO",
+        "plan_code": "PRO",
+        "plan_source": "provider_auth",
+        "quota_snapshot": {
+          "account_id": "ag-w1",
+          "provider": "antigravity",
+          "buckets": [
+            {
+              "id": "antigravity.claude.5h",
+              "display_name": "Claude/GPT • 5 часов",
+              "model_family": "claude",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-23T16:59:25+00:00",
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.gemini.5h",
+              "display_name": "Gemini • 5 часов",
+              "model_family": "gemini",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-23T16:59:25+00:00",
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.claude.7d",
+              "display_name": "Claude/GPT • неделя",
+              "model_family": "claude",
+              "used_percent": 34.14447,
+              "remaining_percent": 65.85553,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-26T11:42:10+00:00",
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.gemini.7d",
+              "display_name": "Gemini • неделя",
+              "model_family": "gemini",
+              "used_percent": 0.33874499999998875,
+              "remaining_percent": 99.66125500000001,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-26T11:44:53+00:00",
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:24.074829+00:00",
+          "stale_after_seconds": 300,
+          "source": "provider_api",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "gemini-3.7-flash",
+          "claude-sonnet-4-6",
+          "gemini-3.5-flash"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "ag-w2",
+        "display_name": "Исследователь",
+        "account_identity": "user@example.test",
+        "provider": "antigravity",
+        "provider_display_name": "Google Antigravity",
+        "assigned_roles": [
+          "coder-secondary (primary)",
+          "reviewer (fallback 3)"
+        ],
+        "primary_role": "researcher",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "AUTHENTICATED",
+        "health_state": "healthy",
+        "health_label_ru": "Работает",
+        "model_states": {
+          "gemini": {
+            "family": "gemini",
+            "display_name": "gemini-3.5-flash",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": false,
+        "email": "user@example.test",
+        "plan": "PRO",
+        "plan_code": "PRO",
+        "plan_source": "provider_auth",
+        "quota_snapshot": {
+          "account_id": "ag-w2",
+          "provider": "antigravity",
+          "buckets": [
+            {
+              "id": "antigravity.claude.5h",
+              "display_name": "Claude/GPT • 5 часов",
+              "model_family": "claude",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-23T16:59:26+00:00",
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.gemini.5h",
+              "display_name": "Gemini • 5 часов",
+              "model_family": "gemini",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-23T16:59:26+00:00",
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.claude.7d",
+              "display_name": "Claude/GPT • неделя",
+              "model_family": "claude",
+              "used_percent": 62.585348,
+              "remaining_percent": 37.414652,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-25T06:09:55+00:00",
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.gemini.7d",
+              "display_name": "Gemini • неделя",
+              "model_family": "gemini",
+              "used_percent": 19.49136,
+              "remaining_percent": 80.50864,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-24T16:18:52+00:00",
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:25.134345+00:00",
+          "stale_after_seconds": 300,
+          "source": "provider_api",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "gemini-3.7-flash",
+          "gemini-3.5-flash"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "ag-w3",
+        "display_name": "Быстрый агент",
+        "account_identity": "user@example.test",
+        "provider": "antigravity",
+        "provider_display_name": "Google Antigravity",
+        "assigned_roles": [
+          "reviewer (primary)",
+          "research (fallback 2)"
+        ],
+        "primary_role": "general",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "AUTHENTICATED",
+        "health_state": "healthy",
+        "health_label_ru": "Работает",
+        "model_states": {
+          "gemini": {
+            "family": "gemini",
+            "display_name": "gemini-3.7-flash",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "claude": {
+            "family": "claude",
+            "display_name": "claude-sonnet-4-6",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": false,
+        "email": "user@example.test",
+        "plan": "PRO",
+        "plan_code": "PRO",
+        "plan_source": "provider_auth",
+        "quota_snapshot": {
+          "account_id": "ag-w3",
+          "provider": "antigravity",
+          "buckets": [
+            {
+              "id": "antigravity.claude.5h",
+              "display_name": "Claude/GPT • 5 часов",
+              "model_family": "claude",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-23T16:59:27+00:00",
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.gemini.5h",
+              "display_name": "Gemini • 5 часов",
+              "model_family": "gemini",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-23T16:59:27+00:00",
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.claude.7d",
+              "display_name": "Claude/GPT • неделя",
+              "model_family": "claude",
+              "used_percent": 9.875199999999992,
+              "remaining_percent": 90.12480000000001,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-26T12:12:02+00:00",
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.gemini.7d",
+              "display_name": "Gemini • неделя",
+              "model_family": "gemini",
+              "used_percent": 16.673075999999995,
+              "remaining_percent": 83.326924,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-26T12:12:55+00:00",
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:25.844507+00:00",
+          "stale_after_seconds": 300,
+          "source": "provider_api",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "gemini-3.7-flash",
+          "claude-sonnet-4-6"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "ag-w4",
+        "display_name": "Универсальный субагент",
+        "account_identity": "user@example.test",
+        "provider": "antigravity",
+        "provider_display_name": "Google Antigravity",
+        "assigned_roles": [
+          "research (primary)",
+          "fast (fallback 2)"
+        ],
+        "primary_role": "general",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "AUTHENTICATED",
+        "health_state": "healthy",
+        "health_label_ru": "Работает",
+        "model_states": {
+          "gemini": {
+            "family": "gemini",
+            "display_name": "gemini-3.7-flash",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": false,
+        "email": "user@example.test",
+        "plan": "PRO",
+        "plan_code": "PRO",
+        "plan_source": "provider_auth",
+        "quota_snapshot": {
+          "account_id": "ag-w4",
+          "provider": "antigravity",
+          "buckets": [
+            {
+              "id": "antigravity.claude.5h",
+              "display_name": "Claude/GPT • 5 часов",
+              "model_family": "claude",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-23T16:59:28+00:00",
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.gemini.5h",
+              "display_name": "Gemini • 5 часов",
+              "model_family": "gemini",
+              "used_percent": 0.0,
+              "remaining_percent": 100.0,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-23T16:59:28+00:00",
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.claude.7d",
+              "display_name": "Claude/GPT • неделя",
+              "model_family": "claude",
+              "used_percent": 33.544296,
+              "remaining_percent": 66.455704,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-26T11:32:47+00:00",
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            },
+            {
+              "id": "antigravity.gemini.7d",
+              "display_name": "Gemini • неделя",
+              "model_family": "gemini",
+              "used_percent": 0.03422499999999218,
+              "remaining_percent": 99.96577500000001,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": "2026-08-26T11:35:55+00:00",
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "model capacity",
+              "scope": "model_family",
+              "status": "healthy"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:26.906876+00:00",
+          "stale_after_seconds": 300,
+          "source": "provider_api",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "gemini-3.5-flash",
+          "gemini-3.7-flash"
+        ],
+        "active_leases": 0
+      }
+    ],
+    "openai-codex": [
+      {
+        "profile_id": "codex-orch",
+        "display_name": "Главный оркестратор",
+        "account_identity": "Аккаунт не добавлен",
+        "provider": "openai-codex",
+        "provider_display_name": "OpenAI Codex",
+        "assigned_roles": [
+          "orchestrator (fallback 1)"
+        ],
+        "primary_role": "orchestrator",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "not_configured",
+        "health_label_ru": "Аккаунт не добавлен",
+        "model_states": {
+          "gpt": {
+            "family": "gpt",
+            "display_name": "gpt-4o",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "o3": {
+            "family": "o3",
+            "display_name": "o3-mini",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "default": {
+            "family": "default",
+            "display_name": "codex",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "codex-orch",
+          "provider": "openai-codex",
+          "buckets": [
+            {
+              "id": "codex.primary.weekly",
+              "display_name": "Codex Weekly",
+              "model_family": "gpt",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.466113+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "gpt-4o",
+          "o3-mini",
+          "codex"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "codex-worker-1",
+        "display_name": "Кодер 1",
+        "account_identity": "Аккаунт не добавлен",
+        "provider": "openai-codex",
+        "provider_display_name": "OpenAI Codex",
+        "assigned_roles": [
+          "coder-primary (fallback 1)"
+        ],
+        "primary_role": "coder",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "not_configured",
+        "health_label_ru": "Аккаунт не добавлен",
+        "model_states": {
+          "gpt": {
+            "family": "gpt",
+            "display_name": "gpt-4o",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "o3": {
+            "family": "o3",
+            "display_name": "o3-mini",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "default": {
+            "family": "default",
+            "display_name": "codex",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "codex-worker-1",
+          "provider": "openai-codex",
+          "buckets": [
+            {
+              "id": "codex.primary.weekly",
+              "display_name": "Codex Weekly",
+              "model_family": "gpt",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.467114+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "gpt-4o",
+          "o3-mini",
+          "codex"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "codex-worker-2",
+        "display_name": "Ревьюер",
+        "account_identity": "Аккаунт не добавлен",
+        "provider": "openai-codex",
+        "provider_display_name": "OpenAI Codex",
+        "assigned_roles": [
+          "coder-secondary (fallback 1)",
+          "reviewer (fallback 1)"
+        ],
+        "primary_role": "reviewer",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "not_configured",
+        "health_label_ru": "Аккаунт не добавлен",
+        "model_states": {
+          "gpt": {
+            "family": "gpt",
+            "display_name": "gpt-4o",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "o3": {
+            "family": "o3",
+            "display_name": "o3-mini",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "default": {
+            "family": "default",
+            "display_name": "codex",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "codex-worker-2",
+          "provider": "openai-codex",
+          "buckets": [
+            {
+              "id": "codex.primary.weekly",
+              "display_name": "Codex Weekly",
+              "model_family": "gpt",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.467114+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "gpt-4o",
+          "o3-mini",
+          "codex"
+        ],
+        "active_leases": 0
+      }
+    ],
+    "opencode-go": [
+      {
+        "profile_id": "opengo-1",
+        "display_name": "Кодер (OpenCode)",
+        "account_identity": "opengo-1",
+        "provider": "opencode-go",
+        "provider_display_name": "OpenCode Go",
+        "assigned_roles": [
+          "research (fallback 1)",
+          "fast (fallback 1)"
+        ],
+        "primary_role": "coder",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "AUTHENTICATED",
+        "health_state": "healthy",
+        "health_label_ru": "Работает",
+        "model_states": {
+          "qwen": {
+            "family": "qwen",
+            "display_name": "qwen3.8-max",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "glm": {
+            "family": "glm",
+            "display_name": "glm-5.3",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "deepseek": {
+            "family": "deepseek",
+            "display_name": "deepseek-v4-flash",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "grok": {
+            "family": "grok",
+            "display_name": "grok-4.5",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": false,
+        "email": "",
+        "plan": "UNKNOWN",
+        "plan_code": "UNKNOWN",
+        "plan_source": "provider_auth",
+        "quota_snapshot": {
+          "account_id": "opengo-1",
+          "provider": "opencode-go",
+          "buckets": [
+            {
+              "id": "opencode.5h",
+              "display_name": "Лимит 5 часов",
+              "model_family": "opencode",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": 12,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": "USD",
+              "scope": "account",
+              "status": "unknown"
+            },
+            {
+              "id": "opencode.7d",
+              "display_name": "Недельный лимит",
+              "model_family": "opencode",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": 30,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": "USD",
+              "scope": "account",
+              "status": "unknown"
+            },
+            {
+              "id": "opencode.30d",
+              "display_name": "Месячный лимит",
+              "model_family": "opencode",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": 60,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "30d",
+              "unit": "USD",
+              "scope": "account",
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:28.785248+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": "Для этого ключа не активна подписка OpenCode Go"
+        },
+        "preferred_models": [
+          "qwen3.8-max",
+          "glm-5.3",
+          "deepseek-v4-flash",
+          "grok-4.5"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "opengo-2",
+        "display_name": "Исследователь (OpenCode)",
+        "account_identity": "Аккаунт не добавлен",
+        "provider": "opencode-go",
+        "provider_display_name": "OpenCode Go",
+        "assigned_roles": [
+          "coder-secondary (fallback 2)",
+          "reviewer (fallback 2)"
+        ],
+        "primary_role": "researcher",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "not_configured",
+        "health_label_ru": "Аккаунт не добавлен",
+        "model_states": {
+          "deepseek": {
+            "family": "deepseek",
+            "display_name": "deepseek-v4-pro",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "grok": {
+            "family": "grok",
+            "display_name": "grok-4.5",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "qwen": {
+            "family": "qwen",
+            "display_name": "qwen3.7-max",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "opengo-2",
+          "provider": "opencode-go",
+          "buckets": [
+            {
+              "id": "opencode.tasks",
+              "display_name": "OpenCode Tasks",
+              "model_family": "opencode",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "30d",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.475546+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "deepseek-v4-pro",
+          "grok-4.5",
+          "qwen3.7-max"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "opengo-3",
+        "display_name": "Резервный роутер (OpenCode)",
+        "account_identity": "Аккаунт не добавлен",
+        "provider": "opencode-go",
+        "provider_display_name": "OpenCode Go",
+        "assigned_roles": [
+          "orchestrator (fallback 2)",
+          "coder-primary (fallback 2)"
+        ],
+        "primary_role": "orchestrator",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "not_configured",
+        "health_label_ru": "Аккаунт не добавлен",
+        "model_states": {
+          "kimi": {
+            "family": "kimi",
+            "display_name": "kimi-k2.7-code",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "deepseek": {
+            "family": "deepseek",
+            "display_name": "deepseek-v4-pro",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          },
+          "qwen": {
+            "family": "qwen",
+            "display_name": "qwen3.8-max",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "opengo-3",
+          "provider": "opencode-go",
+          "buckets": [
+            {
+              "id": "opencode.tasks",
+              "display_name": "OpenCode Tasks",
+              "model_family": "opencode",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "30d",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.476546+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "kimi-k2.7-code",
+          "deepseek-v4-pro",
+          "qwen3.8-max"
+        ],
+        "active_leases": 0
+      }
+    ],
+    "claude": [
+      {
+        "profile_id": "claude-orch",
+        "display_name": "Оркестратор (Claude)",
+        "account_identity": "Аккаунт не добавлен",
+        "provider": "claude",
+        "provider_display_name": "Claude",
+        "assigned_roles": [
+          "orchestrator"
+        ],
+        "primary_role": "orchestrator",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "not_configured",
+        "health_label_ru": "Аккаунт не добавлен",
+        "model_states": {
+          "claude": {
+            "family": "claude",
+            "display_name": "claude-sonnet-4-6",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "claude-orch",
+          "provider": "claude",
+          "buckets": [
+            {
+              "id": "claude.session.5h",
+              "display_name": "Claude 5h",
+              "model_family": "claude",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.462075+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "claude-3-7-sonnet",
+          "claude-3-5-haiku",
+          "claude-sonnet-4-6"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "claude-worker-1",
+        "display_name": "Кодер (Claude)",
+        "account_identity": "Аккаунт не добавлен",
+        "provider": "claude",
+        "provider_display_name": "Claude",
+        "assigned_roles": [
+          "coder"
+        ],
+        "primary_role": "coder",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "not_configured",
+        "health_label_ru": "Аккаунт не добавлен",
+        "model_states": {
+          "claude": {
+            "family": "claude",
+            "display_name": "claude-sonnet-4-6",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "claude-worker-1",
+          "provider": "claude",
+          "buckets": [
+            {
+              "id": "claude.session.5h",
+              "display_name": "Claude 5h",
+              "model_family": "claude",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.463114+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "claude-3-7-sonnet",
+          "claude-3-5-haiku",
+          "claude-sonnet-4-6"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "claude-worker-2",
+        "display_name": "Ревьюер (Claude)",
+        "account_identity": "Аккаунт не добавлен",
+        "provider": "claude",
+        "provider_display_name": "Claude",
+        "assigned_roles": [
+          "reviewer"
+        ],
+        "primary_role": "reviewer",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "not_configured",
+        "health_label_ru": "Аккаунт не добавлен",
+        "model_states": {
+          "claude": {
+            "family": "claude",
+            "display_name": "claude-3-5-haiku",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "claude-worker-2",
+          "provider": "claude",
+          "buckets": [
+            {
+              "id": "claude.session.5h",
+              "display_name": "Claude 5h",
+              "model_family": "claude",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "5h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.464113+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "claude-3-7-sonnet",
+          "claude-3-5-haiku"
+        ],
+        "active_leases": 0
+      }
+    ],
+    "grok": [
+      {
+        "profile_id": "grok-orch",
+        "display_name": "Оркестратор (Grok)",
+        "account_identity": "user@example.test",
+        "provider": "grok",
+        "provider_display_name": "Grok",
+        "assigned_roles": [
+          "orchestrator"
+        ],
+        "primary_role": "orchestrator",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "AUTHENTICATED",
+        "health_state": "healthy",
+        "health_label_ru": "Работает",
+        "model_states": {
+          "grok": {
+            "family": "grok",
+            "display_name": "grok-4.5",
+            "status": "healthy",
+            "status_label_ru": "Работает",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": false,
+        "email": "user@example.test",
+        "plan": "GROK PRO",
+        "plan_code": "GROK",
+        "plan_source": "provider_auth",
+        "quota_snapshot": {
+          "account_id": "grok-orch",
+          "provider": "grok",
+          "buckets": [
+            {
+              "id": "grok.weekly",
+              "display_name": "Недельное",
+              "model_family": "grok",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "7d",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            },
+            {
+              "id": "grok.chat",
+              "display_name": "GrokChat",
+              "model_family": "grok",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": null,
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            },
+            {
+              "id": "grok.build",
+              "display_name": "GrokBuild",
+              "model_family": "grok",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": null,
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            },
+            {
+              "id": "grok.frequent_tasks",
+              "display_name": "Частые задачи",
+              "model_family": "grok",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": 10,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": null,
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            },
+            {
+              "id": "grok.normal_tasks",
+              "display_name": "Обычные задачи",
+              "model_family": "grok",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": 30,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": null,
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.422866+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": "Grok не предоставляет остаток через публичный API"
+        },
+        "preferred_models": [
+          "grok-3",
+          "grok-3-mini",
+          "grok-4.5"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "grok-worker-1",
+        "display_name": "Кодер (Grok)",
+        "account_identity": "Аккаунт не добавлен",
+        "provider": "grok",
+        "provider_display_name": "Grok",
+        "assigned_roles": [
+          "coder"
+        ],
+        "primary_role": "coder",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "not_configured",
+        "health_label_ru": "Аккаунт не добавлен",
+        "model_states": {
+          "grok": {
+            "family": "grok",
+            "display_name": "grok-4.5",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "grok-worker-1",
+          "provider": "grok",
+          "buckets": [
+            {
+              "id": "grok.frequent_tasks",
+              "display_name": "Grok 2h",
+              "model_family": "grok",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "2h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.470955+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "grok-3",
+          "grok-3-mini",
+          "grok-4.5"
+        ],
+        "active_leases": 0
+      },
+      {
+        "profile_id": "grok-worker-2",
+        "display_name": "Исследователь (Grok)",
+        "account_identity": "Аккаунт не добавлен",
+        "provider": "grok",
+        "provider_display_name": "Grok",
+        "assigned_roles": [
+          "researcher"
+        ],
+        "primary_role": "researcher",
+        "is_main_account": false,
+        "is_main_orchestrator": false,
+        "auth_state": "NOT_CONFIGURED",
+        "health_state": "not_configured",
+        "health_label_ru": "Аккаунт не добавлен",
+        "model_states": {
+          "grok": {
+            "family": "grok",
+            "display_name": "grok-3-mini",
+            "status": "not_configured",
+            "status_label_ru": "Аккаунт не добавлен",
+            "cooldown_remaining_sec": 0,
+            "reset_at": null,
+            "reason": null
+          }
+        },
+        "cooldown_remaining_sec": 0,
+        "last_checked_at": "18:59:30",
+        "enabled": true,
+        "is_cold_spare": false,
+        "is_empty_slot": true,
+        "email": "",
+        "plan": "Тариф: неизвестен",
+        "plan_code": "UNKNOWN",
+        "plan_source": "unknown",
+        "quota_snapshot": {
+          "account_id": "grok-worker-2",
+          "provider": "grok",
+          "buckets": [
+            {
+              "id": "grok.frequent_tasks",
+              "display_name": "Grok 2h",
+              "model_family": "grok",
+              "used_percent": null,
+              "remaining_percent": null,
+              "used_absolute": null,
+              "remaining_absolute": null,
+              "limit_absolute": null,
+              "reset_at": null,
+              "reset_in_seconds": null,
+              "period": "2h",
+              "unit": null,
+              "scope": null,
+              "status": "unknown"
+            }
+          ],
+          "fetched_at": "2026-08-23T11:59:30.473553+00:00",
+          "stale_after_seconds": 300,
+          "source": "baseline",
+          "unavailable_reason": null
+        },
+        "preferred_models": [
+          "grok-3",
+          "grok-3-mini"
+        ],
+        "active_leases": 0
+      }
+    ]
+  },
+  "all_profiles": {
+    "ag-cold-1": {
+      "profile_id": "ag-cold-1",
+      "display_name": "Холодный резерв 1",
+      "account_identity": "Холодный резерв",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "assigned_roles": [
+        "spare"
+      ],
+      "primary_role": "spare",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "disabled",
+      "health_label_ru": "Отключён",
+      "model_states": {},
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": false,
+      "is_cold_spare": true,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "ag-cold-1",
+        "provider": "antigravity",
+        "buckets": [
+          {
+            "id": "antigravity.claude.5h",
+            "display_name": "Claude 5h",
+            "model_family": "claude",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          },
+          {
+            "id": "antigravity.gemini.5h",
+            "display_name": "Gemini 5h",
+            "model_family": "gemini",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.446408+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [],
+      "active_leases": 0
+    },
+    "ag-cold-2": {
+      "profile_id": "ag-cold-2",
+      "display_name": "Холодный резерв 2",
+      "account_identity": "Холодный резерв",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "assigned_roles": [
+        "spare"
+      ],
+      "primary_role": "spare",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "disabled",
+      "health_label_ru": "Отключён",
+      "model_states": {},
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": false,
+      "is_cold_spare": true,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "ag-cold-2",
+        "provider": "antigravity",
+        "buckets": [
+          {
+            "id": "antigravity.claude.5h",
+            "display_name": "Claude 5h",
+            "model_family": "claude",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          },
+          {
+            "id": "antigravity.gemini.5h",
+            "display_name": "Gemini 5h",
+            "model_family": "gemini",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.447408+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [],
+      "active_leases": 0
+    },
+    "ag-cold-3": {
+      "profile_id": "ag-cold-3",
+      "display_name": "Холодный резерв 3",
+      "account_identity": "Холодный резерв",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "assigned_roles": [
+        "spare"
+      ],
+      "primary_role": "spare",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "disabled",
+      "health_label_ru": "Отключён",
+      "model_states": {},
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": false,
+      "is_cold_spare": true,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "ag-cold-3",
+        "provider": "antigravity",
+        "buckets": [
+          {
+            "id": "antigravity.claude.5h",
+            "display_name": "Claude 5h",
+            "model_family": "claude",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          },
+          {
+            "id": "antigravity.gemini.5h",
+            "display_name": "Gemini 5h",
+            "model_family": "gemini",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.448970+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [],
+      "active_leases": 0
+    },
+    "ag-orch-fallback": {
+      "profile_id": "ag-orch-fallback",
+      "display_name": "Резервный оркестратор",
+      "account_identity": "user@example.test",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "assigned_roles": [
+        "orchestrator (primary)"
+      ],
+      "primary_role": "orchestrator",
+      "is_main_account": true,
+      "is_main_orchestrator": true,
+      "auth_state": "AUTHENTICATED",
+      "health_state": "healthy",
+      "health_label_ru": "Работает",
+      "model_states": {
+        "gemini": {
+          "family": "gemini",
+          "display_name": "gemini-3.5-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "claude": {
+          "family": "claude",
+          "display_name": "claude-sonnet-4-6",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": false,
+      "email": "user@example.test",
+      "plan": "PRO",
+      "plan_code": "PRO",
+      "plan_source": "provider_auth",
+      "quota_snapshot": {
+        "account_id": "ag-orch-fallback",
+        "provider": "antigravity",
+        "buckets": [
+          {
+            "id": "antigravity.claude.5h",
+            "display_name": "Claude/GPT • 5 часов",
+            "model_family": "claude",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-23T16:59:24+00:00",
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.gemini.5h",
+            "display_name": "Gemini • 5 часов",
+            "model_family": "gemini",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-23T16:59:24+00:00",
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.claude.7d",
+            "display_name": "Claude/GPT • неделя",
+            "model_family": "claude",
+            "used_percent": 33.864653000000004,
+            "remaining_percent": 66.135347,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-26T11:19:06+00:00",
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.gemini.7d",
+            "display_name": "Gemini • неделя",
+            "model_family": "gemini",
+            "used_percent": 0.0817700000000059,
+            "remaining_percent": 99.91823,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-26T11:21:42+00:00",
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:22.944899+00:00",
+        "stale_after_seconds": 300,
+        "source": "provider_api",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "gemini-3.7-flash",
+        "claude-sonnet-4-6",
+        "gemini-3.5-flash"
+      ],
+      "active_leases": 0
+    },
+    "ag-spare-1": {
+      "profile_id": "ag-spare-1",
+      "display_name": "Резерв 1",
+      "account_identity": "user@example.test",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "assigned_roles": [
+        "fast (primary)"
+      ],
+      "primary_role": "spare",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "AUTHENTICATED",
+      "health_state": "healthy",
+      "health_label_ru": "Работает",
+      "model_states": {
+        "gemini": {
+          "family": "gemini",
+          "display_name": "gemini-3.5-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": false,
+      "email": "user@example.test",
+      "plan": "PRO",
+      "plan_code": "PRO",
+      "plan_source": "provider_auth",
+      "quota_snapshot": {
+        "account_id": "ag-spare-1",
+        "provider": "antigravity",
+        "buckets": [
+          {
+            "id": "antigravity.claude.5h",
+            "display_name": "Claude/GPT • 5 часов",
+            "model_family": "claude",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-23T16:59:29+00:00",
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.gemini.5h",
+            "display_name": "Gemini • 5 часов",
+            "model_family": "gemini",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-23T16:59:29+00:00",
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.claude.7d",
+            "display_name": "Claude/GPT • неделя",
+            "model_family": "claude",
+            "used_percent": 34.51999000000001,
+            "remaining_percent": 65.48001,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-27T10:00:06+00:00",
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.gemini.7d",
+            "display_name": "Gemini • неделя",
+            "model_family": "gemini",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-30T11:59:29+00:00",
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:27.764730+00:00",
+        "stale_after_seconds": 300,
+        "source": "provider_api",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "gemini-3.6-flash-high",
+        "gemini-3.7-flash",
+        "gemini-3.5-flash"
+      ],
+      "active_leases": 0
+    },
+    "ag-spare-2": {
+      "profile_id": "ag-spare-2",
+      "display_name": "Резерв 2",
+      "account_identity": "Аккаунт не добавлен",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "assigned_roles": [
+        "spare"
+      ],
+      "primary_role": "spare",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "not_configured",
+      "health_label_ru": "Аккаунт не добавлен",
+      "model_states": {
+        "gemini": {
+          "family": "gemini",
+          "display_name": "gemini-3.5-flash",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "ag-spare-2",
+        "provider": "antigravity",
+        "buckets": [
+          {
+            "id": "antigravity.claude.5h",
+            "display_name": "Claude 5h",
+            "model_family": "claude",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          },
+          {
+            "id": "antigravity.gemini.5h",
+            "display_name": "Gemini 5h",
+            "model_family": "gemini",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.453554+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "gemini-3.7-flash",
+        "gemini-3.5-flash"
+      ],
+      "active_leases": 0
+    },
+    "ag-w1": {
+      "profile_id": "ag-w1",
+      "display_name": "Кодер 2",
+      "account_identity": "user@example.test",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "assigned_roles": [
+        "coder-primary (primary)"
+      ],
+      "primary_role": "coder",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "AUTHENTICATED",
+      "health_state": "healthy",
+      "health_label_ru": "Работает",
+      "model_states": {
+        "gemini": {
+          "family": "gemini",
+          "display_name": "gemini-3.5-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "claude": {
+          "family": "claude",
+          "display_name": "claude-sonnet-4-6",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": false,
+      "email": "user@example.test",
+      "plan": "PRO",
+      "plan_code": "PRO",
+      "plan_source": "provider_auth",
+      "quota_snapshot": {
+        "account_id": "ag-w1",
+        "provider": "antigravity",
+        "buckets": [
+          {
+            "id": "antigravity.claude.5h",
+            "display_name": "Claude/GPT • 5 часов",
+            "model_family": "claude",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-23T16:59:25+00:00",
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.gemini.5h",
+            "display_name": "Gemini • 5 часов",
+            "model_family": "gemini",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-23T16:59:25+00:00",
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.claude.7d",
+            "display_name": "Claude/GPT • неделя",
+            "model_family": "claude",
+            "used_percent": 34.14447,
+            "remaining_percent": 65.85553,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-26T11:42:10+00:00",
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.gemini.7d",
+            "display_name": "Gemini • неделя",
+            "model_family": "gemini",
+            "used_percent": 0.33874499999998875,
+            "remaining_percent": 99.66125500000001,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-26T11:44:53+00:00",
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:24.074829+00:00",
+        "stale_after_seconds": 300,
+        "source": "provider_api",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "gemini-3.7-flash",
+        "claude-sonnet-4-6",
+        "gemini-3.5-flash"
+      ],
+      "active_leases": 0
+    },
+    "ag-w2": {
+      "profile_id": "ag-w2",
+      "display_name": "Исследователь",
+      "account_identity": "user@example.test",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "assigned_roles": [
+        "coder-secondary (primary)",
+        "reviewer (fallback 3)"
+      ],
+      "primary_role": "researcher",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "AUTHENTICATED",
+      "health_state": "healthy",
+      "health_label_ru": "Работает",
+      "model_states": {
+        "gemini": {
+          "family": "gemini",
+          "display_name": "gemini-3.5-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": false,
+      "email": "user@example.test",
+      "plan": "PRO",
+      "plan_code": "PRO",
+      "plan_source": "provider_auth",
+      "quota_snapshot": {
+        "account_id": "ag-w2",
+        "provider": "antigravity",
+        "buckets": [
+          {
+            "id": "antigravity.claude.5h",
+            "display_name": "Claude/GPT • 5 часов",
+            "model_family": "claude",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-23T16:59:26+00:00",
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.gemini.5h",
+            "display_name": "Gemini • 5 часов",
+            "model_family": "gemini",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-23T16:59:26+00:00",
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.claude.7d",
+            "display_name": "Claude/GPT • неделя",
+            "model_family": "claude",
+            "used_percent": 62.585348,
+            "remaining_percent": 37.414652,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-25T06:09:55+00:00",
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.gemini.7d",
+            "display_name": "Gemini • неделя",
+            "model_family": "gemini",
+            "used_percent": 19.49136,
+            "remaining_percent": 80.50864,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-24T16:18:52+00:00",
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:25.134345+00:00",
+        "stale_after_seconds": 300,
+        "source": "provider_api",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "gemini-3.7-flash",
+        "gemini-3.5-flash"
+      ],
+      "active_leases": 0
+    },
+    "ag-w3": {
+      "profile_id": "ag-w3",
+      "display_name": "Быстрый агент",
+      "account_identity": "user@example.test",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "assigned_roles": [
+        "reviewer (primary)",
+        "research (fallback 2)"
+      ],
+      "primary_role": "general",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "AUTHENTICATED",
+      "health_state": "healthy",
+      "health_label_ru": "Работает",
+      "model_states": {
+        "gemini": {
+          "family": "gemini",
+          "display_name": "gemini-3.7-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "claude": {
+          "family": "claude",
+          "display_name": "claude-sonnet-4-6",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": false,
+      "email": "user@example.test",
+      "plan": "PRO",
+      "plan_code": "PRO",
+      "plan_source": "provider_auth",
+      "quota_snapshot": {
+        "account_id": "ag-w3",
+        "provider": "antigravity",
+        "buckets": [
+          {
+            "id": "antigravity.claude.5h",
+            "display_name": "Claude/GPT • 5 часов",
+            "model_family": "claude",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-23T16:59:27+00:00",
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.gemini.5h",
+            "display_name": "Gemini • 5 часов",
+            "model_family": "gemini",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-23T16:59:27+00:00",
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.claude.7d",
+            "display_name": "Claude/GPT • неделя",
+            "model_family": "claude",
+            "used_percent": 9.875199999999992,
+            "remaining_percent": 90.12480000000001,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-26T12:12:02+00:00",
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.gemini.7d",
+            "display_name": "Gemini • неделя",
+            "model_family": "gemini",
+            "used_percent": 16.673075999999995,
+            "remaining_percent": 83.326924,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-26T12:12:55+00:00",
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:25.844507+00:00",
+        "stale_after_seconds": 300,
+        "source": "provider_api",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "gemini-3.7-flash",
+        "claude-sonnet-4-6"
+      ],
+      "active_leases": 0
+    },
+    "ag-w4": {
+      "profile_id": "ag-w4",
+      "display_name": "Универсальный субагент",
+      "account_identity": "user@example.test",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "assigned_roles": [
+        "research (primary)",
+        "fast (fallback 2)"
+      ],
+      "primary_role": "general",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "AUTHENTICATED",
+      "health_state": "healthy",
+      "health_label_ru": "Работает",
+      "model_states": {
+        "gemini": {
+          "family": "gemini",
+          "display_name": "gemini-3.7-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": false,
+      "email": "user@example.test",
+      "plan": "PRO",
+      "plan_code": "PRO",
+      "plan_source": "provider_auth",
+      "quota_snapshot": {
+        "account_id": "ag-w4",
+        "provider": "antigravity",
+        "buckets": [
+          {
+            "id": "antigravity.claude.5h",
+            "display_name": "Claude/GPT • 5 часов",
+            "model_family": "claude",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-23T16:59:28+00:00",
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.gemini.5h",
+            "display_name": "Gemini • 5 часов",
+            "model_family": "gemini",
+            "used_percent": 0.0,
+            "remaining_percent": 100.0,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-23T16:59:28+00:00",
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.claude.7d",
+            "display_name": "Claude/GPT • неделя",
+            "model_family": "claude",
+            "used_percent": 33.544296,
+            "remaining_percent": 66.455704,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-26T11:32:47+00:00",
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          },
+          {
+            "id": "antigravity.gemini.7d",
+            "display_name": "Gemini • неделя",
+            "model_family": "gemini",
+            "used_percent": 0.03422499999999218,
+            "remaining_percent": 99.96577500000001,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": "2026-08-26T11:35:55+00:00",
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "model capacity",
+            "scope": "model_family",
+            "status": "healthy"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:26.906876+00:00",
+        "stale_after_seconds": 300,
+        "source": "provider_api",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "gemini-3.5-flash",
+        "gemini-3.7-flash"
+      ],
+      "active_leases": 0
+    },
+    "codex-orch": {
+      "profile_id": "codex-orch",
+      "display_name": "Главный оркестратор",
+      "account_identity": "Аккаунт не добавлен",
+      "provider": "openai-codex",
+      "provider_display_name": "OpenAI Codex",
+      "assigned_roles": [
+        "orchestrator (fallback 1)"
+      ],
+      "primary_role": "orchestrator",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "not_configured",
+      "health_label_ru": "Аккаунт не добавлен",
+      "model_states": {
+        "gpt": {
+          "family": "gpt",
+          "display_name": "gpt-4o",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "o3": {
+          "family": "o3",
+          "display_name": "o3-mini",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "default": {
+          "family": "default",
+          "display_name": "codex",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "codex-orch",
+        "provider": "openai-codex",
+        "buckets": [
+          {
+            "id": "codex.primary.weekly",
+            "display_name": "Codex Weekly",
+            "model_family": "gpt",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.466113+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "gpt-4o",
+        "o3-mini",
+        "codex"
+      ],
+      "active_leases": 0
+    },
+    "codex-worker-1": {
+      "profile_id": "codex-worker-1",
+      "display_name": "Кодер 1",
+      "account_identity": "Аккаунт не добавлен",
+      "provider": "openai-codex",
+      "provider_display_name": "OpenAI Codex",
+      "assigned_roles": [
+        "coder-primary (fallback 1)"
+      ],
+      "primary_role": "coder",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "not_configured",
+      "health_label_ru": "Аккаунт не добавлен",
+      "model_states": {
+        "gpt": {
+          "family": "gpt",
+          "display_name": "gpt-4o",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "o3": {
+          "family": "o3",
+          "display_name": "o3-mini",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "default": {
+          "family": "default",
+          "display_name": "codex",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "codex-worker-1",
+        "provider": "openai-codex",
+        "buckets": [
+          {
+            "id": "codex.primary.weekly",
+            "display_name": "Codex Weekly",
+            "model_family": "gpt",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.467114+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "gpt-4o",
+        "o3-mini",
+        "codex"
+      ],
+      "active_leases": 0
+    },
+    "codex-worker-2": {
+      "profile_id": "codex-worker-2",
+      "display_name": "Ревьюер",
+      "account_identity": "Аккаунт не добавлен",
+      "provider": "openai-codex",
+      "provider_display_name": "OpenAI Codex",
+      "assigned_roles": [
+        "coder-secondary (fallback 1)",
+        "reviewer (fallback 1)"
+      ],
+      "primary_role": "reviewer",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "not_configured",
+      "health_label_ru": "Аккаунт не добавлен",
+      "model_states": {
+        "gpt": {
+          "family": "gpt",
+          "display_name": "gpt-4o",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "o3": {
+          "family": "o3",
+          "display_name": "o3-mini",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "default": {
+          "family": "default",
+          "display_name": "codex",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "codex-worker-2",
+        "provider": "openai-codex",
+        "buckets": [
+          {
+            "id": "codex.primary.weekly",
+            "display_name": "Codex Weekly",
+            "model_family": "gpt",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.467114+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "gpt-4o",
+        "o3-mini",
+        "codex"
+      ],
+      "active_leases": 0
+    },
+    "opengo-1": {
+      "profile_id": "opengo-1",
+      "display_name": "Кодер (OpenCode)",
+      "account_identity": "opengo-1",
+      "provider": "opencode-go",
+      "provider_display_name": "OpenCode Go",
+      "assigned_roles": [
+        "research (fallback 1)",
+        "fast (fallback 1)"
+      ],
+      "primary_role": "coder",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "AUTHENTICATED",
+      "health_state": "healthy",
+      "health_label_ru": "Работает",
+      "model_states": {
+        "qwen": {
+          "family": "qwen",
+          "display_name": "qwen3.8-max",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "glm": {
+          "family": "glm",
+          "display_name": "glm-5.3",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "deepseek": {
+          "family": "deepseek",
+          "display_name": "deepseek-v4-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "grok": {
+          "family": "grok",
+          "display_name": "grok-4.5",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": false,
+      "email": "",
+      "plan": "UNKNOWN",
+      "plan_code": "UNKNOWN",
+      "plan_source": "provider_auth",
+      "quota_snapshot": {
+        "account_id": "opengo-1",
+        "provider": "opencode-go",
+        "buckets": [
+          {
+            "id": "opencode.5h",
+            "display_name": "Лимит 5 часов",
+            "model_family": "opencode",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": 12,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": "USD",
+            "scope": "account",
+            "status": "unknown"
+          },
+          {
+            "id": "opencode.7d",
+            "display_name": "Недельный лимит",
+            "model_family": "opencode",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": 30,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": "USD",
+            "scope": "account",
+            "status": "unknown"
+          },
+          {
+            "id": "opencode.30d",
+            "display_name": "Месячный лимит",
+            "model_family": "opencode",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": 60,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "30d",
+            "unit": "USD",
+            "scope": "account",
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:28.785248+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": "Для этого ключа не активна подписка OpenCode Go"
+      },
+      "preferred_models": [
+        "qwen3.8-max",
+        "glm-5.3",
+        "deepseek-v4-flash",
+        "grok-4.5"
+      ],
+      "active_leases": 0
+    },
+    "opengo-2": {
+      "profile_id": "opengo-2",
+      "display_name": "Исследователь (OpenCode)",
+      "account_identity": "Аккаунт не добавлен",
+      "provider": "opencode-go",
+      "provider_display_name": "OpenCode Go",
+      "assigned_roles": [
+        "coder-secondary (fallback 2)",
+        "reviewer (fallback 2)"
+      ],
+      "primary_role": "researcher",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "not_configured",
+      "health_label_ru": "Аккаунт не добавлен",
+      "model_states": {
+        "deepseek": {
+          "family": "deepseek",
+          "display_name": "deepseek-v4-pro",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "grok": {
+          "family": "grok",
+          "display_name": "grok-4.5",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "qwen": {
+          "family": "qwen",
+          "display_name": "qwen3.7-max",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "opengo-2",
+        "provider": "opencode-go",
+        "buckets": [
+          {
+            "id": "opencode.tasks",
+            "display_name": "OpenCode Tasks",
+            "model_family": "opencode",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "30d",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.475546+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "deepseek-v4-pro",
+        "grok-4.5",
+        "qwen3.7-max"
+      ],
+      "active_leases": 0
+    },
+    "opengo-3": {
+      "profile_id": "opengo-3",
+      "display_name": "Резервный роутер (OpenCode)",
+      "account_identity": "Аккаунт не добавлен",
+      "provider": "opencode-go",
+      "provider_display_name": "OpenCode Go",
+      "assigned_roles": [
+        "orchestrator (fallback 2)",
+        "coder-primary (fallback 2)"
+      ],
+      "primary_role": "orchestrator",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "not_configured",
+      "health_label_ru": "Аккаунт не добавлен",
+      "model_states": {
+        "kimi": {
+          "family": "kimi",
+          "display_name": "kimi-k2.7-code",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "deepseek": {
+          "family": "deepseek",
+          "display_name": "deepseek-v4-pro",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        },
+        "qwen": {
+          "family": "qwen",
+          "display_name": "qwen3.8-max",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "opengo-3",
+        "provider": "opencode-go",
+        "buckets": [
+          {
+            "id": "opencode.tasks",
+            "display_name": "OpenCode Tasks",
+            "model_family": "opencode",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "30d",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.476546+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "kimi-k2.7-code",
+        "deepseek-v4-pro",
+        "qwen3.8-max"
+      ],
+      "active_leases": 0
+    },
+    "claude-orch": {
+      "profile_id": "claude-orch",
+      "display_name": "Оркестратор (Claude)",
+      "account_identity": "Аккаунт не добавлен",
+      "provider": "claude",
+      "provider_display_name": "Claude",
+      "assigned_roles": [
+        "orchestrator"
+      ],
+      "primary_role": "orchestrator",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "not_configured",
+      "health_label_ru": "Аккаунт не добавлен",
+      "model_states": {
+        "claude": {
+          "family": "claude",
+          "display_name": "claude-sonnet-4-6",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "claude-orch",
+        "provider": "claude",
+        "buckets": [
+          {
+            "id": "claude.session.5h",
+            "display_name": "Claude 5h",
+            "model_family": "claude",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.462075+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "claude-3-7-sonnet",
+        "claude-3-5-haiku",
+        "claude-sonnet-4-6"
+      ],
+      "active_leases": 0
+    },
+    "claude-worker-1": {
+      "profile_id": "claude-worker-1",
+      "display_name": "Кодер (Claude)",
+      "account_identity": "Аккаунт не добавлен",
+      "provider": "claude",
+      "provider_display_name": "Claude",
+      "assigned_roles": [
+        "coder"
+      ],
+      "primary_role": "coder",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "not_configured",
+      "health_label_ru": "Аккаунт не добавлен",
+      "model_states": {
+        "claude": {
+          "family": "claude",
+          "display_name": "claude-sonnet-4-6",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "claude-worker-1",
+        "provider": "claude",
+        "buckets": [
+          {
+            "id": "claude.session.5h",
+            "display_name": "Claude 5h",
+            "model_family": "claude",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.463114+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "claude-3-7-sonnet",
+        "claude-3-5-haiku",
+        "claude-sonnet-4-6"
+      ],
+      "active_leases": 0
+    },
+    "claude-worker-2": {
+      "profile_id": "claude-worker-2",
+      "display_name": "Ревьюер (Claude)",
+      "account_identity": "Аккаунт не добавлен",
+      "provider": "claude",
+      "provider_display_name": "Claude",
+      "assigned_roles": [
+        "reviewer"
+      ],
+      "primary_role": "reviewer",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "not_configured",
+      "health_label_ru": "Аккаунт не добавлен",
+      "model_states": {
+        "claude": {
+          "family": "claude",
+          "display_name": "claude-3-5-haiku",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "claude-worker-2",
+        "provider": "claude",
+        "buckets": [
+          {
+            "id": "claude.session.5h",
+            "display_name": "Claude 5h",
+            "model_family": "claude",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "5h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.464113+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "claude-3-7-sonnet",
+        "claude-3-5-haiku"
+      ],
+      "active_leases": 0
+    },
+    "grok-orch": {
+      "profile_id": "grok-orch",
+      "display_name": "Оркестратор (Grok)",
+      "account_identity": "user@example.test",
+      "provider": "grok",
+      "provider_display_name": "Grok",
+      "assigned_roles": [
+        "orchestrator"
+      ],
+      "primary_role": "orchestrator",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "AUTHENTICATED",
+      "health_state": "healthy",
+      "health_label_ru": "Работает",
+      "model_states": {
+        "grok": {
+          "family": "grok",
+          "display_name": "grok-4.5",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": false,
+      "email": "user@example.test",
+      "plan": "GROK PRO",
+      "plan_code": "GROK",
+      "plan_source": "provider_auth",
+      "quota_snapshot": {
+        "account_id": "grok-orch",
+        "provider": "grok",
+        "buckets": [
+          {
+            "id": "grok.weekly",
+            "display_name": "Недельное",
+            "model_family": "grok",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "7d",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          },
+          {
+            "id": "grok.chat",
+            "display_name": "GrokChat",
+            "model_family": "grok",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": null,
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          },
+          {
+            "id": "grok.build",
+            "display_name": "GrokBuild",
+            "model_family": "grok",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": null,
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          },
+          {
+            "id": "grok.frequent_tasks",
+            "display_name": "Частые задачи",
+            "model_family": "grok",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": 10,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": null,
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          },
+          {
+            "id": "grok.normal_tasks",
+            "display_name": "Обычные задачи",
+            "model_family": "grok",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": 30,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": null,
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.422866+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": "Grok не предоставляет остаток через публичный API"
+      },
+      "preferred_models": [
+        "grok-3",
+        "grok-3-mini",
+        "grok-4.5"
+      ],
+      "active_leases": 0
+    },
+    "grok-worker-1": {
+      "profile_id": "grok-worker-1",
+      "display_name": "Кодер (Grok)",
+      "account_identity": "Аккаунт не добавлен",
+      "provider": "grok",
+      "provider_display_name": "Grok",
+      "assigned_roles": [
+        "coder"
+      ],
+      "primary_role": "coder",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "not_configured",
+      "health_label_ru": "Аккаунт не добавлен",
+      "model_states": {
+        "grok": {
+          "family": "grok",
+          "display_name": "grok-4.5",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "grok-worker-1",
+        "provider": "grok",
+        "buckets": [
+          {
+            "id": "grok.frequent_tasks",
+            "display_name": "Grok 2h",
+            "model_family": "grok",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "2h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.470955+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "grok-3",
+        "grok-3-mini",
+        "grok-4.5"
+      ],
+      "active_leases": 0
+    },
+    "grok-worker-2": {
+      "profile_id": "grok-worker-2",
+      "display_name": "Исследователь (Grok)",
+      "account_identity": "Аккаунт не добавлен",
+      "provider": "grok",
+      "provider_display_name": "Grok",
+      "assigned_roles": [
+        "researcher"
+      ],
+      "primary_role": "researcher",
+      "is_main_account": false,
+      "is_main_orchestrator": false,
+      "auth_state": "NOT_CONFIGURED",
+      "health_state": "not_configured",
+      "health_label_ru": "Аккаунт не добавлен",
+      "model_states": {
+        "grok": {
+          "family": "grok",
+          "display_name": "grok-3-mini",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "cooldown_remaining_sec": 0,
+          "reset_at": null,
+          "reason": null
+        }
+      },
+      "cooldown_remaining_sec": 0,
+      "last_checked_at": "18:59:30",
+      "enabled": true,
+      "is_cold_spare": false,
+      "is_empty_slot": true,
+      "email": "",
+      "plan": "Тариф: неизвестен",
+      "plan_code": "UNKNOWN",
+      "plan_source": "unknown",
+      "quota_snapshot": {
+        "account_id": "grok-worker-2",
+        "provider": "grok",
+        "buckets": [
+          {
+            "id": "grok.frequent_tasks",
+            "display_name": "Grok 2h",
+            "model_family": "grok",
+            "used_percent": null,
+            "remaining_percent": null,
+            "used_absolute": null,
+            "remaining_absolute": null,
+            "limit_absolute": null,
+            "reset_at": null,
+            "reset_in_seconds": null,
+            "period": "2h",
+            "unit": null,
+            "scope": null,
+            "status": "unknown"
+          }
+        ],
+        "fetched_at": "2026-08-23T11:59:30.473553+00:00",
+        "stale_after_seconds": 300,
+        "source": "baseline",
+        "unavailable_reason": null
+      },
+      "preferred_models": [
+        "grok-3",
+        "grok-3-mini"
+      ],
+      "active_leases": 0
+    }
+  },
+  "readiness": {
+    "state": "healthy",
+    "title_ru": "Полная готовность",
+    "summary_ru": "Все системы и резервы в строю.",
+    "roles_ready_count": 6,
+    "total_roles": 6,
+    "accounts_connected_count": 8,
+    "total_accounts": 8,
+    "providers_ready_count": 3,
+    "total_providers": 5,
+    "warnings": []
+  },
+  "agents": [
+    {
+      "role_id": "orchestrator",
+      "role_name_ru": "Главный оркестратор",
+      "role_description_ru": "Управление командой, планирование, контроль исполнения",
+      "assigned_profile_id": "ag-orch-fallback",
+      "assigned_display_name": "Резервный оркестратор",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "model": "gemini-3.7-flash",
+      "account_identity": "user@example.test",
+      "routing_position": "Primary",
+      "status": "healthy",
+      "status_label_ru": "Работает",
+      "is_active": true,
+      "is_main_orchestrator": true,
+      "cooldown_remaining_sec": 0,
+      "session_id": null,
+      "active_quota_status": "healthy",
+      "active_quota_label": "Осталось 100%"
+    },
+    {
+      "role_id": "coder-primary",
+      "role_name_ru": "Кодер 1",
+      "role_description_ru": "Основная разработка кода и исправление дефектов",
+      "assigned_profile_id": "ag-w1",
+      "assigned_display_name": "Кодер 2",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "model": "gemini-3.7-flash",
+      "account_identity": "user@example.test",
+      "routing_position": "Primary",
+      "status": "healthy",
+      "status_label_ru": "Работает",
+      "is_active": true,
+      "is_main_orchestrator": false,
+      "cooldown_remaining_sec": 0,
+      "session_id": null,
+      "active_quota_status": "healthy",
+      "active_quota_label": "Осталось 100%"
+    },
+    {
+      "role_id": "coder-secondary",
+      "role_name_ru": "Кодер 2",
+      "role_description_ru": "Параллельная разработка и вспомогательные модули",
+      "assigned_profile_id": "ag-w2",
+      "assigned_display_name": "Исследователь",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "model": "gemini-3.7-flash",
+      "account_identity": "user@example.test",
+      "routing_position": "Primary",
+      "status": "healthy",
+      "status_label_ru": "Работает",
+      "is_active": true,
+      "is_main_orchestrator": false,
+      "cooldown_remaining_sec": 0,
+      "session_id": null,
+      "active_quota_status": "healthy",
+      "active_quota_label": "Осталось 81%"
+    },
+    {
+      "role_id": "reviewer",
+      "role_name_ru": "Ревьюер",
+      "role_description_ru": "Независимое fail-closed ревью и валидация diff",
+      "assigned_profile_id": "ag-w3",
+      "assigned_display_name": "Быстрый агент",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "model": "gemini-3.7-flash",
+      "account_identity": "user@example.test",
+      "routing_position": "Primary",
+      "status": "healthy",
+      "status_label_ru": "Работает",
+      "is_active": true,
+      "is_main_orchestrator": false,
+      "cooldown_remaining_sec": 0,
+      "session_id": null,
+      "active_quota_status": "healthy",
+      "active_quota_label": "Осталось 83%"
+    },
+    {
+      "role_id": "research",
+      "role_name_ru": "Исследователь",
+      "role_description_ru": "Read-only поиск в кодовой базе и сбор фактов",
+      "assigned_profile_id": "ag-w4",
+      "assigned_display_name": "Универсальный субагент",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "model": "gemini-3.5-flash",
+      "account_identity": "user@example.test",
+      "routing_position": "Primary",
+      "status": "healthy",
+      "status_label_ru": "Работает",
+      "is_active": true,
+      "is_main_orchestrator": false,
+      "cooldown_remaining_sec": 0,
+      "session_id": null,
+      "active_quota_status": "healthy",
+      "active_quota_label": "Осталось 100%"
+    },
+    {
+      "role_id": "fast",
+      "role_name_ru": "Быстрый агент",
+      "role_description_ru": "Оперативные вызовы, вспомогательные проверки",
+      "assigned_profile_id": "ag-spare-1",
+      "assigned_display_name": "Резерв 1",
+      "provider": "antigravity",
+      "provider_display_name": "Google Antigravity",
+      "model": "gemini-3.6-flash-high",
+      "account_identity": "user@example.test",
+      "routing_position": "Primary",
+      "status": "healthy",
+      "status_label_ru": "Работает",
+      "is_active": true,
+      "is_main_orchestrator": false,
+      "cooldown_remaining_sec": 0,
+      "session_id": null,
+      "active_quota_status": "healthy",
+      "active_quota_label": "Осталось 100%"
+    }
+  ],
+  "providers": [
+    {
+      "provider_id": "antigravity",
+      "provider_name": "Google Antigravity",
+      "total_slots": 10,
+      "connected_count": 6,
+      "online_count": 6,
+      "auth_required_count": 0,
+      "quota_exhausted_count": 0,
+      "cold_spare_count": 3,
+      "discovered_models": [
+        "claude-sonnet-4-6",
+        "gemini-3.5-flash",
+        "gemini-3.6-flash-high",
+        "gemini-3.7-flash"
+      ],
+      "last_refresh_at": "18:59:30"
+    },
+    {
+      "provider_id": "grok",
+      "provider_name": "Grok",
+      "total_slots": 3,
+      "connected_count": 1,
+      "online_count": 1,
+      "auth_required_count": 0,
+      "quota_exhausted_count": 0,
+      "cold_spare_count": 0,
+      "discovered_models": [
+        "grok-3",
+        "grok-3-mini",
+        "grok-4.5"
+      ],
+      "last_refresh_at": "18:59:30"
+    },
+    {
+      "provider_id": "opencode-go",
+      "provider_name": "OpenCode Go",
+      "total_slots": 3,
+      "connected_count": 1,
+      "online_count": 1,
+      "auth_required_count": 0,
+      "quota_exhausted_count": 0,
+      "cold_spare_count": 0,
+      "discovered_models": [
+        "deepseek-v4-flash",
+        "deepseek-v4-pro",
+        "glm-5.3",
+        "grok-4.5",
+        "kimi-k2.7-code",
+        "qwen3.7-max",
+        "qwen3.8-max"
+      ],
+      "last_refresh_at": "18:59:30"
+    },
+    {
+      "provider_id": "claude",
+      "provider_name": "Claude",
+      "total_slots": 3,
+      "connected_count": 0,
+      "online_count": 0,
+      "auth_required_count": 0,
+      "quota_exhausted_count": 0,
+      "cold_spare_count": 0,
+      "discovered_models": [
+        "claude-3-5-haiku",
+        "claude-3-7-sonnet",
+        "claude-sonnet-4-6"
+      ],
+      "last_refresh_at": "18:59:30"
+    },
+    {
+      "provider_id": "openai-codex",
+      "provider_name": "OpenAI Codex",
+      "total_slots": 3,
+      "connected_count": 0,
+      "online_count": 0,
+      "auth_required_count": 0,
+      "quota_exhausted_count": 0,
+      "cold_spare_count": 0,
+      "discovered_models": [
+        "codex",
+        "gpt-4o",
+        "o3-mini"
+      ],
+      "last_refresh_at": "18:59:30"
+    }
+  ],
+  "routing": {
+    "orchestrator": {
+      "role_id": "orchestrator",
+      "role_name_ru": "Главный оркестратор",
+      "default_model": "gemini-3.7-flash",
+      "max_failover": 3,
+      "session_affinity": true,
+      "active_profile_id": "ag-orch-fallback",
+      "nodes": [
+        {
+          "profile_id": "ag-orch-fallback",
+          "display_name": "Резервный оркестратор",
+          "provider": "Google Antigravity",
+          "model": "gemini-3.7-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "is_active": true,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "user@example.test",
+          "quota_status": "healthy",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "codex-orch",
+          "display_name": "Главный оркестратор",
+          "provider": "OpenAI Codex",
+          "model": "gpt-4o",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "Аккаунт не добавлен",
+          "quota_status": "unknown",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "opengo-3",
+          "display_name": "Резервный роутер (OpenCode)",
+          "provider": "OpenCode Go",
+          "model": "kimi-k2.7-code",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "Аккаунт не добавлен",
+          "quota_status": "unknown",
+          "failover_reason": null
+        }
+      ]
+    },
+    "coder-primary": {
+      "role_id": "coder-primary",
+      "role_name_ru": "Кодер 1 (Primary)",
+      "default_model": "auto",
+      "max_failover": 3,
+      "session_affinity": true,
+      "active_profile_id": "ag-w1",
+      "nodes": [
+        {
+          "profile_id": "ag-w1",
+          "display_name": "Кодер 2",
+          "provider": "Google Antigravity",
+          "model": "gemini-3.7-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "is_active": true,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "user@example.test",
+          "quota_status": "healthy",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "codex-worker-1",
+          "display_name": "Кодер 1",
+          "provider": "OpenAI Codex",
+          "model": "gpt-4o",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "Аккаунт не добавлен",
+          "quota_status": "unknown",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "opengo-3",
+          "display_name": "Резервный роутер (OpenCode)",
+          "provider": "OpenCode Go",
+          "model": "kimi-k2.7-code",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "Аккаунт не добавлен",
+          "quota_status": "unknown",
+          "failover_reason": null
+        }
+      ]
+    },
+    "coder-secondary": {
+      "role_id": "coder-secondary",
+      "role_name_ru": "Кодер 2 (Secondary)",
+      "default_model": "auto",
+      "max_failover": 3,
+      "session_affinity": true,
+      "active_profile_id": "ag-w2",
+      "nodes": [
+        {
+          "profile_id": "ag-w2",
+          "display_name": "Исследователь",
+          "provider": "Google Antigravity",
+          "model": "gemini-3.7-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "is_active": true,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "user@example.test",
+          "quota_status": "healthy",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "codex-worker-2",
+          "display_name": "Ревьюер",
+          "provider": "OpenAI Codex",
+          "model": "gpt-4o",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "Аккаунт не добавлен",
+          "quota_status": "unknown",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "opengo-2",
+          "display_name": "Исследователь (OpenCode)",
+          "provider": "OpenCode Go",
+          "model": "deepseek-v4-pro",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "Аккаунт не добавлен",
+          "quota_status": "unknown",
+          "failover_reason": null
+        }
+      ]
+    },
+    "reviewer": {
+      "role_id": "reviewer",
+      "role_name_ru": "Ревьюер",
+      "default_model": "auto",
+      "max_failover": 3,
+      "session_affinity": true,
+      "active_profile_id": "ag-w3",
+      "nodes": [
+        {
+          "profile_id": "ag-w3",
+          "display_name": "Быстрый агент",
+          "provider": "Google Antigravity",
+          "model": "gemini-3.7-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "is_active": true,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "user@example.test",
+          "quota_status": "healthy",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "codex-worker-2",
+          "display_name": "Ревьюер",
+          "provider": "OpenAI Codex",
+          "model": "gpt-4o",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "Аккаунт не добавлен",
+          "quota_status": "unknown",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "opengo-2",
+          "display_name": "Исследователь (OpenCode)",
+          "provider": "OpenCode Go",
+          "model": "deepseek-v4-pro",
+          "status": "not_configured",
+          "status_label_ru": "Аккаунт не добавлен",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "Аккаунт не добавлен",
+          "quota_status": "unknown",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "ag-w2",
+          "display_name": "Исследователь",
+          "provider": "Google Antigravity",
+          "model": "gemini-3.7-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "user@example.test",
+          "quota_status": "healthy",
+          "failover_reason": null
+        }
+      ]
+    },
+    "research": {
+      "role_id": "research",
+      "role_name_ru": "Исследователь",
+      "default_model": "auto",
+      "max_failover": 3,
+      "session_affinity": true,
+      "active_profile_id": "ag-w4",
+      "nodes": [
+        {
+          "profile_id": "ag-w4",
+          "display_name": "Универсальный субагент",
+          "provider": "Google Antigravity",
+          "model": "gemini-3.5-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "is_active": true,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "user@example.test",
+          "quota_status": "healthy",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "opengo-1",
+          "display_name": "Кодер (OpenCode)",
+          "provider": "OpenCode Go",
+          "model": "qwen3.8-max",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "opengo-1",
+          "quota_status": "unknown",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "ag-w3",
+          "display_name": "Быстрый агент",
+          "provider": "Google Antigravity",
+          "model": "gemini-3.7-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "user@example.test",
+          "quota_status": "healthy",
+          "failover_reason": null
+        }
+      ]
+    },
+    "fast": {
+      "role_id": "fast",
+      "role_name_ru": "Быстрый агент",
+      "default_model": "gemini-3.6-flash-high",
+      "max_failover": 3,
+      "session_affinity": false,
+      "active_profile_id": "ag-spare-1",
+      "nodes": [
+        {
+          "profile_id": "ag-spare-1",
+          "display_name": "Резерв 1",
+          "provider": "Google Antigravity",
+          "model": "gemini-3.6-flash-high",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "is_active": true,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "user@example.test",
+          "quota_status": "healthy",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "opengo-1",
+          "display_name": "Кодер (OpenCode)",
+          "provider": "OpenCode Go",
+          "model": "qwen3.8-max",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "opengo-1",
+          "quota_status": "unknown",
+          "failover_reason": null
+        },
+        {
+          "profile_id": "ag-w4",
+          "display_name": "Универсальный субагент",
+          "provider": "Google Antigravity",
+          "model": "gemini-3.5-flash",
+          "status": "healthy",
+          "status_label_ru": "Работает",
+          "is_active": false,
+          "cooldown_remaining_sec": 0,
+          "account_identity": "user@example.test",
+          "quota_status": "healthy",
+          "failover_reason": null
+        }
+      ]
+    }
+  },
+  "quotas": {
+    "ag-orch-fallback": {
+      "account_id": "ag-orch-fallback",
+      "provider": "antigravity",
+      "buckets": [
+        {
+          "id": "antigravity.claude.5h",
+          "display_name": "Claude/GPT • 5 часов",
+          "model_family": "claude",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-23T16:59:24+00:00",
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.gemini.5h",
+          "display_name": "Gemini • 5 часов",
+          "model_family": "gemini",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-23T16:59:24+00:00",
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.claude.7d",
+          "display_name": "Claude/GPT • неделя",
+          "model_family": "claude",
+          "used_percent": 33.864653000000004,
+          "remaining_percent": 66.135347,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-26T11:19:06+00:00",
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.gemini.7d",
+          "display_name": "Gemini • неделя",
+          "model_family": "gemini",
+          "used_percent": 0.0817700000000059,
+          "remaining_percent": 99.91823,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-26T11:21:42+00:00",
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        }
+      ],
+      "fetched_at": "2026-08-23T11:59:22.944899+00:00",
+      "stale_after_seconds": 300,
+      "source": "provider_api",
+      "unavailable_reason": null
+    },
+    "ag-spare-1": {
+      "account_id": "ag-spare-1",
+      "provider": "antigravity",
+      "buckets": [
+        {
+          "id": "antigravity.claude.5h",
+          "display_name": "Claude/GPT • 5 часов",
+          "model_family": "claude",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-23T16:59:29+00:00",
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.gemini.5h",
+          "display_name": "Gemini • 5 часов",
+          "model_family": "gemini",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-23T16:59:29+00:00",
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.claude.7d",
+          "display_name": "Claude/GPT • неделя",
+          "model_family": "claude",
+          "used_percent": 34.51999000000001,
+          "remaining_percent": 65.48001,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-27T10:00:06+00:00",
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.gemini.7d",
+          "display_name": "Gemini • неделя",
+          "model_family": "gemini",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-30T11:59:29+00:00",
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        }
+      ],
+      "fetched_at": "2026-08-23T11:59:27.764730+00:00",
+      "stale_after_seconds": 300,
+      "source": "provider_api",
+      "unavailable_reason": null
+    },
+    "ag-w1": {
+      "account_id": "ag-w1",
+      "provider": "antigravity",
+      "buckets": [
+        {
+          "id": "antigravity.claude.5h",
+          "display_name": "Claude/GPT • 5 часов",
+          "model_family": "claude",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-23T16:59:25+00:00",
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.gemini.5h",
+          "display_name": "Gemini • 5 часов",
+          "model_family": "gemini",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-23T16:59:25+00:00",
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.claude.7d",
+          "display_name": "Claude/GPT • неделя",
+          "model_family": "claude",
+          "used_percent": 34.14447,
+          "remaining_percent": 65.85553,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-26T11:42:10+00:00",
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.gemini.7d",
+          "display_name": "Gemini • неделя",
+          "model_family": "gemini",
+          "used_percent": 0.33874499999998875,
+          "remaining_percent": 99.66125500000001,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-26T11:44:53+00:00",
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        }
+      ],
+      "fetched_at": "2026-08-23T11:59:24.074829+00:00",
+      "stale_after_seconds": 300,
+      "source": "provider_api",
+      "unavailable_reason": null
+    },
+    "ag-w2": {
+      "account_id": "ag-w2",
+      "provider": "antigravity",
+      "buckets": [
+        {
+          "id": "antigravity.claude.5h",
+          "display_name": "Claude/GPT • 5 часов",
+          "model_family": "claude",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-23T16:59:26+00:00",
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.gemini.5h",
+          "display_name": "Gemini • 5 часов",
+          "model_family": "gemini",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-23T16:59:26+00:00",
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.claude.7d",
+          "display_name": "Claude/GPT • неделя",
+          "model_family": "claude",
+          "used_percent": 62.585348,
+          "remaining_percent": 37.414652,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-25T06:09:55+00:00",
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.gemini.7d",
+          "display_name": "Gemini • неделя",
+          "model_family": "gemini",
+          "used_percent": 19.49136,
+          "remaining_percent": 80.50864,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-24T16:18:52+00:00",
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        }
+      ],
+      "fetched_at": "2026-08-23T11:59:25.134345+00:00",
+      "stale_after_seconds": 300,
+      "source": "provider_api",
+      "unavailable_reason": null
+    },
+    "ag-w3": {
+      "account_id": "ag-w3",
+      "provider": "antigravity",
+      "buckets": [
+        {
+          "id": "antigravity.claude.5h",
+          "display_name": "Claude/GPT • 5 часов",
+          "model_family": "claude",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-23T16:59:27+00:00",
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.gemini.5h",
+          "display_name": "Gemini • 5 часов",
+          "model_family": "gemini",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-23T16:59:27+00:00",
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.claude.7d",
+          "display_name": "Claude/GPT • неделя",
+          "model_family": "claude",
+          "used_percent": 9.875199999999992,
+          "remaining_percent": 90.12480000000001,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-26T12:12:02+00:00",
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.gemini.7d",
+          "display_name": "Gemini • неделя",
+          "model_family": "gemini",
+          "used_percent": 16.673075999999995,
+          "remaining_percent": 83.326924,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-26T12:12:55+00:00",
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        }
+      ],
+      "fetched_at": "2026-08-23T11:59:25.844507+00:00",
+      "stale_after_seconds": 300,
+      "source": "provider_api",
+      "unavailable_reason": null
+    },
+    "ag-w4": {
+      "account_id": "ag-w4",
+      "provider": "antigravity",
+      "buckets": [
+        {
+          "id": "antigravity.claude.5h",
+          "display_name": "Claude/GPT • 5 часов",
+          "model_family": "claude",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-23T16:59:28+00:00",
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.gemini.5h",
+          "display_name": "Gemini • 5 часов",
+          "model_family": "gemini",
+          "used_percent": 0.0,
+          "remaining_percent": 100.0,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-23T16:59:28+00:00",
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.claude.7d",
+          "display_name": "Claude/GPT • неделя",
+          "model_family": "claude",
+          "used_percent": 33.544296,
+          "remaining_percent": 66.455704,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-26T11:32:47+00:00",
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        },
+        {
+          "id": "antigravity.gemini.7d",
+          "display_name": "Gemini • неделя",
+          "model_family": "gemini",
+          "used_percent": 0.03422499999999218,
+          "remaining_percent": 99.96577500000001,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": "2026-08-26T11:35:55+00:00",
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "model capacity",
+          "scope": "model_family",
+          "status": "healthy"
+        }
+      ],
+      "fetched_at": "2026-08-23T11:59:26.906876+00:00",
+      "stale_after_seconds": 300,
+      "source": "provider_api",
+      "unavailable_reason": null
+    },
+    "opengo-1": {
+      "account_id": "opengo-1",
+      "provider": "opencode-go",
+      "buckets": [
+        {
+          "id": "opencode.5h",
+          "display_name": "Лимит 5 часов",
+          "model_family": "opencode",
+          "used_percent": null,
+          "remaining_percent": null,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": 12,
+          "reset_at": null,
+          "reset_in_seconds": null,
+          "period": "5h",
+          "unit": "USD",
+          "scope": "account",
+          "status": "unknown"
+        },
+        {
+          "id": "opencode.7d",
+          "display_name": "Недельный лимит",
+          "model_family": "opencode",
+          "used_percent": null,
+          "remaining_percent": null,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": 30,
+          "reset_at": null,
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": "USD",
+          "scope": "account",
+          "status": "unknown"
+        },
+        {
+          "id": "opencode.30d",
+          "display_name": "Месячный лимит",
+          "model_family": "opencode",
+          "used_percent": null,
+          "remaining_percent": null,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": 60,
+          "reset_at": null,
+          "reset_in_seconds": null,
+          "period": "30d",
+          "unit": "USD",
+          "scope": "account",
+          "status": "unknown"
+        }
+      ],
+      "fetched_at": "2026-08-23T11:59:28.785248+00:00",
+      "stale_after_seconds": 300,
+      "source": "baseline",
+      "unavailable_reason": "Для этого ключа не активна подписка OpenCode Go"
+    },
+    "grok-orch": {
+      "account_id": "grok-orch",
+      "provider": "grok",
+      "buckets": [
+        {
+          "id": "grok.weekly",
+          "display_name": "Недельное",
+          "model_family": "grok",
+          "used_percent": null,
+          "remaining_percent": null,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": null,
+          "reset_in_seconds": null,
+          "period": "7d",
+          "unit": null,
+          "scope": null,
+          "status": "unknown"
+        },
+        {
+          "id": "grok.chat",
+          "display_name": "GrokChat",
+          "model_family": "grok",
+          "used_percent": null,
+          "remaining_percent": null,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": null,
+          "reset_in_seconds": null,
+          "period": null,
+          "unit": null,
+          "scope": null,
+          "status": "unknown"
+        },
+        {
+          "id": "grok.build",
+          "display_name": "GrokBuild",
+          "model_family": "grok",
+          "used_percent": null,
+          "remaining_percent": null,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": null,
+          "reset_at": null,
+          "reset_in_seconds": null,
+          "period": null,
+          "unit": null,
+          "scope": null,
+          "status": "unknown"
+        },
+        {
+          "id": "grok.frequent_tasks",
+          "display_name": "Частые задачи",
+          "model_family": "grok",
+          "used_percent": null,
+          "remaining_percent": null,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": 10,
+          "reset_at": null,
+          "reset_in_seconds": null,
+          "period": null,
+          "unit": null,
+          "scope": null,
+          "status": "unknown"
+        },
+        {
+          "id": "grok.normal_tasks",
+          "display_name": "Обычные задачи",
+          "model_family": "grok",
+          "used_percent": null,
+          "remaining_percent": null,
+          "used_absolute": null,
+          "remaining_absolute": null,
+          "limit_absolute": 30,
+          "reset_at": null,
+          "reset_in_seconds": null,
+          "period": null,
+          "unit": null,
+          "scope": null,
+          "status": "unknown"
+        }
+      ],
+      "fetched_at": "2026-08-23T11:59:30.422866+00:00",
+      "stale_after_seconds": 300,
+      "source": "baseline",
+      "unavailable_reason": "Grok не предоставляет остаток через публичный API"
+    }
+  },
+  "metrics": {
+    "generation": 1,
+    "seq": 1,
+    "duration_ms": 213.52,
+    "total_profiles": 22,
+    "authenticated_profiles": 8,
+    "refresh_runs_total": 1,
+    "refresh_deduplicated_total": 0,
+    "telemetry": {
+      "global": {
+        "window_seconds": 86400,
+        "total_calls": 19,
+        "successful_calls": 4,
+        "failed_calls": 15,
+        "call_share": 1.0,
+        "error_rate": 0.7895,
+        "latency_p50_ms": 1.4,
+        "latency_p95_ms": 81631.1,
+        "latency_max_ms": 81777.7,
+        "total_prompt_tokens": null,
+        "total_completion_tokens": null,
+        "total_tokens": null,
+        "total_cost_usd": null,
+        "failovers_count": 14,
+        "failover_reasons": {
+          "failover": 4,
+          "quota-exhausted": 2,
+          "rate-limited": 3,
+          "fatal": 3,
+          "auth-required": 2
+        },
+        "source": "own_measurement",
+        "has_data": true
+      },
+      "by_provider": {
+        "antigravity": {
+          "window_seconds": 86400,
+          "total_calls": 7,
+          "successful_calls": 2,
+          "failed_calls": 5,
+          "call_share": 0.3684,
+          "error_rate": 0.7143,
+          "latency_p50_ms": 1.4,
+          "latency_p95_ms": 81728.8,
+          "latency_max_ms": 81777.7,
+          "total_prompt_tokens": null,
+          "total_completion_tokens": null,
+          "total_tokens": null,
+          "total_cost_usd": null,
+          "failovers_count": 6,
+          "failover_reasons": {
+            "failover": 2,
+            "quota-exhausted": 2,
+            "auth-required": 2
+          },
+          "source": "own_measurement",
+          "has_data": true
+        },
+        "claude": {
+          "window_seconds": 86400,
+          "total_calls": 0,
+          "successful_calls": 0,
+          "failed_calls": 0,
+          "call_share": null,
+          "error_rate": null,
+          "latency_p50_ms": null,
+          "latency_p95_ms": null,
+          "latency_max_ms": null,
+          "total_prompt_tokens": null,
+          "total_completion_tokens": null,
+          "total_tokens": null,
+          "total_cost_usd": null,
+          "failovers_count": 0,
+          "failover_reasons": {},
+          "source": "own_measurement",
+          "has_data": false
+        },
+        "grok": {
+          "window_seconds": 86400,
+          "total_calls": 0,
+          "successful_calls": 0,
+          "failed_calls": 0,
+          "call_share": null,
+          "error_rate": null,
+          "latency_p50_ms": null,
+          "latency_p95_ms": null,
+          "latency_max_ms": null,
+          "total_prompt_tokens": null,
+          "total_completion_tokens": null,
+          "total_tokens": null,
+          "total_cost_usd": null,
+          "failovers_count": 0,
+          "failover_reasons": {},
+          "source": "own_measurement",
+          "has_data": false
+        },
+        "openai-codex": {
+          "window_seconds": 86400,
+          "total_calls": 7,
+          "successful_calls": 0,
+          "failed_calls": 7,
+          "call_share": 0.3684,
+          "error_rate": 1.0,
+          "latency_p50_ms": 54.6,
+          "latency_p95_ms": 1649.1,
+          "latency_max_ms": 1821.7,
+          "total_prompt_tokens": null,
+          "total_completion_tokens": null,
+          "total_tokens": null,
+          "total_cost_usd": null,
+          "failovers_count": 3,
+          "failover_reasons": {
+            "rate-limited": 3
+          },
+          "source": "own_measurement",
+          "has_data": true
+        },
+        "opencode-go": {
+          "window_seconds": 86400,
+          "total_calls": 5,
+          "successful_calls": 2,
+          "failed_calls": 3,
+          "call_share": 0.2632,
+          "error_rate": 0.6,
+          "latency_p50_ms": 0.0,
+          "latency_p95_ms": 1.2,
+          "latency_max_ms": 1.5,
+          "total_prompt_tokens": null,
+          "total_completion_tokens": null,
+          "total_tokens": null,
+          "total_cost_usd": null,
+          "failovers_count": 5,
+          "failover_reasons": {
+            "failover": 2,
+            "fatal": 3
+          },
+          "source": "own_measurement",
+          "has_data": true
+        }
+      },
+      "by_role": {
+        "coder-primary": {
+          "window_seconds": 86400,
+          "total_calls": 0,
+          "successful_calls": 0,
+          "failed_calls": 0,
+          "call_share": null,
+          "error_rate": null,
+          "latency_p50_ms": null,
+          "latency_p95_ms": null,
+          "latency_max_ms": null,
+          "total_prompt_tokens": null,
+          "total_completion_tokens": null,
+          "total_tokens": null,
+          "total_cost_usd": null,
+          "failovers_count": 0,
+          "failover_reasons": {},
+          "source": "own_measurement",
+          "has_data": false
+        },
+        "coder-secondary": {
+          "window_seconds": 86400,
+          "total_calls": 0,
+          "successful_calls": 0,
+          "failed_calls": 0,
+          "call_share": null,
+          "error_rate": null,
+          "latency_p50_ms": null,
+          "latency_p95_ms": null,
+          "latency_max_ms": null,
+          "total_prompt_tokens": null,
+          "total_completion_tokens": null,
+          "total_tokens": null,
+          "total_cost_usd": null,
+          "failovers_count": 0,
+          "failover_reasons": {},
+          "source": "own_measurement",
+          "has_data": false
+        },
+        "fast": {
+          "window_seconds": 86400,
+          "total_calls": 0,
+          "successful_calls": 0,
+          "failed_calls": 0,
+          "call_share": null,
+          "error_rate": null,
+          "latency_p50_ms": null,
+          "latency_p95_ms": null,
+          "latency_max_ms": null,
+          "total_prompt_tokens": null,
+          "total_completion_tokens": null,
+          "total_tokens": null,
+          "total_cost_usd": null,
+          "failovers_count": 0,
+          "failover_reasons": {},
+          "source": "own_measurement",
+          "has_data": false
+        },
+        "orchestrator": {
+          "window_seconds": 86400,
+          "total_calls": 19,
+          "successful_calls": 4,
+          "failed_calls": 15,
+          "call_share": 1.0,
+          "error_rate": 0.7895,
+          "latency_p50_ms": 1.4,
+          "latency_p95_ms": 81631.1,
+          "latency_max_ms": 81777.7,
+          "total_prompt_tokens": null,
+          "total_completion_tokens": null,
+          "total_tokens": null,
+          "total_cost_usd": null,
+          "failovers_count": 14,
+          "failover_reasons": {
+            "failover": 4,
+            "quota-exhausted": 2,
+            "rate-limited": 3,
+            "fatal": 3,
+            "auth-required": 2
+          },
+          "source": "own_measurement",
+          "has_data": true
+        },
+        "research": {
+          "window_seconds": 86400,
+          "total_calls": 0,
+          "successful_calls": 0,
+          "failed_calls": 0,
+          "call_share": null,
+          "error_rate": null,
+          "latency_p50_ms": null,
+          "latency_p95_ms": null,
+          "latency_max_ms": null,
+          "total_prompt_tokens": null,
+          "total_completion_tokens": null,
+          "total_tokens": null,
+          "total_cost_usd": null,
+          "failovers_count": 0,
+          "failover_reasons": {},
+          "source": "own_measurement",
+          "has_data": false
+        },
+        "reviewer": {
+          "window_seconds": 86400,
+          "total_calls": 0,
+          "successful_calls": 0,
+          "failed_calls": 0,
+          "call_share": null,
+          "error_rate": null,
+          "latency_p50_ms": null,
+          "latency_p95_ms": null,
+          "latency_max_ms": null,
+          "total_prompt_tokens": null,
+          "total_completion_tokens": null,
+          "total_tokens": null,
+          "total_cost_usd": null,
+          "failovers_count": 0,
+          "failover_reasons": {},
+          "source": "own_measurement",
+          "has_data": false
+        }
+      },
+      "window_seconds": 86400,
+      "source": "own_measurement",
+      "has_data": true
+    },
+    "host": {
+      "timestamp": 1787486370.559663,
+      "cpu_percent": 11.8,
+      "memory_percent": 75.5,
+      "memory_used_mb": 9077.9,
+      "memory_total_mb": 12029.9,
+      "disk_percent": 53.7,
+      "disk_used_gb": 255.7,
+      "disk_total_gb": 475.8,
+      "net_speed_mbps": null,
+      "net_sent_mbps": null,
+      "net_recv_mbps": null,
+      "net_bytes_sent": 50246011831,
+      "net_bytes_recv": 44459820387,
+      "source": "host_measurement",
+      "has_data": true
+    },
+    "active_calls_total": 0,
+    "active_calls_by_profile": {}
+  },
+  "is_stale": false
+}
