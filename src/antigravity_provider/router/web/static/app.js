@@ -208,7 +208,11 @@ function applySnapshot(snapshot) {
       openAddAccountWizard();
       showWizardStep2('antigravity');
     } else if (targetModal === 'account_details') {
-      openAccountDetailsModal(targetProfile || 'ag-spare-1');
+      openAccountDetailsModal(targetProfile || 'ag-w1');
+    } else if (targetModal === 'agent_model') {
+      const targetRole = params.get('role') || 'coder-primary';
+      const ag = (currentSnapshot.agents || []).find(a => a.role_id === targetRole) || (currentSnapshot.agents || [])[1];
+      if (ag) openAgentModelModal(ag.role_id, ag.assigned_profile_id);
     }
   } else {
     renderCurrentView();
@@ -413,12 +417,6 @@ function renderAccountCard(profile) {
   const quotaSnap = profile.quota_snapshot || (currentSnapshot.quotas || {})[profile.profile_id];
   const buckets = (quotaSnap && quotaSnap.buckets) ? quotaSnap.buckets : [];
   const unavailableReason = quotaSnap ? quotaSnap.unavailable_reason : null;
-  // Опрос провайдера идёт в фоне и занимает секунды. Пока он не завершился,
-  // корзины пусты — но это НЕ «данных нет». Показывать в этот момент «Н/Д»
-  // значит выдавать загрузку за отсутствие данных: владелец видел ровно это
-  // и решил, что лимиты не подтягиваются. Причина отказа важнее флага: если
-  // провайдер уже ответил «лимитов не даю», это не загрузка.
-  const isLoading = Boolean(quotaSnap && quotaSnap.is_loading) && !unavailableReason;
 
   let quotaGridHtml = '';
 
@@ -426,21 +424,24 @@ function renderAccountCard(profile) {
     const visibleBuckets = buckets.slice(0, 4);
     quotaGridHtml = `
       <div class="account-quota-grid ${visibleBuckets.length === 1 ? 'single-cell' : ''}">
-        ${visibleBuckets.map((b) => renderQuotaCell(b, unavailableReason, isLoading)).join('')}
+        ${visibleBuckets.map((b) => renderQuotaCell(b, unavailableReason)).join('')}
       </div>
     `;
   } else {
-    const reasonText = (isLoading ? 'Опрашиваем провайдера…' : null) || unavailableReason || (
-      profile.health_state === 'not_configured' || profile.health_state === 'auth_required'
+    let reasonText = unavailableReason;
+    if (!unavailableReason && quotaSnap && quotaSnap.is_loading) {
+      reasonText = 'Загрузка квот…';
+    } else if (!reasonText) {
+      reasonText = (profile.health_state === 'not_configured' || profile.health_state === 'auth_required')
         ? 'Аккаунт не подключён'
-        : 'Провайдер не отдаёт лимиты'
-    );
+        : 'Провайдер не отдаёт лимиты';
+    }
     quotaGridHtml = `
       <div class="account-quota-grid single-cell">
         <div class="quota-cell">
           <div class="quota-cell-top">
             <span class="quota-cell-title">Квота</span>
-            <span class="quota-cell-value text-muted">${isLoading ? 'Загрузка…' : 'Н/Д'}</span>
+            <span class="quota-cell-value text-muted">Н/Д</span>
           </div>
           <div class="quota-bar-track">
             <div class="quota-bar-fill" style="width: 0%; background-color: var(--status-disabled);"></div>
@@ -475,9 +476,9 @@ function renderAccountCard(profile) {
   `;
 }
 
-function renderQuotaCell(bucket, unavailableReason, isLoading) {
+function renderQuotaCell(bucket, unavailableReason) {
   const remaining = bucket.remaining_percent;
-  let formattedValue = isLoading ? 'Загрузка…' : 'Н/Д';
+  let formattedValue = 'Н/Д';
   let barWidth = 0;
   let colorClass = 'var(--status-disabled)';
 
@@ -494,10 +495,6 @@ function renderQuotaCell(bucket, unavailableReason, isLoading) {
   let resetText = bucket.reset_at
     ? `Сброс: ${formatIsoDate(bucket.reset_at)}`
     : (bucket.period ? `Период: ${bucket.period}` : (unavailableReason || 'Период провайдера'));
-
-  if (isLoading && typeof remaining !== 'number') {
-    resetText = 'Опрашиваем провайдера…';
-  }
 
   return `
     <div class="quota-cell">
@@ -652,7 +649,7 @@ function renderProvidersView() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  5. TEAM VIEW
+//  5. TEAM VIEW (P0-1 / P1-3 Model Choice on Agent Cards)
 // ═══════════════════════════════════════════════════════════════
 function renderTeamView() {
   const container = document.getElementById('team-cards-container');
@@ -669,13 +666,18 @@ function renderTeamView() {
       <div style="background:var(--surface-muted); padding:8px 10px; border-radius:var(--radius-sm); font-size:12px; margin-bottom:8px;">
         <div>Профиль: <strong>${escapeHtml(agent.assigned_profile_id || 'Не назначен')}</strong></div>
         <div>Провайдер: <strong>${escapeHtml(agent.provider_display_name || agent.provider)}</strong></div>
-        <div>Модель: <strong>${escapeHtml(agent.model || '—')}</strong></div>
+        <div style="margin-top:2px;">Модель: <strong class="text-accent">${escapeHtml(agent.model || '—')}</strong></div>
       </div>
-      <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; font-size:11px; gap:6px;">
         <span class="text-healthy">● ${escapeHtml(agent.status_label_ru || 'Работает')}</span>
-        <button class="btn btn-ghost btn-sm" onclick="openAccountDetailsModal('${escapeHtml(agent.assigned_profile_id)}')">
-          Детали →
-        </button>
+        <div style="display:flex; gap:4px;">
+          <button class="btn btn-secondary btn-sm" onclick="openAgentModelModal('${escapeHtml(agent.role_id)}', '${escapeHtml(agent.assigned_profile_id)}')">
+            Сменить модель
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="openAccountDetailsModal('${escapeHtml(agent.assigned_profile_id)}')">
+            Детали →
+          </button>
+        </div>
       </div>
     </div>
   `).join('') || '<div class="empty-text">Команда агентов пуста.</div>';
@@ -711,6 +713,38 @@ function openAccountDetailsModal(profileId) {
   const quotaSnap = profile.quota_snapshot || (currentSnapshot.quotas || {})[profileId];
   const buckets = (quotaSnap && quotaSnap.buckets) ? quotaSnap.buckets : [];
 
+  const provSummary = (currentSnapshot.providers || []).find(p => p.provider_id === profile.provider);
+  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
+  const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
+
+  let modelBlockHtml = '';
+  if (discoveredModels.length > 0) {
+    modelBlockHtml = `
+      <h3 style="font-size:13px; font-weight:700; margin:14px 0 6px; border-bottom:1px solid var(--border-subtle); padding-bottom:4px;">
+        Выбор модели по умолчанию
+      </h3>
+      <div style="display:flex; gap:8px; align-items:center; margin-bottom:16px;">
+        <select id="modal-model-select" class="select-filter" style="flex:1;">
+          ${discoveredModels.map(m => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+        </select>
+        <button class="btn btn-secondary btn-sm" onclick="handleSaveProfileModel('${escapeHtml(profileId)}')">Сохранить модель</button>
+        <button class="btn btn-ghost btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}', '${escapeHtml(profileId)}')">↻ Обновить список</button>
+      </div>
+    `;
+  } else {
+    modelBlockHtml = `
+      <h3 style="font-size:13px; font-weight:700; margin:14px 0 6px; border-bottom:1px solid var(--border-subtle); padding-bottom:4px;">
+        Выбор модели по умолчанию
+      </h3>
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:16px;">
+        <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
+          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}', '${escapeHtml(profileId)}')">↻ Запросить список моделей</button>
+      </div>
+    `;
+  }
+
   elements.modalTitle.textContent = `Учетная запись: ${profile.display_name} (${profileId})`;
   elements.modalBody.innerHTML = `
     <div id="modal-feedback-area"></div>
@@ -725,6 +759,8 @@ function openAccountDetailsModal(profileId) {
         Назначенные роли: <strong>${escapeHtml((profile.assigned_roles || []).join(', ') || 'Нет')}</strong>
       </div>
     </div>
+
+    ${modelBlockHtml}
 
     <h3 style="font-size:13px; font-weight:700; margin-bottom:8px; border-bottom:1px solid var(--border-subtle); padding-bottom:4px;">
       Квоты и корзины провайдера
@@ -755,6 +791,113 @@ function openAccountDetailsModal(profileId) {
   `;
 
   showModal();
+}
+
+async function handleSaveProfileModel(profileId) {
+  const sel = document.getElementById('modal-model-select');
+  if (!sel) return;
+  const model = sel.value;
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение модели...</div>';
+  }
+  const res = await executeAction('set_model', { profile_id: profileId, model: model });
+  if (feedbackArea) {
+    if (res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Модель сохранена')}</div>`;
+      if (currentSnapshot && currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
+        currentSnapshot.all_profiles[profileId].preferred_models = [model];
+      }
+    } else {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml(res.message || 'Ошибка сохранения модели')}</div>`;
+    }
+  }
+}
+
+function openAgentModelModal(roleId, profileId) {
+  if (!currentSnapshot) return;
+  const profile = (currentSnapshot.all_profiles || {})[profileId];
+  if (!profile) return;
+
+  const provSummary = (currentSnapshot.providers || []).find(p => p.provider_id === profile.provider);
+  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
+  const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
+  const roleName = ((currentSnapshot.routing || {})[roleId]?.role_name_ru) || roleId;
+
+  elements.modalTitle.textContent = `Выбор модели для роли: ${roleName}`;
+  elements.modalBody.innerHTML = `
+    <div id="modal-feedback-area"></div>
+    <div style="margin-bottom:12px; font-size:12px; color:var(--text-muted);">
+      Профиль агента: <strong>${escapeHtml(profile.display_name)} (${profileId})</strong> • Провайдер: <strong>${escapeHtml(profile.provider_display_name || profile.provider)}</strong>
+    </div>
+    ${discoveredModels.length > 0 ? `
+      <div style="margin-bottom:16px;">
+        <label style="display:block; font-weight:600; margin-bottom:6px;">Выберите модель из обнаруженного списка:</label>
+        <select id="role-model-select" class="select-filter" style="width:100%;">
+          ${discoveredModels.map(m => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+        </select>
+      </div>
+    ` : `
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:16px;">
+        <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
+          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}')">↻ Запросить список моделей</button>
+      </div>
+    `}
+  `;
+
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+    ${discoveredModels.length > 0 ? `<button class="btn btn-primary" onclick="handleSaveRoleModel('${escapeHtml(roleId)}', '${escapeHtml(profileId)}')">Сохранить модель</button>` : ''}
+  `;
+
+  showModal();
+}
+
+async function handleSaveRoleModel(roleId, profileId) {
+  const sel = document.getElementById('role-model-select');
+  if (!sel) return;
+  const model = sel.value;
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение модели...</div>';
+  }
+  const res = await executeAction('set_model', { profile_id: profileId, model: model, role_id: roleId });
+  if (feedbackArea) {
+    if (res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Модель сохранена')}</div>`;
+      if (currentSnapshot) {
+        if (currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
+          currentSnapshot.all_profiles[profileId].preferred_models = [model];
+        }
+        if (currentSnapshot.routing && currentSnapshot.routing[roleId]) {
+          currentSnapshot.routing[roleId].default_model = model;
+        }
+        if (currentSnapshot.agents) {
+          const ag = currentSnapshot.agents.find(a => a.role_id === roleId);
+          if (ag) ag.model = model;
+        }
+      }
+      setTimeout(() => {
+        closeModal();
+        renderCurrentView();
+      }, 700);
+    } else {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml(res.message || 'Ошибка сохранения модели')}</div>`;
+    }
+  }
+}
+
+async function handleRefreshProviderModels(providerId, profileId = null) {
+  showToast(`Запрос списка моделей для ${providerId}...`, 'info');
+  const res = await executeAction('refresh_data', { provider: providerId });
+  if (res.ok) {
+    showToast('Запрос обновления моделей отправлен', 'success');
+    if (profileId) {
+      setTimeout(() => openAccountDetailsModal(profileId), 500);
+    }
+  }
 }
 
 async function handleTestProfile(profileId) {

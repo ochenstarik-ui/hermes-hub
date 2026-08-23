@@ -74,14 +74,14 @@ readiness, agents, providers, routing, quotas, metrics, is_stale
 { "action": "<имя>", "data": { ... } }
 ```
 
-Имена действий берутся **ровно** из существующего `_handle_action` в `hermes_hub_app.py`. Их семнадцать:
+Имена действий берутся **ровно** из общего слоя `action_handler.py`. Их восемнадцать:
 
 ```
 account_details   add_account       agent_settings    assign_role
 auto_assign_all   check_updates     delete_credentials edit_route
 oauth             open_routing      refresh_account   refresh_all
-refresh_data      save_settings     set_main          set_orchestrator
-test
+refresh_data      save_settings     set_main          set_model
+set_orchestrator  test
 ```
 
 Ответ:

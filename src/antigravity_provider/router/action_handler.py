@@ -5,7 +5,7 @@ import logging
 import threading
 from typing import Any, Dict, Tuple, Optional, Callable
 
-from antigravity_provider.router.router_config import load_router_config
+from antigravity_provider.router.router_config import load_router_config, save_router_config
 from antigravity_provider.router.profile_manager import ProfileAuthManager
 from antigravity_provider.router.unified_health import EventLogService
 from antigravity_provider.router.auto_assigner import AutoAssigner
@@ -108,6 +108,53 @@ def do_save_settings(settings: Dict[str, Any]) -> Tuple[bool, str]:
 
     AccountQuotaService.get().set_refresh_interval(int(settings.get("quota_refresh_interval_sec", 300)))
     return True, "Настройки сохранены"
+ 
+ 
+def do_set_model(profile_id: str, model: str, role_id: Optional[str] = None) -> Tuple[bool, str]:
+    if not model or not str(model).strip() or str(model).strip() == "Список моделей ещё не получен":
+        return False, "Не указана модель для установки"
+    model = str(model).strip()
+
+    config = load_router_config()
+    if not profile_id and role_id:
+        role = config.roles.get(role_id)
+        if role and role.preferred_chain:
+            profile_id = role.preferred_chain[0]
+
+    if not profile_id or profile_id not in config.profiles:
+        return False, f"Профиль '{profile_id}' не найден в конфигурации"
+
+    pcfg = config.profiles[profile_id]
+    provider = pcfg.provider
+
+    from antigravity_provider.router.model_discovery_service import ModelDiscoveryService
+
+    discovered = ModelDiscoveryService.get().get_models(provider)
+    if discovered is None:
+        return False, f"Список моделей провайдера '{provider}' ещё не получен. Сначала нажмите «Обновить список моделей»."
+
+    if model not in discovered:
+        return False, f"Модель '{model}' отсутствует в списке обнаруженных моделей провайдера '{provider}'"
+
+    updated = load_router_config()
+    target = updated.profiles[profile_id]
+    target.preferred_models = [model] + [m for m in target.preferred_models if m != model]
+    updated.profiles[profile_id] = target
+
+    if role_id and role_id in updated.roles:
+        updated.roles[role_id].default_model = model
+
+    if save_router_config(updated):
+        try:
+            from antigravity_provider.router.state_store import HubStateStore
+            HubStateStore.get().refresh(force_scan=True)
+        except Exception:
+            pass
+        EventLogService.get().log(
+            "model", f"Для профиля {profile_id} ({provider}) установлена модель '{model}'.", level="info"
+        )
+        return True, f"Модель '{model}' успешно сохранена для профиля {profile_id}"
+    return False, "Не удалось сохранить файл конфигурации"
 
 
 class ActionExecutor:
@@ -129,6 +176,12 @@ class ActionExecutor:
             
         if action == 'set_main':
             ok, msg = do_set_main(prov, pid)
+            return {'ok': ok, 'message': msg}
+
+        elif action == 'set_model':
+            model_name = data.get('model', '')
+            role_id = data.get('role_id', '')
+            ok, msg = do_set_model(pid, model_name, role_id=role_id)
             return {'ok': ok, 'message': msg}
             
         elif action == 'set_orchestrator':
