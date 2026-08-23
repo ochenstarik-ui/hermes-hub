@@ -9,7 +9,10 @@ from typing import Any, Dict
 from antigravity_provider import paths
 from antigravity_provider.version import __version__
 from fastapi import FastAPI, Request, HTTPException, Depends, Header
-from fastapi.responses import JSONResponse
+from pathlib import Path
+
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
 
@@ -131,3 +134,32 @@ def run_server():
         
     logger.info(f"Starting Hermes Hub Web API on {host}:{port}")
     uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
+# ─────────────────────────────────────────────────────────────
+#  Статика: сервер обязан отдавать сам интерфейс, а не только API.
+#  Контракт описывал каталог static/, но не назвал, кто его монтирует,
+#  поэтому серверная и клиентская стороны сошлись в пустоту: API
+#  отвечал, файлы лежали в репозитории, а в браузере был 404.
+# ─────────────────────────────────────────────────────────────
+
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+
+if _STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+    @app.get("/")
+    def index():
+        return FileResponse(str(_STATIC_DIR / "index.html"))
+
+    @app.get("/app.js")
+    def _app_js():
+        return FileResponse(str(_STATIC_DIR / "app.js"), media_type="application/javascript")
+
+    @app.get("/style.css")
+    def _style_css():
+        return FileResponse(str(_STATIC_DIR / "style.css"), media_type="text/css")
+
+    @app.get("/snapshot.example.json")
+    def _fixture():
+        return FileResponse(str(_STATIC_DIR / "snapshot.example.json"), media_type="application/json")
