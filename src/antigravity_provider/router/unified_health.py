@@ -96,6 +96,15 @@ class ProfileViewModel:
     preferred_models: List[str] = field(default_factory=list)
     active_leases: int = 0
 
+    @property
+    def auth_label_ru(self) -> str:
+        return {
+            "AUTHENTICATED": "Авторизован",
+            "AUTH_REQUIRED": "Требуется вход",
+            "AUTH_EXPIRED": "Авторизация истекла",
+            "NOT_CONFIGURED": "Не подключён",
+        }.get(self.auth_state, self.auth_state or "Неизвестно")
+
 
 @dataclass
 class AgentViewModel:
