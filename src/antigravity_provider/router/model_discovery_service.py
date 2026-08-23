@@ -208,7 +208,10 @@ class ModelDiscoveryService:
             logger.info("Discovered %d models for provider '%s': %s", len(models), provider, models)
             return models
 
-        return None
+        # If probe returned None, retain existing cache if any
+        with self._cache_lock:
+            entry = self._cache.get(provider.lower())
+            return list(entry["models"]) if entry and "models" in entry else None
 
     def _probe_provider(self, provider: str) -> Optional[List[str]]:
         """Perform provider-specific model discovery."""
@@ -217,7 +220,8 @@ class ModelDiscoveryService:
 
         if prov == "antigravity":
             from antigravity_provider.agy_subprocess import discover_models
-            res = discover_models()
+            main_p = ProfileAuthManager.get_main_profile("antigravity")
+            res = discover_models(profile_id=main_p)
             if res:
                 return sorted(list(set(res.values())))
             return None

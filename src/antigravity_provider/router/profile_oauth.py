@@ -238,11 +238,16 @@ class ProfileOAuthSession:
                 logger.info("OAuth account identity resolved (email_found=%s)", bool(email))
 
                 # Format in standard gemini:antigravity shape
+                expires_at = tokens.get("expires_at") or (int(time.time()) + 3600)
                 auth_data = {
                     "token": {
                         "access_token": tokens["access_token"],
                         "refresh_token": tokens["refresh_token"],
-                        "expiry": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(tokens["expires_at"])),
+                        "id_token": tokens.get("id_token", ""),
+                        "scope": tokens.get("scope", ""),
+                        "token_type": tokens.get("token_type", "Bearer"),
+                        "expires_at": expires_at,
+                        "expiry": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(expires_at)),
                     },
                     "email": email or "",
                     "auth_method": "oauth",

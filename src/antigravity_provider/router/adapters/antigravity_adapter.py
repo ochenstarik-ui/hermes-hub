@@ -62,12 +62,15 @@ class AntigravityAdapter(BaseProviderAdapter):
 
         if profile_auth:
             # Pre-flight check: verify token expiry before calling subprocess to prevent interactive browser login
-            tokens = profile_auth.get("tokens", {})
-            expiry = tokens.get("expiry_date") or profile_auth.get("expiry_date")
+            tokens = profile_auth.get("token") or profile_auth.get("tokens", {})
+            refresh_tok = tokens.get("refresh_token") if isinstance(tokens, dict) else profile_auth.get("refresh_token")
+            expiry = tokens.get("expiry_date") if isinstance(tokens, dict) else profile_auth.get("expiry_date")
+            if not expiry and isinstance(tokens, dict):
+                expiry = tokens.get("expires_at")
             if expiry:
-                if expiry > 1e11:
-                    expiry = expiry / 1000.0
-                if time.time() > expiry:
+                if float(expiry) > 1e11:
+                    expiry = float(expiry) / 1000.0
+                if time.time() > float(expiry) and not refresh_tok:
                     raise AuthExpiredError(
                         "Авторизация истекла, требуется повторный вход.",
                         provider="antigravity",

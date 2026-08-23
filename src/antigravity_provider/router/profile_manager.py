@@ -15,6 +15,7 @@ import threading
 import time
 import urllib.request
 import urllib.error
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -113,6 +114,73 @@ class ProfileAuthManager:
         """Official API to get isolated directory for a profile."""
         return get_profile_dir(profile_id, provider)
 
+    @classmethod
+    def write_agy_oauth_creds(cls, profile_dir: Path, auth_data: dict) -> Path:
+        """Atomically write <profile_dir>/.gemini/oauth_creds.json in exact agy CLI format."""
+        token_info = auth_data.get("token") or auth_data.get("tokens") or auth_data
+        if not isinstance(token_info, dict):
+            token_info = {}
+
+        access_token = token_info.get("access_token") or auth_data.get("access_token") or ""
+        refresh_token = token_info.get("refresh_token") or auth_data.get("refresh_token") or ""
+        scope = token_info.get("scope") or auth_data.get("scope") or ""
+        token_type = token_info.get("token_type") or auth_data.get("token_type") or "Bearer"
+        id_token = token_info.get("id_token") or auth_data.get("id_token") or ""
+
+        # Expiry date in milliseconds (int)
+        expiry_date = token_info.get("expiry_date") or auth_data.get("expiry_date")
+        if not expiry_date:
+            expires_at = token_info.get("expires_at") or auth_data.get("expires_at")
+            if expires_at:
+                try:
+                    expiry_date = int(float(expires_at) * 1000)
+                except Exception:
+                    expiry_date = int((time.time() + 3600) * 1000)
+            else:
+                expiry_str = token_info.get("expiry") or auth_data.get("expiry")
+                if expiry_str:
+                    try:
+                        dt = datetime.fromisoformat(str(expiry_str).replace("Z", "+00:00"))
+                        expiry_date = int(dt.timestamp() * 1000)
+                    except Exception:
+                        expiry_date = int((time.time() + 3600) * 1000)
+                else:
+                    expiry_date = int((time.time() + 3600) * 1000)
+        elif float(expiry_date) < 1e11:  # in seconds
+            expiry_date = int(float(expiry_date) * 1000)
+        else:
+            expiry_date = int(expiry_date)
+
+        creds_dict = {
+            "access_token": str(access_token),
+            "refresh_token": str(refresh_token),
+            "scope": str(scope),
+            "token_type": str(token_type),
+            "id_token": str(id_token),
+            "expiry_date": expiry_date,
+        }
+
+        gemini_dir = profile_dir / ".gemini"
+        gemini_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(gemini_dir, 0o700)
+        except OSError:
+            pass
+
+        target_file = gemini_dir / "oauth_creds.json"
+        temp_file = gemini_dir / f"oauth_creds.json.tmp-{threading.get_ident()}-{time.time_ns()}"
+        temp_file.write_text(json.dumps(creds_dict, indent=2), encoding="utf-8")
+        try:
+            os.chmod(temp_file, 0o600)
+        except OSError:
+            pass
+        os.replace(temp_file, target_file)
+        try:
+            os.chmod(target_file, 0o600)
+        except OSError:
+            pass
+        return target_file
+
     @staticmethod
     def read_windows_credential(target_name: str = "gemini:antigravity") -> Optional[dict]:
         """Read a credential blob from Windows Credential Manager."""
@@ -140,7 +208,40 @@ class ProfileAuthManager:
         if not advapi32 or os.name != "nt":
             return False
         with _CM_LOCK:
-            blob_bytes = json.dumps(auth_data).encode("utf-8")
+            payload_data = auth_data
+            if target_name == "gemini:antigravity" and isinstance(auth_data, dict):
+                # Ensure 6-field agy-compatible schema in Credential Manager
+                token_info = auth_data.get("token") or auth_data.get("tokens") or auth_data
+                if isinstance(token_info, dict) and ("access_token" in token_info or "access_token" in auth_data):
+                    acc = token_info.get("access_token") or auth_data.get("access_token") or ""
+                    ref = token_info.get("refresh_token") or auth_data.get("refresh_token") or ""
+                    sc = token_info.get("scope") or auth_data.get("scope") or ""
+                    tt = token_info.get("token_type") or auth_data.get("token_type") or "Bearer"
+                    idt = token_info.get("id_token") or auth_data.get("id_token") or ""
+                    exp = token_info.get("expiry_date") or auth_data.get("expiry_date")
+                    if not exp:
+                        exp_at = token_info.get("expires_at") or auth_data.get("expires_at")
+                        if exp_at:
+                            try:
+                                exp = int(float(exp_at) * 1000)
+                            except Exception:
+                                exp = int((time.time() + 3600) * 1000)
+                        else:
+                            exp = int((time.time() + 3600) * 1000)
+                    elif float(exp) < 1e11:
+                        exp = int(float(exp) * 1000)
+                    else:
+                        exp = int(exp)
+                    payload_data = {
+                        "access_token": str(acc),
+                        "refresh_token": str(ref),
+                        "scope": str(sc),
+                        "token_type": str(tt),
+                        "id_token": str(idt),
+                        "expiry_date": exp,
+                    }
+
+            blob_bytes = json.dumps(payload_data).encode("utf-8")
             buf = ctypes.create_string_buffer(blob_bytes)
             cred = CREDENTIAL()
             cred.Flags = 0
@@ -201,9 +302,24 @@ class ProfileAuthManager:
         pdir.mkdir(parents=True, exist_ok=True)
         auth_file = pdir / "auth.json"
         existed = auth_file.is_file()
-        temp_file = pdir / f"auth.json.tmp-{threading.get_ident()}"
+        temp_file = pdir / f"auth.json.tmp-{threading.get_ident()}-{time.time_ns()}"
         temp_file.write_text(json.dumps(auth_data, indent=2), encoding="utf-8")
+        try:
+            os.chmod(temp_file, 0o600)
+        except OSError:
+            pass
         os.replace(temp_file, auth_file)
+        try:
+            os.chmod(auth_file, 0o600)
+        except OSError:
+            pass
+
+        # For Antigravity, synchronously maintain <profile_dir>/.gemini/oauth_creds.json
+        if provider in ("antigravity", "google-antigravity"):
+            try:
+                cls.write_agy_oauth_creds(pdir, auth_data)
+            except Exception as e:
+                logger.warning("Failed to write .gemini/oauth_creds.json for profile=%s: %s", profile_id, e)
 
         from antigravity_provider.router.event_bus import (
             EVENT_ACCOUNT_ADDED,
@@ -238,7 +354,58 @@ class ProfileAuthManager:
         auth_file = get_profile_auth_path(provider, profile_id)
         if auth_file.is_file():
             try:
-                return json.loads(auth_file.read_text(encoding="utf-8"))
+                data = json.loads(auth_file.read_text(encoding="utf-8"))
+                if provider in ("antigravity", "google-antigravity") and isinstance(data, dict):
+                    pdir = get_profile_dir(profile_id, provider)
+                    gemini_creds = pdir / ".gemini" / "oauth_creds.json"
+                    if not gemini_creds.is_file():
+                        try:
+                            cls.write_agy_oauth_creds(pdir, data)
+                        except Exception as e:
+                            logger.debug("Failed to create missing oauth_creds.json: %s", e)
+
+                    # Auto-refresh expired or expiring access tokens if refresh_token is present
+                    tokens = data.get("token") or data.get("tokens")
+                    if isinstance(tokens, dict):
+                        refresh_tok = tokens.get("refresh_token")
+                        acc_tok = tokens.get("access_token")
+                        exp_at = tokens.get("expires_at")
+                        if not exp_at:
+                            exp_str = tokens.get("expiry")
+                            if exp_str:
+                                try:
+                                    dt = datetime.fromisoformat(str(exp_str).replace("Z", "+00:00"))
+                                    exp_at = dt.timestamp()
+                                except Exception:
+                                    exp_at = None
+
+                        now = time.time()
+                        if refresh_tok and (not acc_tok or (exp_at and now + 60 >= float(exp_at))):
+                            try:
+                                from antigravity_provider.oauth import refresh_access_token
+
+                                existing_id = tokens.get("id_token")
+                                existing_scope = tokens.get("scope")
+                                refreshed = refresh_access_token(
+                                    str(refresh_tok),
+                                    existing_id_token=str(existing_id) if existing_id else None,
+                                    existing_scope=str(existing_scope) if existing_scope else None,
+                                )
+                                tokens.update({
+                                    "access_token": refreshed["access_token"],
+                                    "refresh_token": refreshed.get("refresh_token") or refresh_tok,
+                                    "id_token": refreshed.get("id_token") or existing_id or "",
+                                    "scope": refreshed.get("scope") or existing_scope or "",
+                                    "token_type": refreshed.get("token_type", "Bearer"),
+                                    "expires_at": refreshed.get("expires_at"),
+                                    "expiry": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(refreshed["expires_at"])),
+                                })
+                                data["token"] = tokens
+                                cls.save_profile_auth(provider, profile_id, data)
+                            except Exception as re_err:
+                                logger.warning("Silent token refresh failed for profile=%s: %s", profile_id, re_err)
+
+                return data
             except Exception as e:
                 logger.warning("Error reading %s: %s", auth_file, e)
 
@@ -406,22 +573,38 @@ class ProfileAuthManager:
                 "error": None,
             }
 
-        if provider == "antigravity":
-            tokens = auth_data.get("tokens", {})
-            acc_token = tokens.get("access_token") or auth_data.get("access_token")
-            id_token = tokens.get("id_token") or auth_data.get("id_token")
-            email = None
+        if provider in ("antigravity", "google-antigravity"):
+            tokens = auth_data.get("token") or auth_data.get("tokens", {})
+            acc_token = tokens.get("access_token") if isinstance(tokens, dict) else (auth_data.get("access_token") or "")
+            id_token = tokens.get("id_token") if isinstance(tokens, dict) else (auth_data.get("id_token") or "")
+            refresh_tok = tokens.get("refresh_token") if isinstance(tokens, dict) else (auth_data.get("refresh_token") or "")
+            email = auth_data.get("email")
             acc_id = None
             if id_token:
-                email, acc_id = cls.extract_jwt_identity(id_token)
+                email_from_jwt, acc_id = cls.extract_jwt_identity(id_token)
+                email = email or email_from_jwt
+            if not email and acc_token:
+                email_from_jwt, acc_id = cls.extract_jwt_identity(acc_token)
+                email = email or email_from_jwt
 
-            expiry = tokens.get("expiry_date") or auth_data.get("expiry_date")
+            expiry = tokens.get("expiry_date") if isinstance(tokens, dict) else auth_data.get("expiry_date")
+            if not expiry and isinstance(tokens, dict):
+                expiry = tokens.get("expires_at")
+            if not expiry:
+                expiry_str = tokens.get("expiry") if isinstance(tokens, dict) else auth_data.get("expiry")
+                if expiry_str:
+                    try:
+                        dt = datetime.fromisoformat(str(expiry_str).replace("Z", "+00:00"))
+                        expiry = dt.timestamp()
+                    except Exception:
+                        expiry = None
+
             is_expired = False
             if expiry:
-                if expiry > 1e11:
-                    expiry = expiry / 1000.0
-                if time.time() > expiry:
-                    is_expired = True
+                if float(expiry) > 1e11:
+                    expiry = float(expiry) / 1000.0
+                if time.time() > float(expiry):
+                    is_expired = not bool(refresh_tok)
 
             return {
                 "authenticated": True,
@@ -429,9 +612,10 @@ class ProfileAuthManager:
                 "profile_id": profile_id,
                 "email_masked": mask_email(email) if email else None,
                 "account_id_masked": mask_id(acc_id) if acc_id else None,
+                "has_refresh_token": bool(refresh_tok),
                 "is_expired": is_expired,
                 "status": "EXPIRED" if is_expired else "AUTHENTICATED",
-                "error": "Token expired" if is_expired else None,
+                "error": "Token expired without refresh token" if is_expired else None,
             }
 
         elif provider in ("openai-codex", "codex"):

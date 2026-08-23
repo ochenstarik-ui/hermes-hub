@@ -28,6 +28,7 @@ TOKEN_URL = "https://oauth2.googleapis.com/token"
 CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
 CLIENT_SECRET = "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"
 SCOPES = [
+    "openid",
     "https://www.googleapis.com/auth/cloud-platform",
     "https://www.googleapis.com/auth/userinfo.email",
     "https://www.googleapis.com/auth/userinfo.profile",
@@ -71,6 +72,8 @@ def _get_json(url: str, headers: dict[str, str]) -> dict[str, Any]:
 def refresh_access_token(
     refresh_token: str,
     *,
+    existing_id_token: str | None = None,
+    existing_scope: str | None = None,
     post_json: Callable[[str, dict[str, str], dict[str, str]], dict[str, Any]] | None = None,
     client: tuple[str, str] | None = None,
 ) -> dict[str, Any]:
@@ -85,9 +88,16 @@ def refresh_access_token(
     data = post_json(TOKEN_URL, payload, {"Content-Type": "application/x-www-form-urlencoded"})
     if not data.get("access_token"):
         raise ProxyError("OAuth refresh response did not include access_token", status=401, error_type="invalid_request_error")
+    
+    id_token = data.get("id_token") or existing_id_token or ""
+    scope = data.get("scope") or existing_scope or ""
+    
     return {
         "refresh_token": data.get("refresh_token") or refresh_token,
         "access_token": data["access_token"],
+        "id_token": id_token,
+        "scope": scope,
+        "expires_in": data.get("expires_in"),
         "expires_at": _expires_at(data.get("expires_in")),
         "token_type": data.get("token_type", "Bearer"),
     }
@@ -98,7 +108,14 @@ def refresh_if_needed(credentials: dict[str, Any], *, skew_seconds: int = 60) ->
     refresh = credentials.get("refresh_token") or credentials.get("refresh")
     expires = credentials.get("expires_at") or credentials.get("expires")
     if refresh and (not access or (isinstance(expires, (int, float)) and time.time() + skew_seconds >= float(expires))):
-        credentials = {**credentials, **refresh_access_token(str(refresh))}
+        existing_id = credentials.get("id_token")
+        existing_scope = credentials.get("scope")
+        refreshed = refresh_access_token(
+            str(refresh),
+            existing_id_token=str(existing_id) if existing_id else None,
+            existing_scope=str(existing_scope) if existing_scope else None,
+        )
+        credentials = {**credentials, **refreshed}
     return credentials
 
 
@@ -177,6 +194,9 @@ def exchange_code_for_tokens(
     return {
         "refresh_token": refresh_token,
         "access_token": data["access_token"],
+        "id_token": data.get("id_token", ""),
+        "scope": data.get("scope", ""),
+        "expires_in": data.get("expires_in"),
         "expires_at": _expires_at(data.get("expires_in")),
         "token_type": data.get("token_type", "Bearer"),
     }

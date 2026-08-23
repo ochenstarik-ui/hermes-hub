@@ -123,10 +123,25 @@ def discover_models(profile_id: str | None = None) -> dict[str, str]:
     # команда запускалась в ГЛОБАЛЬНОМ окружении, где вход не выполнен, и
     # отвечала «Please sign in to view available models» — при шести рабочих
     # OAuth-профилях. Список моделей поэтому был пуст всегда.
-    if profile_id:
+    target_profile_id = profile_id
+    if not target_profile_id:
+        try:
+            from antigravity_provider.router.profile_manager import ProfileAuthManager
+            main_p = ProfileAuthManager.get_main_profile("antigravity")
+            if main_p and ProfileAuthManager.load_profile_auth("antigravity", main_p):
+                target_profile_id = main_p
+            else:
+                for candidate in ["ag-orch-primary", "ag-w1", "ag-w2", "ag-w3", "ag-w4", "ag-w5"]:
+                    if ProfileAuthManager.load_profile_auth("antigravity", candidate):
+                        target_profile_id = candidate
+                        break
+        except Exception:
+            target_profile_id = None
+
+    if target_profile_id:
         from antigravity_provider.router.adapters.antigravity_adapter import get_profile_env_dir
 
-        profile_dir = get_profile_env_dir(profile_id)
+        profile_dir = get_profile_env_dir(target_profile_id)
         env = build_safe_subprocess_env(
             overrides={
                 "USERPROFILE": str(profile_dir),
@@ -146,6 +161,7 @@ def discover_models(profile_id: str | None = None) -> dict[str, str]:
             encoding="utf-8",
             errors="replace",
             env=env,
+            stdin=subprocess.DEVNULL,
         )
         raw = result.stdout.strip()
         if not raw or result.returncode != 0:
