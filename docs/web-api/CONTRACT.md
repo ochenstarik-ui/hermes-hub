@@ -1,6 +1,6 @@
 # Контракт веб-интерфейса Hermes Hub
 
-Версия контракта: **1.2**
+Версия контракта: **1.3**
 Дата: 2026-08-24
 
 Этот документ — **единственный** источник истины для двух сторон: серверной (задание A15) и клиентской (A16). Обе стороны разрабатываются параллельно и до слияния друг друга не видят.
@@ -79,14 +79,14 @@ readiness, agents, providers, routing, quotas, metrics, is_stale
 { "action": "<имя>", "data": { ... } }
 ```
 
-Имена действий берутся **ровно** из общего слоя `action_handler.py`. Их восемнадцать:
+Имена действий берутся **ровно** из общего слоя `action_handler.py`. Их девятнадцать:
 
 ```
 account_details   add_account       agent_settings    assign_role
 auto_assign_all   check_updates     delete_credentials edit_route
 oauth             open_routing      refresh_account   refresh_all
-refresh_data      save_settings     set_main          set_model
-set_orchestrator  test
+refresh_data      refresh_models    save_settings     set_main
+set_model         set_orchestrator  test
 ```
 
 Ответ:
@@ -99,6 +99,9 @@ set_orchestrator  test
 **`ok: false` — это `200`, а не `4xx`.** Отказ действия — нормальный результат, а не ошибка протокола. `4xx` остаётся для неизвестного действия и непройденной авторизации.
 
 Действия `open_routing` и `account_details` в вебе — навигация, состояние держит клиент; сервер на них отвечает `ok: true` без побочных эффектов.
+
+
+**`refresh_models`** (добавлено в A23): принудительное обновление списка моделей провайдера. `data: {"provider": "<id>"}`. Обнаружение ходит в сеть и подпроцесс — действие возвращается сразу, результат приходит следующим снапшотом. Замерено: `agy models` отвечает за десятки секунд, иногда виснет дольше двух минут; при таймауте прежний кэш не затирается.
 
 ### `GET /api/health`
 

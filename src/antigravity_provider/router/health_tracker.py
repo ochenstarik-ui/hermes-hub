@@ -64,6 +64,9 @@ def extract_model_family(model_name: Optional[str]) -> str:
     return "default"
 
 
+_LOCK_TIMEOUT_SEC = 5.0
+
+
 class _FileLock:
     """Interprocess file lock supporting Windows (msvcrt) and Unix (fcntl)."""
 
@@ -75,12 +78,28 @@ class _FileLock:
         try:
             self.lock_path.parent.mkdir(parents=True, exist_ok=True)
             self._fd = os.open(str(self.lock_path), os.O_CREAT | os.O_RDWR)
-            if os.name == "nt":
-                import msvcrt
-                msvcrt.locking(self._fd, msvcrt.LK_LOCK, 1)
-            else:
-                import fcntl
-                fcntl.flock(self._fd, fcntl.LOCK_EX)
+            # Ожидание ограничено по времени. Неблокирующий захват был неверен:
+            # при неудаче исключение проглатывалось, и запись шла БЕЗ блокировки.
+            # Но бесконечное ожидание не лучше: на Unix flock(LOCK_EX) висит
+            # вечно, и один застрявший держатель подвесил бы приложение целиком.
+            # Секция короткая — запись файла состояния, — поэтому пары секунд
+            # с запасом хватает, а дальше честный отказ.
+            deadline = time.time() + _LOCK_TIMEOUT_SEC
+            while True:
+                try:
+                    if os.name == "nt":
+                        import msvcrt
+
+                        msvcrt.locking(self._fd, msvcrt.LK_NBLCK, 1)
+                    else:
+                        import fcntl
+
+                        fcntl.flock(self._fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError:
+                    if time.time() >= deadline:
+                        raise
+                    time.sleep(0.05)
         except Exception:
             if self._fd is not None:
                 try:
