@@ -1,0 +1,180 @@
+import time
+import json
+import logging
+import threading
+from typing import Any, Dict, Tuple, Optional, Callable
+
+from antigravity_provider.router.router_config import load_router_config
+from antigravity_provider.router.profile_manager import ProfileAuthManager
+from antigravity_provider.router.unified_health import EventLogService
+from antigravity_provider.router.auto_assigner import AutoAssigner
+from antigravity_provider.router.scheduler import HermesRefreshScheduler
+from antigravity_provider.updater import UpdateManager
+from antigravity_provider import paths
+
+logger = logging.getLogger('hermes.router.actions')
+
+def do_set_main(provider: str, profile_id: str) -> Tuple[bool, str]:
+    ok, msg = ProfileAuthManager.set_main_profile(provider, profile_id)
+    if ok:
+        EventLogService.get().log(
+            'account', f'Профиль {profile_id} назначен основным аккаунтом Hermes ({provider}).', level='info'
+        )
+    return ok, msg
+
+def do_set_orchestrator(profile_id: str) -> Tuple[bool, str]:
+    ok, msg = AutoAssigner.set_primary_orchestrator(profile_id)
+    if ok:
+        EventLogService.get().log(
+            'routing', f'Профиль {profile_id} назначен главным оркестратором команды.', level='info'
+        )
+    return ok, msg
+
+def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
+    from antigravity_provider.router.adapters import get_adapter
+    config = load_router_config()
+    pcfg = config.get_profile(profile_id)
+    if not pcfg:
+        return {'success': False, 'error': f"Профиль '{profile_id}' не найден"}
+
+    status = ProfileAuthManager.get_profile_status(pcfg.provider, profile_id)
+    if not status.get('authenticated'):
+        return {'success': False, 'error': 'Аккаунт не добавлен. Сначала выполните подключение.'}
+
+    if status.get('is_expired') or status.get('expired') or status.get('status') == 'EXPIRED':
+        return {'success': False, 'error': 'Авторизация истекла, требуется повторный вход.'}
+
+    model = pcfg.preferred_models[0] if pcfg.preferred_models else 'default'
+    t0 = time.time()
+    try:
+        auth_data = ProfileAuthManager.load_profile_auth(pcfg.provider, profile_id)
+        if not auth_data:
+            return {'success': False, 'error': 'Сохранённые данные авторизации не найдены'}
+        adapter = get_adapter(pcfg.provider)
+        runtime_ready = adapter.health_check(pcfg)
+        el = round(time.time() - t0, 2)
+        if not runtime_ready:
+            return {
+                'success': False,
+                'duration_sec': el,
+                'error': 'Локальный runtime провайдера недоступен; повторная авторизация не запускалась',
+            }
+        EventLogService.get().log(
+            'system', f'Локальная проверка профиля {profile_id} ({model}) пройдена за {el}s.', level='success'
+        )
+        return {
+            'success': True,
+            'model': model,
+            'duration_sec': el,
+            'response': 'Авторизация сохранена; runtime провайдера доступен',
+        }
+    except Exception as e:
+        EventLogService.get().log('system', f'Ошибка теста {profile_id} ({model}): {e}', level='error')
+        return {'success': False, 'model': model, 'duration_sec': round(time.time() - t0, 2), 'error': str(e)}
+
+def do_delete_credentials(provider: str, profile_id: str) -> Tuple[bool, str]:
+    auth_p = ProfileAuthManager.get_profile_dir(provider, profile_id) / 'auth.json'
+    if auth_p.is_file():
+        try:
+            auth_p.unlink()
+            EventLogService.get().log('account', f'Учетные данные для {profile_id} удалены.', level='warning')
+            return True, f"Учетные данные для '{profile_id}' удалены"
+        except Exception as e:
+            return False, f'Ошибка удаления: {e}'
+    return True, 'Учетные данные отсутствовали'
+
+def do_save_settings(settings: Dict[str, Any]) -> Tuple[bool, str]:
+    settings_file = paths.get_hermes_home() / 'hub_settings.json'
+    settings_file.parent.mkdir(parents=True, exist_ok=True)
+    existing: Dict[str, Any] = {}
+    if settings_file.exists():
+        try:
+            existing = json.loads(settings_file.read_text(encoding='utf-8'))
+        except Exception:
+            pass
+    for k, v in settings.items():
+        existing[k] = v
+    try:
+        settings_file.write_text(json.dumps(existing, indent=2), encoding='utf-8')
+        return True, 'Настройки сохранены'
+    except Exception as e:
+        return False, f'Не удалось сохранить настройки: {e}'
+
+class ActionExecutor:
+    """Shared execution layer for Desktop and Web actions."""
+    
+    @classmethod
+    def execute(cls, action: str, data: Dict[str, Any], async_runner: Optional[Callable] = None) -> Dict[str, Any]:
+        """
+        Execute the specified action.
+        If async_runner is provided, long actions will be dispatched to it.
+        async_runner should accept (func, name).
+        """
+        pid = data.get('profile_id', '')
+        prov = data.get('provider', '')
+        
+        # Purely UI navigation actions return True for Web API (no-op on server side).
+        if action in ['oauth', 'add_account', 'account_details', 'agent_settings', 'edit_route', 'open_routing', 'assign_role']:
+            return {'ok': True, 'message': 'Навигация'}
+            
+        if action == 'set_main':
+            ok, msg = do_set_main(prov, pid)
+            return {'ok': ok, 'message': msg}
+            
+        elif action == 'set_orchestrator':
+            ok, msg = do_set_orchestrator(pid)
+            return {'ok': ok, 'message': msg}
+            
+        elif action == 'test':
+            if async_runner:
+                async_runner(lambda: do_test_profile(prov, pid), 'TestProfile')
+                return {'ok': True, 'message': 'запущено'}
+            else:
+                res = do_test_profile(prov, pid)
+                return {'ok': res.get('success', False), 'message': res.get('response') or res.get('error'), 'data': res}
+                
+        elif action == 'delete_credentials':
+            ok, msg = do_delete_credentials(prov, pid)
+            return {'ok': ok, 'message': msg}
+            
+        elif action == 'auto_assign_all':
+            if async_runner:
+                async_runner(lambda: AutoAssigner.auto_assign_all(), 'AutoAssignAll')
+                return {'ok': True, 'message': 'запущено'}
+            else:
+                AutoAssigner.auto_assign_all()
+                return {'ok': True, 'message': 'Успешно'}
+                
+        elif action == 'refresh_data':
+            return {'ok': True, 'message': 'Обновление данных'}
+            
+        elif action == 'refresh_all':
+            if async_runner:
+                async_runner(lambda: HermesRefreshScheduler.get().trigger_refresh_all(), 'RefreshAll')
+                return {'ok': True, 'message': 'запущено'}
+            else:
+                HermesRefreshScheduler.get().trigger_refresh_all()
+                return {'ok': True, 'message': 'Успешно'}
+                
+        elif action == 'refresh_account':
+            if async_runner:
+                async_runner(lambda: HermesRefreshScheduler.get().trigger_refresh_account(prov, pid), 'RefreshAccount')
+                return {'ok': True, 'message': 'запущено'}
+            else:
+                HermesRefreshScheduler.get().trigger_refresh_account(prov, pid)
+                return {'ok': True, 'message': 'Успешно'}
+                
+        elif action == 'save_settings':
+            ok, msg = do_save_settings(data)
+            return {'ok': ok, 'message': msg}
+            
+        elif action == 'check_updates':
+            if async_runner:
+                async_runner(lambda: UpdateManager().check_for_updates(), 'CheckUpdates')
+                return {'ok': True, 'message': 'запущено'}
+            else:
+                res = UpdateManager().check_for_updates()
+                return {'ok': True, 'message': 'Успешно', 'data': res}
+                
+        else:
+            return {'ok': False, 'message': f'Неизвестное действие: {action}', 'unknown': True}

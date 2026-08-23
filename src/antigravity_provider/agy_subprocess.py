@@ -46,12 +46,12 @@ def _find_agy_exe() -> str:
     if env and Path(env).is_file():
         return env
 
-    # 2. Standard Windows location
-    local_app = os.environ.get("LOCALAPPDATA", "")
-    if local_app:
-        candidate = Path(local_app) / "agy" / "bin" / "agy.exe"
-        if candidate.is_file():
-            return str(candidate)
+    # 2. Standard location based on hermes home parent
+    from antigravity_provider.paths import get_hermes_home
+    exe_name = "agy.exe" if os.name == "nt" else "agy"
+    candidate = get_hermes_home().parent / "agy" / "bin" / exe_name
+    if candidate.is_file():
+        return str(candidate)
 
     # 3. PATH
     found = shutil.which("agy") or shutil.which("agy.exe")

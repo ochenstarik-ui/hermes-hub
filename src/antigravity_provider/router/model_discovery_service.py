@@ -29,12 +29,8 @@ class ModelDiscoveryService:
 
     def __init__(self, cache_path: Optional[Path] = None) -> None:
         if cache_path is None:
-            hermes_home = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
-            if os.name == "nt" and "HERMES_HOME" not in os.environ:
-                local_app = os.environ.get("LOCALAPPDATA", "")
-                if local_app and (Path(local_app) / "hermes").exists():
-                    hermes_home = Path(local_app) / "hermes"
-            cache_path = hermes_home / "models_cache.json"
+            from antigravity_provider.paths import get_hermes_home
+            cache_path = get_hermes_home() / "models_cache.json"
 
         self._cache_path = cache_path
         self._cache_lock = threading.Lock()

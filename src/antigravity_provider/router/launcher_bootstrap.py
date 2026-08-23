@@ -24,14 +24,12 @@ from typing import Dict, List, Tuple
 
 
 def get_startup_log_path() -> Path:
-    """Resolve startup.log path safely without external dependencies."""
-    try:
-        from antigravity_provider import paths
-        return paths.get_startup_log_file()
-    except Exception:
-        local_app = os.environ.get("LOCALAPPDATA", "")
-        base = Path(local_app) / "hermes" if local_app else Path.home() / ".hermes"
-        return base / "logs" / "startup.log"
+    """Resolve startup.log path safely using paths.py."""
+    _SRC_DIR = Path(__file__).resolve().parent.parent.parent
+    if str(_SRC_DIR) not in sys.path:
+        sys.path.insert(0, str(_SRC_DIR))
+    from antigravity_provider import paths
+    return paths.get_startup_log_file()
 
 
 def log_startup(msg: str) -> None:

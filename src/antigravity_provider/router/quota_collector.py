@@ -832,6 +832,7 @@ class AccountQuotaService:
             buckets=buckets,
             fetched_at=now,
             source="baseline",
+            is_loading=True,
         )
 
     # ─────────────────────────────────────────────────────────────

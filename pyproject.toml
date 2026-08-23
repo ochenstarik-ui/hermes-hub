@@ -49,7 +49,7 @@ dev = [
     "anyio>=4.0.0",
     "ruff>=0.3.0",
 ]
-legacy = [
+web = [
     "fastapi>=0.110.0",
     "uvicorn>=0.28.0",
 ]

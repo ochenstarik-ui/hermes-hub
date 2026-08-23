@@ -41,14 +41,8 @@ class AssetManager:
         return cls._instance
 
     def _find_repo_root(self) -> Path:
-        cur = Path(__file__).resolve()
-        for p in [cur.parents[4], cur.parents[3], cur.parents[2], cur.parents[1]]:
-            if (p / "assets" / "branding").exists():
-                return p
-        local_app = Path(os.environ.get("LOCALAPPDATA", "")) / "hermes" / "plugins" / "antigravity-provider"
-        if (local_app / "assets" / "branding").exists():
-            return local_app
-        return cur.parents[3] if len(cur.parents) > 3 else cur.parent
+        from antigravity_provider.paths import get_repo_root
+        return get_repo_root()
 
     def get_ico_path(self) -> str:
         ico = self.app_dir / "HermesHub.ico"

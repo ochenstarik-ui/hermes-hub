@@ -237,6 +237,7 @@ class QuotaSnapshot:
     stale_after_seconds: int = 300
     source: str = "baseline"
     unavailable_reason: Optional[str] = None
+    is_loading: bool = False
 
     @property
     def is_estimated(self) -> bool:

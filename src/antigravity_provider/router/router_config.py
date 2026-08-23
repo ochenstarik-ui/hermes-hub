@@ -314,12 +314,8 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
         if env_config:
             config_path = Path(env_config).expanduser()
         else:
-            hermes_home = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
-            if os.name == "nt" and "HERMES_HOME" not in os.environ:
-                local_app = os.environ.get("LOCALAPPDATA", "")
-                if local_app and (Path(local_app) / "hermes").exists():
-                    hermes_home = Path(local_app) / "hermes"
-            config_path = hermes_home / "config" / "router_profiles.yaml"
+            from antigravity_provider.paths import get_router_profiles_path
+            config_path = get_router_profiles_path()
 
     if not config_path.is_file():
         return get_default_router_config()
@@ -457,12 +453,8 @@ def save_router_config(config: RouterConfig, config_path: Optional[Path] = None)
         if env_config:
             config_path = Path(env_config).expanduser()
         else:
-            hermes_home = Path(os.environ.get("HERMES_HOME", "~/.hermes")).expanduser()
-            if os.name == "nt" and "HERMES_HOME" not in os.environ:
-                local_app = os.environ.get("LOCALAPPDATA", "")
-                if local_app and (Path(local_app) / "hermes").exists():
-                    hermes_home = Path(local_app) / "hermes"
-            config_path = hermes_home / "config" / "router_profiles.yaml"
+            from antigravity_provider.paths import get_router_profiles_path
+            config_path = get_router_profiles_path()
 
     try:
         config_path.parent.mkdir(parents=True, exist_ok=True)
