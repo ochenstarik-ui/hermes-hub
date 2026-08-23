@@ -375,6 +375,62 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
         quota_cooldown = int(r_block.get("quota_cooldown_seconds", data.get("quota_cooldown_seconds", 1800)))
         rate_cooldown = int(r_block.get("rate_limit_cooldown_seconds", data.get("rate_limit_cooldown_seconds", 60)))
 
+        # Automatic Idempotent Migration (P0-0.1)
+        # Merge missing default profiles and roles into loaded user configuration
+        default_cfg = get_default_router_config()
+        migration_needed = False
+        new_profiles_added: list[str] = []
+        new_roles_added: list[str] = []
+
+        if not profiles:
+            profiles = default_cfg.profiles
+        else:
+            for def_pid, def_pcfg in default_cfg.profiles.items():
+                if def_pid not in profiles:
+                    profiles[def_pid] = def_pcfg
+                    new_profiles_added.append(def_pid)
+                    migration_needed = True
+
+        if not roles:
+            roles = default_cfg.roles
+        else:
+            for def_rname, def_rpolicy in default_cfg.roles.items():
+                if def_rname not in roles:
+                    roles[def_rname] = def_rpolicy
+                    new_roles_added.append(def_rname)
+                    migration_needed = True
+
+        if migration_needed and config_path.is_file():
+            # 1. Create a backup file
+            try:
+                import shutil
+                import time
+                backup_path = config_path.with_name(f"{config_path.name}.bak_{int(time.time())}")
+                if not backup_path.exists():
+                    shutil.copy2(config_path, backup_path)
+            except Exception as b_err:
+                pass
+
+            # 2. Save migrated config back
+            try:
+                cfg_to_save = RouterConfig(
+                    enabled=enabled,
+                    default_role=default_role,
+                    quota_cooldown_seconds=quota_cooldown,
+                    rate_limit_cooldown_seconds=rate_cooldown,
+                    max_failover_attempts=max_failover,
+                    cooldown_base_seconds=cooldown_base,
+                    cooldown_max_seconds=cooldown_max,
+                    session_affinity_ttl_seconds=session_ttl,
+                    roles=roles,
+                    profiles=profiles,
+                    pricing=pricing,
+                    raw_router_block=r_block,
+                )
+                save_router_config(cfg_to_save, config_path)
+            except Exception:
+                pass
+
         return RouterConfig(
             enabled=enabled,
             default_role=default_role,
@@ -384,12 +440,12 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
             cooldown_base_seconds=cooldown_base,
             cooldown_max_seconds=cooldown_max,
             session_affinity_ttl_seconds=session_ttl,
-            roles=roles or get_default_router_config().roles,
-            profiles=profiles or get_default_router_config().profiles,
+            roles=roles,
+            profiles=profiles,
             pricing=pricing,
             raw_router_block=r_block,
         )
-    except Exception as e:
+    except Exception:
         # Fall back gracefully to built-in defaults on YAML error
         return get_default_router_config()
 

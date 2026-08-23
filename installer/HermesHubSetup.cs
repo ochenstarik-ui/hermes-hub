@@ -976,6 +976,11 @@ namespace HermesHubSetup
                 if (a.Equals("/purgeuserdata", StringComparison.OrdinalIgnoreCase)) purgeUserData = true;
             }
 
+            if (isRepair)
+            {
+                isSilent = true;
+            }
+
             SetupEngine.DetectHermes();
 
             string appDir = AppDomain.CurrentDomain.BaseDirectory;

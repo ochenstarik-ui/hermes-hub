@@ -176,37 +176,32 @@ class AutoAssigner:
     def ensure_profile_definition(provider: str, profile_id: str) -> Tuple[bool, str]:
         """Persist a router profile for provider slots introduced by the UI.
 
-        Claude and Grok were added after the original static router profile
-        list.  Their OAuth credentials could therefore be saved successfully
-        while role assignment failed because the profile did not exist in the
-        router YAML.
+        Model lists are sourced dynamically from ModelDiscoveryService (P0-3).
+        If discovery has not run yet, preferred_models remains empty [] instead
+        of inventing unsupported model literals.
         """
         config = load_router_config()
         if profile_id in config.profiles:
             return True, "Профиль уже зарегистрирован"
-        defaults = {
-            "grok": (["grok-3", "grok-3-mini", "grok-2"], ["reasoning", "coding", "research"]),
-            "claude": (
-                ["claude-sonnet-4-6", "claude-3-7-sonnet", "claude-3-5-haiku"],
-                ["reasoning", "coding", "review"],
-            ),
-            "opencode-go": (
-                ["qwen3.8-max", "kimi-k2.7-code", "deepseek-v3"],
-                ["coding", "research", "fast"],
-            ),
-            "openai-codex": (["gpt-4o", "o3-mini", "codex"], ["coding", "reasoning"]),
-            "antigravity": (
-                ["gemini-3.7-flash", "claude-sonnet-4-6", "gemini-3.5-flash"],
-                ["coding", "reasoning", "research", "fast"],
-            ),
+
+        from antigravity_provider.router.model_discovery_service import ModelDiscoveryService
+        discovered_models = ModelDiscoveryService.get().get_models(provider) or []
+
+        capabilities_map = {
+            "grok": ["reasoning", "coding", "research"],
+            "claude": ["reasoning", "coding", "review"],
+            "opencode-go": ["coding", "research", "fast"],
+            "openai-codex": ["coding", "reasoning"],
+            "antigravity": ["coding", "reasoning", "research", "fast"],
         }
-        models, capabilities = defaults.get(provider, (["default"], []))
+        capabilities = capabilities_map.get(provider, [])
+
         config.profiles[profile_id] = RouterProfileConfig(
             profile_id=profile_id,
             provider=provider,
             account_id=profile_id,
             capabilities=list(capabilities),
-            preferred_models=list(models),
+            preferred_models=list(discovered_models),
             enabled=True,
             max_concurrency=1,
         )

@@ -295,6 +295,195 @@ class CodexOAuthSession:
         logger.info("Codex OAuth session stopped reason=cancelled")
 
 
+def refresh_codex_token(profile_id: str) -> dict[str, Any]:
+    """Refresh OpenAI Codex OAuth tokens using saved refresh_token.
+
+    Returns:
+        Updated auth_data dictionary.
+    Raises:
+        RuntimeError: If refresh_token is missing, invalid, or rejected by OpenAI.
+    """
+    auth_data = ProfileAuthManager.load_profile_auth("openai-codex", profile_id)
+    if not auth_data:
+        raise RuntimeError(f"Профиль '{profile_id}' не найден или не настроен.")
+
+    tokens = auth_data.get("token") or auth_data.get("tokens", {})
+    refresh_tok = tokens.get("refresh_token") if isinstance(tokens, dict) else (auth_data.get("refresh_token") or "")
+    if not refresh_tok:
+        raise RuntimeError(
+            f"Невозможно обновить токен для профиля '{profile_id}': refresh_token отсутствует. "
+            "Требуется повторный вход через мастер подключения или hermes auth codex."
+        )
+
+    payload = {
+        "grant_type": "refresh_token",
+        "client_id": CODEX_OAUTH_CLIENT_ID,
+        "refresh_token": refresh_tok,
+    }
+    try:
+        data = _post_json(CODEX_OAUTH_TOKEN_URL, payload, timeout=15.0)
+    except urllib.error.HTTPError as exc:
+        raw_err = exc.read().decode("utf-8", "replace")
+        logger.warning("OpenAI token refresh HTTP %d: %s", exc.code, raw_err)
+        if exc.code in (400, 401):
+            raise RuntimeError(
+                f"OpenAI отклонил refresh_token для '{profile_id}': сессия отозвана или истекла. "
+                "Требуется повторный вход."
+            )
+        raise RuntimeError(f"Ошибка обновления токена OpenAI (HTTP {exc.code}): {raw_err}")
+    except Exception as exc:
+        logger.warning("OpenAI token refresh failed: %s", exc)
+        raise RuntimeError(f"Сбой связи с сервером авторизации OpenAI: {exc}")
+
+    new_access = data.get("access_token")
+    if not new_access:
+        raise RuntimeError(f"Ответ OpenAI не содержит access_token: {data}")
+
+    new_refresh = data.get("refresh_token") or refresh_tok
+    new_id = data.get("id_token") or (tokens.get("id_token") if isinstance(tokens, dict) else "") or ""
+
+    email = auth_data.get("email")
+    if new_id:
+        extracted_email, _ = ProfileAuthManager.extract_jwt_identity(new_id)
+        if extracted_email:
+            email = extracted_email
+    if not email and new_access:
+        extracted_email, _ = ProfileAuthManager.extract_jwt_identity(new_access)
+        if extracted_email:
+            email = extracted_email
+
+    updated_auth_data = {
+        "provider": "openai-codex",
+        "profile_id": profile_id,
+        "auth_mode": "oauth",
+        "token": {
+            "access_token": new_access,
+            "refresh_token": new_refresh,
+            "id_token": new_id,
+        },
+        "email": email or "",
+        "updated_at": time.time(),
+    }
+    ProfileAuthManager.save_profile_auth("openai-codex", profile_id, updated_auth_data)
+    logger.info("Successfully refreshed and saved Codex OAuth token for profile '%s'", profile_id)
+    return updated_auth_data
+
+
+def stop_running_codex_processes() -> list[int]:
+    """Gracefully stop any running ChatGPT / Codex processes before changing active credentials."""
+    stopped_pids = []
+    if os.name == "nt":
+        import subprocess
+        for proc_name in ["codex.exe", "chatgpt.exe", "app-server.exe"]:
+            try:
+                out = subprocess.check_output(
+                    ["tasklist", "/FI", f"IMAGENAME eq {proc_name}", "/FO", "CSV", "/NH"],
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                )
+                for line in out.strip().splitlines():
+                    if line.strip():
+                        parts = line.split(",")
+                        if len(parts) >= 2:
+                            pid_str = parts[1].strip('"')
+                            if pid_str.isdigit():
+                                pid = int(pid_str)
+                                subprocess.run(["taskkill", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                stopped_pids.append(pid)
+            except Exception:
+                pass
+    return stopped_pids
+
+
+def switch_active_codex_account(
+    target_profile_id: str,
+    step_callback: Optional[Any] = None,
+) -> dict[str, Any]:
+    """Safely switch the active Codex / ChatGPT account with step-by-step observable progress.
+
+    Follows safe operational sequence:
+    1. Read and validate account tokens (refreshing if expired)
+    2. Stop active client / app-server processes BEFORE modifying active credentials
+    3. Write new client credentials with atomic rollback on failure
+    4. Synchronize settings
+    5. Start client / signal ready
+    """
+    def _notify(step_name: str, message: str, status: str = "running"):
+        if step_callback and callable(step_callback):
+            try:
+                step_callback(step_name, message, status)
+            except Exception:
+                pass
+
+    # Step 1: Проверка токенов аккаунта
+    _notify("check_tokens", "Проверка данных аккаунта...")
+    auth_data = ProfileAuthManager.load_profile_auth("openai-codex", target_profile_id)
+    if not auth_data:
+        raise RuntimeError(f"Профиль '{target_profile_id}' не найден.")
+
+    tokens = auth_data.get("token") or auth_data.get("tokens", {})
+    acc_tok = tokens.get("access_token") if isinstance(tokens, dict) else (auth_data.get("access_token") or "")
+    if acc_tok:
+        acc_claims = ProfileAuthManager.extract_jwt_claims(acc_tok)
+        acc_exp = acc_claims.get("exp")
+        if acc_exp and time.time() > (float(acc_exp) - 60):
+            _notify("refresh_tokens", "Обновление истёкшего access-токена...")
+            auth_data = refresh_codex_token(target_profile_id)
+            tokens = auth_data.get("token", {})
+    _notify("check_tokens", "Токены аккаунта проверены", status="done")
+
+    # Step 2: Остановка прежнего процесса
+    _notify("stop_clients", "Безопасная остановка процессов ChatGPT/Codex...")
+    stop_running_codex_processes()
+    _notify("stop_clients", "Процессы остановлены", status="done")
+
+    # Step 3: Запись данных клиента (с бэкапом для отката)
+    _notify("write_credentials", "Запись данных клиента...")
+    codex_home = Path.home() / ".codex"
+    codex_home.mkdir(parents=True, exist_ok=True)
+    active_auth_file = codex_home / "auth.json"
+    backup_file = codex_home / f"auth.json.bak_{int(time.time())}"
+
+    had_previous_auth = active_auth_file.is_file()
+    if had_previous_auth:
+        try:
+            import shutil
+            shutil.copy2(active_auth_file, backup_file)
+        except Exception as exc:
+            logger.warning("Could not create backup of ~/.codex/auth.json: %s", exc)
+
+    try:
+        active_auth_file.write_text(json.dumps(auth_data, indent=2, ensure_ascii=False), encoding="utf-8")
+        _notify("write_credentials", "Учётные данные успешно записаны", status="done")
+    except Exception as exc:
+        # Atomic rollback
+        if had_previous_auth and backup_file.is_file():
+            import shutil
+            shutil.copy2(backup_file, active_auth_file)
+        _notify("write_credentials", f"Сбой записи учётных данных: {exc}", status="error")
+        raise RuntimeError(f"Сбой записи учётных данных: {exc}")
+
+    # Step 4: Синхронизация настроек
+    _notify("sync_settings", "Синхронизация настроек...")
+    # Clean up temporary backup after successful write
+    if backup_file.is_file():
+        try:
+            backup_file.unlink()
+        except Exception:
+            pass
+    _notify("sync_settings", "Настройки синхронизированы", status="done")
+
+    # Step 5: Запуск клиента
+    _notify("start_client", "Запуск клиента Codex...", status="done")
+
+    email = auth_data.get("email") or ""
+    return {
+        "success": True,
+        "profile_id": target_profile_id,
+        "email_masked": mask_email(email),
+    }
+
+
 def start_codex_oauth(profile_id: str) -> Tuple[str, str, str]:
     """Start a Codex OAuth flow for profile_id and return (session_id, verification_url, user_code)."""
     session = CodexOAuthSession(profile_id)

@@ -35,7 +35,7 @@ def _normalise(provider: str, raw: Any) -> CachedModels:
         return CachedModels(provider=provider)
     if isinstance(raw, dict):
         models = raw.get("models") or raw.get("discovered_models") or []
-        fetched_at = raw.get("fetched_at") or raw.get("updated_at") or raw.get("last_refresh_at") or ""
+        fetched_at = raw.get("fetched_at") or raw.get("discovered_at") or raw.get("updated_at") or raw.get("last_refresh_at") or ""
         stale = raw.get("is_stale", raw.get("stale", False))
         reason = raw.get("unavailable_reason") or raw.get("error") or ""
     else:

@@ -288,6 +288,35 @@ def print_diagnostics_cli() -> int:
         has_fatal_error = True
         config = None
 
+    # 3.1 Model Catalog & Config Validation (P0-3)
+    from antigravity_provider.router.model_discovery_service import ModelDiscoveryService
+    md_service = ModelDiscoveryService.get()
+
+    if config:
+        invalid_model_warnings = []
+        for pid, pcfg in config.profiles.items():
+            discovered = md_service.get_models(pcfg.provider)
+            if discovered is not None and pcfg.preferred_models:
+                for m in pcfg.preferred_models:
+                    if m not in discovered:
+                        invalid_model_warnings.append(f"Профиль '{pid}' ({pcfg.provider}): модель '{m}' не найдена у провайдера")
+
+        for rname, rpol in config.roles.items():
+            if rpol.default_model:
+                prim_p = config.get_profile(rpol.preferred_chain[0]) if rpol.preferred_chain else None
+                if prim_p:
+                    discovered = md_service.get_models(prim_p.provider)
+                    if discovered is not None and rpol.default_model not in discovered:
+                        invalid_model_warnings.append(f"Роль '{rname}': default_model '{rpol.default_model}' не найдена у {prim_p.provider}")
+
+        if invalid_model_warnings:
+            print(f"[WARN] Проверка моделей конфигурации: обнаружено {len(invalid_model_warnings)} несоответствий:")
+            for w in invalid_model_warnings:
+                print(f"       - {w}")
+            reasons.extend(invalid_model_warnings)
+        else:
+            print("[PASS] Проверка моделей конфигурации: все настроенные модели валидны либо ожидают обнаружения")
+
     # 4. Profile Diagnostic Matrix
     print("\n" + "-" * 115)
     print(f"{'PROFILE':<18} | {'PROVIDER':<15} | {'IDENTITY':<26} | {'AUTH':<14} | {'QUOTA STATE':<16} | {'DATA SOURCE'}")

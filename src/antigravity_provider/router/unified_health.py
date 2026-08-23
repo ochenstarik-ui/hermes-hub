@@ -582,7 +582,7 @@ class UnifiedHealthService:
             accounts_connected_count=connected_accounts,
             total_accounts=total_accounts,
             providers_ready_count=providers_online,
-            total_providers=3,
+            total_providers=5,
             warnings=warnings,
         )
 
@@ -660,7 +660,7 @@ class UnifiedHealthService:
         return agents
 
     def get_provider_summaries(self) -> List[ProviderSummary]:
-        """Build real summaries per provider."""
+        """Build real summaries per provider with deterministic sorting."""
         profiles_by_prov = self.scan_all(force=False)
         summaries: List[ProviderSummary] = []
         now_str = time.strftime("%H:%M:%S")
@@ -699,6 +699,8 @@ class UnifiedHealthService:
                 last_refresh_at=now_str,
             ))
 
+        # Deterministic sorting (P1-4): by connected accounts descending, total slots descending, then name
+        summaries.sort(key=lambda s: (-s.connected_count, -s.total_slots, s.provider_name))
         return summaries
 
     def get_routing_pipelines(self) -> Dict[str, RolePipeline]:

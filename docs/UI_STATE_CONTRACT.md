@@ -109,15 +109,21 @@ Consistency guarantees:
 | `period` | `Optional[str]` | `"5h"`, `"7d"`, `"30d"`, `"sliding"`. |
 | `status` | `str` | `"healthy"`, `"warning"`, `"exhausted"`, `"unknown"`. |
 
-### Provider Truth Matrix at v1.2
+### Provider Truth Matrix at v1.3
 
 | Provider | Buckets emitted | Values | Reset | Source / UI treatment |
 |---|---|---|---|---|
-| **Antigravity** | `antigravity.claude.5h`, `antigravity.gemini.5h` | Baseline: values `None`. On runtime 429: exact 0% remaining. | On 429: extracted from server response. Baseline: `None`. | Baseline: `baseline`, `is_estimated=True`. 429 event: `runtime_event`, `is_estimated=False`. |
-| **OpenAI Codex** | `codex.primary.weekly` | Baseline: values `None`. On 429: 0% remaining. | On 429: derived. Baseline: `None`. | Baseline: `baseline`, `is_estimated=True`. |
-| **Claude** | `claude.session.5h` | Baseline: values `None`. On 429: 0% remaining. | On 429: derived. Baseline: `None`. | Baseline: `baseline`, `is_estimated=True`. |
-| **Grok** | `grok.frequent_tasks` | Baseline: values `None`. On 429: 0% remaining. | On 429: derived. Baseline: `None`. | Baseline: `baseline`, `is_estimated=True`. |
-| **OpenCode Go** | `opencode.tasks` | Baseline: values `None`. | `None`. | Baseline: `baseline`, `is_estimated=True`. |
+| **Antigravity** | `antigravity.claude.5h`, `antigravity.gemini.5h`, `antigravity.claude.7d`, `antigravity.gemini.7d` | Measured Cloud Code capacity pool percentages (or per-model pool). On 429: exact 0% remaining. | Measured from Cloud Code resetTime. On 429: extracted from server response. | Live: `provider_api`, `is_estimated=False`. 429 event: `runtime_event`, `is_estimated=False`. |
+| **OpenAI Codex** | `codex.session`, `codex.weekly` | Probes `/models` endpoint with stored credentials, refresh token on 401. Values: `None` with explicit `unavailable_reason`. | `None`. No synthetic reset times. | Live: `provider_api`, `is_estimated=False`, `unavailable_reason: "OpenAI Codex не предоставляет остаток через публичный API"`. |
+| **OpenCode Go** | `opencode.5h`, `opencode.7d`, `opencode.30d` | Probes `/models` and `/usage`. When usage returned: measured percent & USD amounts. If 401/403/404: `None` with explicit reason. | Measured `reset_at` from `/usage` or `None`. | Live: `provider_api`, `is_estimated=False`. When usage endpoint unexposed: `unavailable_reason: "OpenCode Go не предоставляет остаток через публичный API"`. |
+| **Claude** | `claude.session`, `claude.weekly` | Values: `None` with explicit `unavailable_reason`. | `None`. No synthetic reset times. | Live: `provider_api`, `is_estimated=False`, `unavailable_reason: "Claude не предоставляет остаток через публичный API"`. |
+| **Grok** | `grok.weekly`, `grok.chat`, `grok.build`, `grok.frequent_tasks`, `grok.normal_tasks` | Values: `None` with explicit `unavailable_reason`. | `None`. No synthetic reset times. | Live: `provider_api`, `is_estimated=False`, `unavailable_reason: "Grok не предоставляет остаток через публичный API"`. |
+
+### Provider Sorting Guarantee in Snapshot
+`HubSnapshot.providers` is guaranteed to be deterministically ordered by:
+1. `connected_count` descending (providers with active authenticated accounts appear first)
+2. `total_slots` descending
+3. `provider_name` ascending (alphabetical tie-breaker)
 
 ---
 
@@ -285,5 +291,25 @@ Accessible at `HubSnapshot.metrics["host"]`:
 | **Header Comments & Structure** | **Supported** | All leading YAML comments, document banners, and blank lines before the first dictionary key (`existing_comments`) are preserved across file writes. |
 | **Inline Section Annotations** | **Partially Supported** | Inline dictionary comments (such as comments inside `profiles`, `roles`, or `pricing`) are normalized during canonical YAML serialization (`safe_dump`). |
 
+## 10. Граница между учётными системами Hub и Hermes (System Boundaries)
 
+### 10.1 Что Hub видит от Hermes
+- При вызове `antigravity_llm_execution` (middleware `llm_execution`) Hub получает kwargs:
+  `task_id`, `turn_id`, `api_request_id`, `session_id`, `platform`, `model`, `provider`, `base_url`, `api_mode`, `api_call_count`, `request` payload (список messages, temperature и т.д.).
+- Поле `role` передаётся только если вызывающая сторона явно указала его в вызове или метаданных (`request["role"]` или `request["metadata"]["role"]`).
 
+### 10.2 Чего Hub НЕ видит от Hermes
+- Hermes ведёт собственную независимую систему профилей в `$HERMES_HOME/profiles/` (`agy-01`…`agy-06`, `worker-fast`, `worker-research`, `worker-review`, `worker-code`, `worker-code-2`, `deepseek`).
+- Конфигурация под-агентов (`delegate_task`, `max_concurrent_children`, `provider=opencode-go`, `model=kimi-k2.7-code`) настраивается внутри Hermes и не передаётся в middleware.
+- Профили Hub (`ag-w1`…`ag-w10`, `codex-orch`, `opengo-*`) — это отдельное пространство имён, независимое от профилей Hermes.
+
+### 10.3 Правило перехвата и прозрачного пропуска (Pass-Through Principle)
+1. **Без достоверной роли Hub не претендует на вызов:** Если в запросе нет явно указанной роли, Hub не угадывает роль по тексту промпта и не подменяет вызов ролью `orchestrator` по умолчанию. Запрос мгновенно передаётся вниз родному провайдеру Hermes (`next_call`) без расхода попыток роутера и без задержек.
+2. **Отказоустойчивость не ломает Hermes:** Если роль задана явно, но вся цепочка маршрутизации для этой роли исчерпана, Hub не возвращает ошибку роутера как текст ответа ассистента. Сбой логируется на уровне `warning`, а вызов прозрачно уходит дальше через `next_call`.
+
+### 10.4 Варианты связывания профилей Hub и Hermes
+| Вариант | Описание | Трудоёмкость | Плюсы | Минусы |
+|---|---|---|---|---|
+| **А. Авто-сопоставление по email / JWT Identity** | Считывание identity из `id_token`/`access_token` в обеих системах и автоматическое связывание одинаковых аккаунтов. | ~3–4 часа | Не требует ручной настройки от пользователя. | Не работает для профилей с API-ключами без email. |
+| **Б. Чтение профилей Hermes как Single Source of Truth** | Hub отказывается от собственного каталога слотов `router_profiles.yaml` и напрямую отображает/редактирует `$HERMES_HOME/profiles/`. | ~8–12 часов | Единая учётная система, отсутствие рассинхронизации. | Высокая сложность, привязка структуры Hub к внутренностям Hermes. |
+| **В. Явная таблица соответствия (Profile Mapping Table)** | В `router_profiles.yaml` и UI Hub добавляется секция `hermes_profile_map` (например, `ag-w1` ↔ `agy-01`). | ~4–5 часов | Полный контроль пользователя, устойчивость к изменениям в Hermes. | Требует настройки в UI или мастере. |

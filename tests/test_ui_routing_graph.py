@@ -318,7 +318,12 @@ def test_grok_slot_is_registered_before_role_assignment(monkeypatch):
 
     assert ok
     assert config.profiles["grok-orch"].provider == "grok"
-    assert config.profiles["grok-orch"].preferred_models[0] == "grok-3"
+    # Список моделей заполняется обнаружением у провайдера, а не литералом.
+    # Пока обнаружение не выполнено, профиль остаётся без моделей: профиль
+    # без списка честнее профиля с выдуманным. Раньше сюда подставлялось
+    # "grok-3", и по тому же образцу в конфигурацию владельца попал
+    # gemini-3.7-flash, которого у провайдера не существует.
+    assert config.profiles["grok-orch"].preferred_models == []
     assert saved == [config]
 
 
