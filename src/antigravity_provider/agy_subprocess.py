@@ -339,10 +339,16 @@ def check_profile_native_auth_status(profile_id: str) -> tuple[bool, str | None,
         return False, None, None
 
 
-def _model_supported_efforts(agy_model: str) -> set[str]:
-    """Return the set of effort levels supported by *agy_model*."""
-    # Ensure discovery has run
-    discover_models()
+def _model_supported_efforts(agy_model: str, profile_id: str | None = None) -> set[str]:
+    """Return the set of effort levels supported by *agy_model*.
+
+    Профиль обязателен: обнаружение читает учётные данные из HOME, и без
+    подмены окружения оно выполняется в глобальном, где вход не сделан.
+    Карта усилий тогда остаётся пустой, подстановка уровня по умолчанию не
+    срабатывает, и agy отвергает вызов с «requires --effort» — при том что
+    сама модель совершенно настоящая.
+    """
+    discover_models(profile_id=profile_id)
     return _AGY_EFFORT_MAP.get(agy_model, set())
 
 
@@ -633,6 +639,7 @@ def _safe_env() -> dict[str, str]:
 def agy_generate(
     request: dict[str, Any],
     custom_env: dict[str, str] | None = None,
+    profile_id: str | None = None,
 ) -> dict[str, Any]:
     """Execute a chat completion via the ``agy`` subprocess."""
     exe = get_agy_exe()
@@ -660,7 +667,7 @@ def agy_generate(
 
     # Smart effort selection based on model capabilities.
     # Some models (gemini) REQUIRE --effort, others (claude, gpt) DON'T SUPPORT it.
-    supported = _model_supported_efforts(agy_model)
+    supported = _model_supported_efforts(agy_model, profile_id=profile_id)
     if supported:
         # Model supports specific efforts
         if not agy_effort:

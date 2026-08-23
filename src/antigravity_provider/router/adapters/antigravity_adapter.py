@@ -78,9 +78,9 @@ class AntigravityAdapter(BaseProviderAdapter):
                     )
 
             with _AGY_INVOCATION_LOCK:
-                res = agy_generate(req, custom_env=custom_env)
+                res = agy_generate(req, custom_env=custom_env, profile_id=profile.profile_id)
         else:
-            res = agy_generate(req, custom_env=custom_env)
+            res = agy_generate(req, custom_env=custom_env, profile_id=profile.profile_id)
 
         if isinstance(res, dict) and "error" in res:
             err_dict = res.get("error")

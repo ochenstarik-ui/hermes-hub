@@ -27,7 +27,7 @@ def test_concurrent_antigravity_credential_isolation(tmp_path, monkeypatch):
     def mock_load_profile_auth(prov, profile_id):
         return {"token": f"token_for_{profile_id}"}
 
-    def mock_agy_generate(req, custom_env=None):
+    def mock_agy_generate(req, custom_env=None, **kwargs):
         user_prof = custom_env.get("USERPROFILE") if custom_env else None
         observed_envs_during_run.append((req.get("profile_id"), user_prof))
         time.sleep(0.05)
@@ -65,7 +65,7 @@ def test_credential_restoration_on_subprocess_exception(tmp_path, monkeypatch):
     def mock_load_profile_auth(prov, profile_id):
         return {"token": "valid_token"}
 
-    def mock_agy_generate_fail(req, custom_env=None):
+    def mock_agy_generate_fail(req, custom_env=None, **kwargs):
         raise RuntimeError("CLI process crashed")
 
     with patch.object(ProfileAuthManager, "load_profile_auth", side_effect=mock_load_profile_auth), \
