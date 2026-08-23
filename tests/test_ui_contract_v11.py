@@ -335,7 +335,8 @@ def test_dashboard_makes_all_connected_accounts_visible_in_provider_summary(ui_r
         ui_root.update_idletasks()
         assert view.agents_metric.val_label.cget("text") == "6"
         assert "6 аккаунт" in view._provider_cards["antigravity"].subtitle.cget("text")
-        assert "6/6 онлайн" in view._provider_status_rows["antigravity"].detail.cget("text")
+        assert not hasattr(view, "realtime")
+        assert view.route_diagram.provider_slots[0].winfo_manager() == "place"
     finally:
         view.destroy()
 

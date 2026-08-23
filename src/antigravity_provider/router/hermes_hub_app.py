@@ -51,7 +51,7 @@ from antigravity_provider.version import __version__
 
 from antigravity_provider.router.ui.theme import Theme
 from antigravity_provider.router.ui.assets import AssetManager
-from antigravity_provider.router.ui.components import HubButton, HubModal
+from antigravity_provider.router.ui.components import AccountCardWidget, HubButton, HubModal
 from antigravity_provider.router.ui.add_account_wizard import AddAccountWizard
 
 from antigravity_provider.router.unified_health import (
@@ -60,6 +60,7 @@ from antigravity_provider.router.unified_health import (
     SystemReadiness,
     STATUS_HEALTHY,
 )
+from antigravity_provider.router.state_store import HubStateStore
 
 from antigravity_provider.router.ui.views.team_view import TeamView, persist_role_chain
 from antigravity_provider.router.ui.views.dashboard_view import DashboardView
@@ -71,28 +72,9 @@ from antigravity_provider.router.ui.views.logs_view import LogsView
 from antigravity_provider.router.ui.views.settings_view import SettingsView
 from antigravity_provider.router.ui.views.about_view import AboutView
 from antigravity_provider.router.ui.views.analytics_view import AnalyticsView
-from antigravity_provider.router.ui.views.quotas_view import QuotasView
+from antigravity_provider.router.ui.model_catalog import get_cached_models, refresh_models_async
 
 logger = logging.getLogger("hermes.hub.gui")
-
-AGENT_MODEL_OPTIONS = {
-    "antigravity": [
-        # User-facing logical IDs. The provider layer maps Gemini 3.1 Pro
-        # to the current low/high wire variants according to reasoning effort.
-        "gemini-3.1-pro",
-        "gemini-2.5-pro",
-        "gemini-3.7-flash",
-        "gemini-3.6-flash-high",
-        "gemini-3.5-flash",
-        "claude-sonnet-4-6",
-        "claude-opus-4-6-thinking",
-    ],
-    "openai-codex": ["gpt-4o", "o3-mini", "codex"],
-    "opencode-go": ["qwen3.8-max", "kimi-k2.7-code", "deepseek-v3"],
-    "claude": ["claude-sonnet-4-6", "claude-3-7-sonnet", "claude-3-5-haiku"],
-    "grok": ["grok-3", "grok-3-mini", "grok-2"],
-}
-
 
 def _load_saved_theme() -> str:
     settings_file = paths.get_hermes_home() / "hub_settings.json"
@@ -300,7 +282,6 @@ class HermesHubApp(ctk.CTk):
             ("accounts", "Аккаунты", "accounts"),
             ("routing", "Маршрутизация", "routing"),
             ("providers", "Модели и провайдеры", "providers"),
-            ("quotas", "Сводка лимитов", "quotas"),
             ("analytics", "Аналитика", "analytics"),
             ("health", "Состояние", "health"),
             ("logs", "Журнал событий", "logs"),
@@ -465,8 +446,6 @@ class HermesHubApp(ctk.CTk):
             return ProvidersView(self.content, app_state={}, on_action=self._handle_action)
         elif view_name == "routing":
             return RoutingView(self.content, on_action=self._handle_action)
-        elif view_name == "quotas":
-            return QuotasView(self.content)
         elif view_name == "analytics":
             return AnalyticsView(self.content)
         elif view_name == "health":
@@ -655,6 +634,8 @@ class HermesHubApp(ctk.CTk):
             )
         elif action == "assign_role":
             self._open_assign_role_modal(pid, data.get("display_name", pid))
+        elif action == "account_details":
+            self._open_account_details_modal(pid)
         elif action == "agent_settings":
             self._open_agent_settings_modal(
                 data.get("role_id", ""),
@@ -799,6 +780,146 @@ class HermesHubApp(ctk.CTk):
         modal.save_button = save_button
         return modal
 
+    def _open_account_details_modal(self, profile_id: str):
+        """Open account details from a click anywhere on its compact row."""
+        snapshot = HubStateStore.get().get_snapshot()
+        profile = snapshot.all_profiles.get(profile_id)
+        if profile is None:
+            self._show_toast(f"❌ Профиль '{profile_id}' не найден")
+            return None
+        modal = HubModal(self, title=AccountCardWidget.resolve_identity(profile), width=680, height=520)
+        summary = ctk.CTkFrame(modal.body, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_MD)
+        summary.pack(fill="x", pady=(0, Theme.SPACE_MD))
+        roles = ", ".join(profile.assigned_roles or []) or "роль не назначена"
+        ctk.CTkLabel(
+            summary,
+            text=f"{profile.provider_display_name} • {profile.display_name}",
+            font=Theme.font_heading(),
+            text_color=Theme.TEXT_PRIMARY,
+        ).pack(anchor="w", padx=12, pady=(10, 2))
+        ctk.CTkLabel(
+            summary,
+            text=f"Роли: {roles}   •   Авторизация: {profile.auth_label_ru}   •   {profile.health_label_ru}",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+        ).pack(anchor="w", padx=12, pady=(0, 10))
+
+        config = load_router_config()
+        profile_config = config.profiles.get(profile_id)
+        catalog = get_cached_models(profile.provider)
+        configured_model = (
+            profile_config.preferred_models[0] if profile_config and profile_config.preferred_models else ""
+        )
+        model_values = list(catalog.models)
+        if configured_model and configured_model not in model_values:
+            model_values.insert(0, configured_model)
+        model_var = ctk.StringVar(
+            value=configured_model or (model_values[0] if model_values else "Список моделей ещё не получен")
+        )
+        model_row = ctk.CTkFrame(modal.body, fg_color="transparent")
+        model_row.pack(fill="x", pady=(0, Theme.SPACE_SM))
+        model_menu = ctk.CTkOptionMenu(
+            model_row,
+            values=model_values or ["Список моделей ещё не получен"],
+            variable=model_var,
+            fg_color=Theme.SURFACE_MUTED,
+            button_color=Theme.ACCENT,
+            button_hover_color=Theme.ACCENT_HOVER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        model_menu.pack(side="left", fill="x", expand=True)
+        model_note = catalog.unavailable_reason if not catalog.models else (
+            f"⚠ «{configured_model}» отсутствует в обнаруженном списке"
+            if configured_model and configured_model not in catalog.models
+            else f"{len(catalog.models)} моделей из кэша"
+        )
+        ctk.CTkLabel(
+            modal.body,
+            text=model_note,
+            font=Theme.font_micro(),
+            text_color=Theme.STATUS_WARNING if not catalog.models or configured_model not in catalog.models else Theme.TEXT_MUTED,
+        ).pack(anchor="w", pady=(0, Theme.SPACE_SM))
+
+        def _save_profile_model() -> None:
+            selected = model_var.get()
+            if selected == "Список моделей ещё не получен" or not profile_config:
+                self._show_toast("❌ Сначала получите список моделей")
+                return
+            updated = load_router_config()
+            target = updated.profiles[profile_id]
+            target.preferred_models = [selected] + [item for item in target.preferred_models if item != selected]
+            updated.profiles[profile_id] = target
+            if save_router_config(updated):
+                self._show_toast(f"✅ Модель профиля сохранена: {selected}")
+                self._refresh_data()
+            else:
+                self._show_toast("❌ Не удалось сохранить модель профиля")
+
+        HubButton(
+            model_row,
+            text="Сохранить модель",
+            variant="secondary",
+            width=140,
+            command=_save_profile_model,
+        ).pack(side="right", padx=(Theme.SPACE_SM, 0))
+        HubButton(
+            model_row,
+            text="Обновить список",
+            variant="ghost",
+            width=120,
+            command=lambda: refresh_models_async(
+                profile.provider,
+                lambda _result: self.after(
+                    0,
+                    lambda: (modal.destroy(), self._open_account_details_modal(profile_id)),
+                ),
+            ),
+        ).pack(side="right", padx=(Theme.SPACE_SM, 0))
+
+        ctk.CTkLabel(
+            modal.body, text="Квоты и периоды", font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY
+        ).pack(anchor="w")
+        quota_box = ctk.CTkFrame(modal.body, fg_color="transparent")
+        quota_box.pack(fill="both", expand=True, pady=(4, 8))
+        quota = snapshot.quotas.get(profile_id)
+        buckets = list(getattr(quota, "buckets", None) or [])
+        if not buckets:
+            reason = getattr(quota, "unavailable_reason", None) or "Провайдер не отдал данные о лимитах"
+            ctk.CTkLabel(
+                quota_box, text=f"Н/Д — {reason}", font=Theme.font_caption(), text_color=Theme.TEXT_MUTED
+            ).pack(anchor="w", pady=8)
+        for bucket in buckets:
+            row = ctk.CTkFrame(quota_box, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_SM)
+            row.pack(fill="x", pady=2)
+            ctk.CTkLabel(
+                row, text=bucket.display_name, font=Theme.font_caption(), text_color=Theme.TEXT_PRIMARY
+            ).pack(side="left", padx=10, pady=7)
+            detail = bucket.formatted_remaining()
+            if detail == "Н/Д":
+                detail = getattr(bucket, "unavailable_reason", None) or getattr(quota, "unavailable_reason", None) or detail
+            reset = bucket.formatted_reset() or "время сброса не предоставлено"
+            ctk.CTkLabel(
+                row,
+                text=f"{detail}  •  {reset}",
+                font=Theme.font_caption(),
+                text_color=Theme.TEXT_SECONDARY,
+            ).pack(side="right", padx=10, pady=7)
+
+        HubButton(
+            modal.footer,
+            text="Проверить",
+            variant="secondary",
+            command=lambda: (modal.destroy(), self._handle_action("test", profile.__dict__)),
+        ).pack(side="left", padx=(0, 5))
+        HubButton(
+            modal.footer,
+            text="Назначить роль",
+            variant="secondary",
+            command=lambda: (modal.destroy(), self._open_assign_role_modal(profile_id, profile.display_name)),
+        ).pack(side="left")
+        HubButton(modal.footer, text="Закрыть", variant="primary", command=modal.destroy).pack(side="right")
+        return modal
+
     def _open_route_editor_modal(self, role_id: str):
         """Direct, visible editor for one ordered failover chain."""
         config = load_router_config()
@@ -905,6 +1026,8 @@ class HermesHubApp(ctk.CTk):
 
         config = load_router_config()
         role = config.roles.get(role_id)
+        live_snapshot = HubStateStore.get().get_snapshot()
+        pipeline = live_snapshot.get_role_pipeline(role_id)
         role_labels = {
             "orchestrator": "Главный оркестратор",
             "coder-primary": "Кодер 1",
@@ -913,13 +1036,39 @@ class HermesHubApp(ctk.CTk):
             "research": "Исследователь",
             "fast": "Быстрый агент",
         }
-        modal = HubModal(self, title=f"Настройки агента: {role_labels.get(role_id, role_id)}", width=560, height=540)
+        modal = HubModal(self, title=f"Настройки агента: {role_labels.get(role_id, role_id)}", width=620, height=720)
         ctk.CTkLabel(
             modal.body,
             text="Аккаунт, модель и реальные лимиты агента",
             font=Theme.font_heading(),
             text_color=Theme.TEXT_PRIMARY,
         ).pack(anchor="w", pady=(0, 12))
+
+        chain_card = ctk.CTkFrame(modal.body, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_MD)
+        chain_card.pack(fill="x", pady=(0, 10))
+        chain = list(role.preferred_chain) if role else []
+        chain_text = "  →  ".join(
+            f"{'● ' if pipeline and node_id == pipeline.active_profile_id else ''}{node_id}" for node_id in chain
+        ) or "Профили не назначены"
+        active_node = next(
+            (node for node in list(getattr(pipeline, "nodes", []) or []) if node.profile_id == pipeline.active_profile_id),
+            None,
+        )
+        failover_reason = getattr(active_node, "failover_reason", None) or "переключений ещё не было"
+        ctk.CTkLabel(
+            chain_card,
+            text=f"Цепочка: {chain_text}",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_PRIMARY,
+            anchor="w",
+        ).pack(fill="x", padx=10, pady=(8, 2))
+        ctk.CTkLabel(
+            chain_card,
+            text=f"Последнее переключение: {failover_reason}",
+            font=Theme.font_micro(),
+            text_color=Theme.TEXT_MUTED,
+            anchor="w",
+        ).pack(fill="x", padx=10, pady=(0, 8))
 
         choices: dict[str, str] = {}
         for pid, pcfg in config.profiles.items():
@@ -969,6 +1118,65 @@ class HermesHubApp(ctk.CTk):
             text_color=Theme.TEXT_PRIMARY,
         )
         model_menu.pack(fill="x", pady=(3, 10))
+        model_status = ctk.CTkLabel(
+            modal.body,
+            text="",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_MUTED,
+            anchor="w",
+            justify="left",
+        )
+        model_status.pack(fill="x", pady=(0, 5))
+
+        def _apply_cached_models() -> None:
+            current_pid = choices[account_var.get()]
+            current_cfg = load_router_config().profiles[current_pid]
+            catalog = get_cached_models(current_cfg.provider)
+            configured = (
+                role.default_model
+                if role and role.default_model
+                else current_cfg.preferred_models[0]
+                if current_cfg.preferred_models
+                else ""
+            )
+            values = list(catalog.models)
+            if configured and configured not in values:
+                values.insert(0, configured)
+            model_menu.configure(values=values or ["Список моделей ещё не получен"])
+            model_var.set(configured or (values[0] if values else "Список моделей ещё не получен"))
+            if not catalog.models:
+                model_status.configure(text=catalog.unavailable_reason, text_color=Theme.STATUS_WARNING)
+            elif configured and configured not in catalog.models:
+                model_status.configure(
+                    text=f"⚠ Настроенная модель «{configured}» отсутствует в обнаруженном списке. Она не изменена.",
+                    text_color=Theme.STATUS_WARNING,
+                )
+            else:
+                freshness = f" • получено {catalog.fetched_at}" if catalog.fetched_at else ""
+                stale = " • кэш устарел" if catalog.is_stale else ""
+                model_status.configure(
+                    text=f"{len(catalog.models)} моделей из кэша{freshness}{stale}",
+                    text_color=Theme.TEXT_MUTED if not catalog.is_stale else Theme.STATUS_WARNING,
+                )
+
+        def _refresh_models() -> None:
+            current_pid = choices[account_var.get()]
+            provider = load_router_config().profiles[current_pid].provider
+            model_status.configure(text="Обновление моделей запущено в фоне…", text_color=Theme.TEXT_SECONDARY)
+            started = refresh_models_async(provider, lambda _result: self.after(0, _apply_cached_models))
+            if not started:
+                model_status.configure(
+                    text="Фоновое обновление пока недоступно; показан последний кэш.",
+                    text_color=Theme.STATUS_WARNING,
+                )
+
+        HubButton(
+            modal.body,
+            text="Обновить список моделей",
+            variant="secondary",
+            height=30,
+            command=_refresh_models,
+        ).pack(anchor="w", pady=(0, 8))
 
         quota_card = ctk.CTkFrame(modal.body, fg_color=Theme.SURFACE_MUTED, corner_radius=Theme.RADIUS_MD)
         quota_card.pack(fill="both", expand=True, pady=(2, 10))
@@ -982,14 +1190,7 @@ class HermesHubApp(ctk.CTk):
         def _refresh_account_panel(_choice: Optional[str] = None) -> None:
             current_pid = choices[account_var.get()]
             current_cfg = load_router_config().profiles[current_pid]
-            available = list(
-                dict.fromkeys(current_cfg.preferred_models + AGENT_MODEL_OPTIONS.get(current_cfg.provider, []))
-            )
-            if not available:
-                available = ["default"]
-            model_menu.configure(values=available)
-            current_model = role.default_model if role and role.default_model in available else available[0]
-            model_var.set(current_model)
+            _apply_cached_models()
             for child in quota_rows.winfo_children():
                 child.destroy()
             snapshot = AccountQuotaService.get().get_snapshot(current_cfg.provider, current_pid)
@@ -1021,6 +1222,9 @@ class HermesHubApp(ctk.CTk):
         def _save_agent() -> None:
             current_pid = choices[account_var.get()]
             current_model = model_var.get()
+            if current_model == "Список моделей ещё не получен":
+                result.configure(text="✕ Сначала получите список моделей", text_color=Theme.STATUS_ERROR)
+                return
             updated = load_router_config()
             profile = updated.profiles[current_pid]
             profile.preferred_models = [current_model] + [m for m in profile.preferred_models if m != current_model]

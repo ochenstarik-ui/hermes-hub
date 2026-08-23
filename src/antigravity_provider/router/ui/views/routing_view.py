@@ -69,9 +69,9 @@ class RoutingRoleWidget(HubCard):
         reasons = [node.failover_reason for node in pipeline.nodes if node.failover_reason]
         self.footer.configure(
             text=(
-                f"Активен: {active.display_name} • причина: {'; '.join(reasons) if reasons else 'Н/Д'}"
+                f"Активен: {active.display_name} • причина: {'; '.join(reasons) if reasons else 'переключений ещё не было'}"
                 if active
-                else "Активный узел: Н/Д"
+                else "Активный узел: Н/Д — аккаунт не подключён либо все профили недоступны"
             )
         )
 
