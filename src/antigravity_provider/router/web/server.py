@@ -2,6 +2,7 @@ import json
 import os
 import sys
 import threading
+import time
 import dataclasses
 import logging
 from typing import Any, Dict
@@ -163,3 +164,54 @@ if _STATIC_DIR.is_dir():
     @app.get("/snapshot.example.json")
     def _fixture():
         return FileResponse(str(_STATIC_DIR / "snapshot.example.json"), media_type="application/json")
+
+
+# ─────────────────────────────────────────────────────────────
+#  Фоновое обновление: прогрев квот и пересбор снапшота.
+#
+#  Две причины, по которым /api/snapshot отдавал пустые квоты навсегда:
+#
+#  1. state_store наполняет квоты через quota_service.get_snapshot, который
+#     читает кэш и при промахе отдаёт пустую заглушку, живой опрос НЕ
+#     запуская. В десктопе кэш грел _refresh_quotas_on_startup; в вебе
+#     такого не было. Штатный планировщик службы сам по себе не спасает:
+#     его цикл сначала спит интервал (по умолчанию 300 с) и только потом
+#     опрашивает.
+#
+#  2. HubStateStore.get_snapshot() возвращает КЭШИРОВАННЫЙ снапшот и
+#     пересобирает его лишь при самом первом вызове. Даже после прогрева
+#     квот ответ оставался прежним. В десктопе пересбор делал _refresh_data.
+# ─────────────────────────────────────────────────────────────
+
+_SNAPSHOT_REFRESH_SEC = 30
+
+
+def _background_refresh_loop() -> None:
+    from antigravity_provider.router.quota_collector import AccountQuotaService
+
+    try:
+        AccountQuotaService.get().fetch_all_configured(force=True)
+        logger.info("Quota cache warmed on startup")
+    except Exception as exc:
+        logger.warning("Quota warm-up failed: %s", exc)
+
+    while True:
+        try:
+            HubStateStore.get().refresh(force_scan=False)
+        except Exception as exc:
+            logger.warning("Snapshot refresh failed: %s", exc)
+        time.sleep(_SNAPSHOT_REFRESH_SEC)
+
+
+@app.on_event("startup")
+def _start_background_refresh() -> None:
+    # В фоне: опрос ходит по сети к нескольким провайдерам, держать на нём
+    # старт сервера нельзя.
+    threading.Thread(target=_background_refresh_loop, daemon=True, name="hub-web-refresh").start()
+
+    from antigravity_provider.router.quota_collector import AccountQuotaService
+
+    try:
+        AccountQuotaService.get().start_background_scheduler()
+    except Exception as exc:
+        logger.warning("Could not start quota scheduler: %s", exc)
