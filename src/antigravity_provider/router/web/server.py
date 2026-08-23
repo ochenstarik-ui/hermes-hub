@@ -5,7 +5,7 @@ import threading
 import time
 import dataclasses
 import logging
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional
 
 from antigravity_provider import paths
 from antigravity_provider.version import __version__
@@ -75,15 +75,34 @@ def health_check():
         }
     }
 
-def sanitize_snapshot(snap_dict: Dict[str, Any]) -> Dict[str, Any]:
+def sanitize_snapshot(snap_dict: Any) -> Any:
+    import re
+    secret_patterns = [
+        re.compile(r'((?:access_token|refresh_token|api_key|token|password|secret|key)=)([^\s&,"]+)', re.IGNORECASE),
+        re.compile(r'(sk-[a-zA-Z0-9_\-]{8,})'),
+        re.compile(r'(gho_[a-zA-Z0-9_\-]{8,})'),
+        re.compile(r'(Bearer\s+)([a-zA-Z0-9_\-\.]{8,})', re.IGNORECASE),
+    ]
+
+    def _mask_str(val: str) -> str:
+        res = val
+        for pat in secret_patterns:
+            if pat.groups == 2:
+                res = pat.sub(r'\g<1>***', res)
+            elif pat.groups == 1:
+                res = pat.sub(r'***', res)
+        return res
+
     def _sanitize(node):
         if isinstance(node, dict):
             return {
                 k: _sanitize(v) for k, v in node.items()
-                if not any(secret in k.lower() for secret in ['access_token', 'refresh_token', 'api_key', 'jwt'])
+                if not any(secret in k.lower() for secret in ['access_token', 'refresh_token', 'api_key', 'jwt', 'client_secret'])
             }
         elif isinstance(node, list):
             return [_sanitize(x) for x in node]
+        elif isinstance(node, str):
+            return _mask_str(node)
         return node
     return _sanitize(snap_dict)
 
@@ -122,6 +141,37 @@ async def handle_action(request: Request, authorized: bool = Depends(get_auth_to
         "data": result.get("data", {})
     }
 
+
+@app.get("/api/events")
+def get_events(limit: int = 100, category: Optional[str] = None, authorized: bool = Depends(get_auth_token)):
+    """Return recent events log in reverse chronological order without secrets."""
+    from antigravity_provider.router.unified_health import EventLogService
+    events = EventLogService.get().get_events(limit=limit, category=category)
+    event_dicts = [dataclasses.asdict(e) for e in events]
+    sanitized = sanitize_snapshot(event_dicts)
+    return JSONResponse(content=jsonable_encoder({"events": sanitized}))
+
+
+@app.get("/api/settings")
+def get_settings(authorized: bool = Depends(get_auth_token)):
+    """Return current server and hub settings without exposing raw auth tokens."""
+    raw = _web_settings()
+    has_token = bool(raw.get("web_api_token"))
+    settings_out: Dict[str, Any] = {
+        "web_api_host": raw.get("web_api_host", "127.0.0.1"),
+        "web_api_port": raw.get("web_api_port", 5800),
+        "web_api_token_configured": has_token,
+        "theme": raw.get("theme", "system"),
+        "quota_refresh_interval_sec": raw.get("quota_refresh_interval_sec", 300),
+        "hermes_home": str(paths.get_hermes_home()),
+        "config_dir": str(paths.get_config_dir()),
+        "log_file": str(paths.get_log_file()),
+    }
+    for k, v in raw.items():
+        if k not in settings_out and not any(secret in k.lower() for secret in ['token', 'secret', 'key', 'password', 'jwt']):
+            settings_out[k] = v
+    return JSONResponse(content=jsonable_encoder(settings_out))
+
 def run_server():
     import uvicorn
     settings = _web_settings()
@@ -150,6 +200,7 @@ if _STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
     @app.get("/")
+    @app.get("/index.html")
     def index():
         return FileResponse(str(_STATIC_DIR / "index.html"))
 
