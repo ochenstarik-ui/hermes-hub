@@ -152,28 +152,40 @@ def test_wizard_keeps_existing_chain_rank_and_assigns_missing_slot(monkeypatch):
     assert calls == [("new-slot", "coder", False)]
 
 
-def test_profile_test_does_not_invoke_model_or_oauth(monkeypatch):
+def test_profile_test_invokes_model_with_timeout_and_records_success(monkeypatch):
     profile = SimpleNamespace(provider="antigravity", preferred_models=["gemini"], profile_id="connected")
     config = SimpleNamespace(get_profile=lambda _profile_id: profile)
 
     class Adapter:
         @staticmethod
-        def health_check(_profile):
-            return True
-
-        @staticmethod
-        def invoke(*_args, **_kwargs):
-            raise AssertionError("profile test must never invoke inference")
+        def invoke(profile, req, *args, **kwargs):
+            return {"choices": [{"message": {"content": "pong"}}]}
 
     monkeypatch.setattr(action_handler, "load_router_config", lambda: config)
-    monkeypatch.setattr(action_handler.ProfileAuthManager, "get_profile_status", lambda *_args: {"authenticated": True})
+    monkeypatch.setattr(action_handler.ProfileAuthManager, "get_profile_status", lambda *_args: {"authenticated": True, "is_expired": False})
     monkeypatch.setattr(action_handler.ProfileAuthManager, "load_profile_auth", lambda *_args: {"token": "present"})
     monkeypatch.setattr(action_handler, "get_adapter", lambda _provider: Adapter())
     monkeypatch.setattr(action_handler.EventLogService, "get", lambda: SimpleNamespace(log=lambda *_args, **_kwargs: None))
 
+    def mock_mark_success(self, p, m):
+        self.marked = True
+    monkeypatch.setattr("antigravity_provider.router.health_tracker.HealthTracker.mark_success", mock_mark_success)
+
     result = action_handler.do_test_profile("antigravity", "connected")
     assert result["success"] is True
-    assert "runtime" in result["response"]
+    assert "Авторизация подтверждена" in result["response"]
+
+
+def test_profile_test_expired_credentials_fail_immediately(monkeypatch):
+    profile = SimpleNamespace(provider="antigravity", preferred_models=["gemini"], profile_id="connected")
+    config = SimpleNamespace(get_profile=lambda _profile_id: profile)
+
+    monkeypatch.setattr(action_handler, "load_router_config", lambda: config)
+    monkeypatch.setattr(action_handler.ProfileAuthManager, "get_profile_status", lambda *_args: {"authenticated": True, "is_expired": True})
+
+    result = action_handler.do_test_profile("antigravity", "connected")
+    assert result["success"] is False
+    assert "Авторизация истекла" in result["error"]
 
 
 def test_wizard_finish_closes_logs_and_clears_reused_slot(monkeypatch):

@@ -15,6 +15,7 @@ import logging
 import os
 import threading
 import time
+import datetime
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -84,10 +85,11 @@ class ProfileViewModel:
     health_label_ru: str
     model_states: Dict[str, ModelFamilyHealth]
     cooldown_remaining_sec: int
-    last_checked_at: Optional[str]
-    enabled: bool
-    is_cold_spare: bool
-    is_empty_slot: bool
+    last_checked_at: Optional[str] = None
+    last_success_at: Optional[str] = None
+    enabled: bool = True
+    is_cold_spare: bool = False
+    is_empty_slot: bool = False
     email: str = ""
     plan: str = "Тариф: неизвестен"
     plan_code: str = "UNKNOWN"
@@ -426,10 +428,14 @@ class UnifiedHealthService:
                 elif precord.overall_state == HT_UNHEALTHY:
                     health_state = STATUS_UNHEALTHY
                     health_lbl = "Ошибка"
-                # 6. Live healthy
+                # 6. Live healthy or untested
                 else:
-                    health_state = STATUS_HEALTHY
-                    health_lbl = "Работает"
+                    if precord.last_success is not None:
+                        health_state = STATUS_HEALTHY
+                        health_lbl = "Работает"
+                    else:
+                        health_state = STATUS_NOT_TESTED
+                        health_lbl = "Не проверялся"
 
                 from .quota_collector import AccountQuotaService
                 ident = AccountQuotaService.get().get_identity(prov, pid)
@@ -448,6 +454,8 @@ class UnifiedHealthService:
                     "xai": "Grok",
                 }.get(prov.lower(), prov)
 
+                last_success_str = datetime.datetime.fromtimestamp(precord.last_success).strftime("%H:%M:%S") if precord.last_success else None
+
                 vm = ProfileViewModel(
                     profile_id=pid,
                     display_name=display_name,
@@ -464,6 +472,7 @@ class UnifiedHealthService:
                     model_states=model_states,
                     cooldown_remaining_sec=max_cd,
                     last_checked_at=now_str,
+                    last_success_at=last_success_str,
                     enabled=pcfg.enabled,
                     is_cold_spare=is_cold,
                     is_empty_slot=is_empty,

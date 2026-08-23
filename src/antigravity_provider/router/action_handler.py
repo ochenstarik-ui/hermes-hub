@@ -49,28 +49,57 @@ def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
     t0 = time.time()
     try:
         auth_data = ProfileAuthManager.load_profile_auth(pcfg.provider, profile_id)
-        if not auth_data:
-            return {'success': False, 'error': 'Сохранённые данные авторизации не найдены'}
+        if not auth_data and pcfg.provider != 'antigravity':
+            return {'success': False, 'error': 'Локальные данные авторизации не найдены'}
         adapter = get_adapter(pcfg.provider)
-        runtime_ready = adapter.health_check(pcfg)
+        
+        req = {
+            "model": model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1
+        }
+        
+        import threading
+        result_container = []
+        error_container = []
+        
+        def _call_invoke():
+            try:
+                result_container.append(adapter.invoke(pcfg, req))
+            except Exception as e:
+                error_container.append(e)
+                
+        t = threading.Thread(target=_call_invoke, daemon=True)
+        t.start()
+        t.join(timeout=10.0)
+        
         el = round(time.time() - t0, 2)
-        if not runtime_ready:
+        
+        if t.is_alive():
             return {
                 'success': False,
                 'duration_sec': el,
-                'error': 'Локальный runtime провайдера недоступен; повторная авторизация не запускалась',
+                'error': 'Превышено время ожидания ответа от провайдера (таймаут 10с)',
             }
+            
+        if error_container:
+            raise error_container[0]
+            
+        from .health_tracker import HealthTracker
+        ht = HealthTracker()
+        ht.mark_success(profile_id, model)
+        
         EventLogService.get().log(
-            'system', f'Локальная проверка профиля {profile_id} ({model}) пройдена за {el}s.', level='success'
+            'system', f'Успешная проверка подключения {profile_id} ({model}) за {el}s.', level='success'
         )
         return {
             'success': True,
             'model': model,
             'duration_sec': el,
-            'response': 'Авторизация сохранена; runtime провайдера доступен',
+            'response': 'Авторизация подтверждена, ответ провайдера получен',
         }
     except Exception as e:
-        EventLogService.get().log('system', f'Ошибка теста {profile_id} ({model}): {e}', level='error')
+        EventLogService.get().log('system', f'Сбой проверки {profile_id} ({model}): {e}', level='error')
         return {'success': False, 'model': model, 'duration_sec': round(time.time() - t0, 2), 'error': str(e)}
 
 def do_delete_credentials(provider: str, profile_id: str) -> Tuple[bool, str]:

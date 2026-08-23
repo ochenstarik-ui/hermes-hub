@@ -64,7 +64,12 @@ generation, seq, timestamp, profiles_by_provider, all_profiles,
 readiness, agents, providers, routing, quotas, metrics, is_stale
 ```
 
-Ответ: `200` с телом. При ошибке сбора — `503` и тело `{"error": "<причина по-русски>"}`.
+**Обновление схемы ProfileViewModel:**
+В рамках задачи A17 добавлены новые поля и состояния для отслеживания честного статуса:
+- `health_state` может принимать значение `not_tested`, если профиль никогда не проверялся.
+- Добавлено поле `last_success_at` (время последней успешной проверки, `%H:%M:%S`).
+
+Ответ: `200` и JSON. При ошибках сборки — `503` с телом `{"error": "<описание проблемы>"}`.
 
 ### `POST /api/action`
 

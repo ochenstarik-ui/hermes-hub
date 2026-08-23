@@ -60,11 +60,12 @@ Consistency guarantees:
 | `is_main_account` | `bool` | no | **Real local profile preference.** |
 | `is_main_orchestrator` | `bool` | no | **Derived from orchestrator chain.** |
 | `auth_state` | `str` | no | Normalized auth state (`AUTHENTICATED`, `AUTH_REQUIRED`, `AUTH_EXPIRED`, `NOT_CONFIGURED`). |
-| `health_state` | `str` | no | Normalized health state (`healthy`, `quota_exhausted`, `rate_limited`, `cooldown`, `disabled`, `cold_spare`, `not_configured`, `unhealthy`). |
+| `health_state` | `str` | no | Normalized health state (`healthy`, `not_tested`, `quota_exhausted`, `rate_limited`, `cooldown`, `disabled`, `cold_spare`, `not_configured`, `unhealthy`). |
 | `health_label_ru` | `str` | no | **Derived presentation label.** |
 | `model_states` | `dict[str, ModelFamilyHealth]` | no | **Derived from local health tracker/runtime observations.** |
 | `cooldown_remaining_sec` | `int` | no | **Derived local runtime state.** Zero when healthy. |
 | `last_checked_at` | `str` | yes | **Real local check time string** (`%H:%M:%S`). |
+| `last_success_at` | `str` | yes | **Time of last successful network test** (`%H:%M:%S`). |
 | `enabled` | `bool` | no | **Real config state.** |
 | `is_cold_spare` | `bool` | no | **Derived/configured.** |
 | `is_empty_slot` | `bool` | no | **Derived** placeholder slot with no configured auth. |

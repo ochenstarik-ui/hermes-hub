@@ -34,10 +34,15 @@ if sys.platform == "win32":
         pass
 
 # ── Ensure plugin and repo paths are on sys.path ──
-_LOCAL = Path(os.environ.get("LOCALAPPDATA", ""))
-_PLUGIN_SRC = _LOCAL / "hermes" / "plugins" / "antigravity-provider" / "src"
-_AGENT_DIR = _LOCAL / "hermes" / "hermes-agent"
-for _p in [_PLUGIN_SRC, _AGENT_DIR, Path(__file__).resolve().parent.parent.parent]:
+_SRC_DIR = Path(__file__).resolve().parent.parent.parent
+if str(_SRC_DIR) not in sys.path:
+    sys.path.insert(0, str(_SRC_DIR))
+
+from antigravity_provider import paths
+_hermes_home = paths.get_hermes_home()
+_PLUGIN_SRC = _hermes_home / "plugins" / "antigravity-provider" / "src"
+_AGENT_DIR = _hermes_home / "hermes-agent"
+for _p in [_PLUGIN_SRC, _AGENT_DIR]:
     _ps = str(_p)
     if _p.exists() and _ps not in sys.path:
         sys.path.insert(0, _ps)
