@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
@@ -9,7 +9,7 @@
 </head>
 <body>
   <div id="app" class="app-layout">
-    <!-- Sidebar Navigation -->
+    <!-- Sidebar Navigation (9 Full Views) -->
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-logo">⚡</div>
@@ -40,6 +40,14 @@
         <button class="nav-item" data-view="team">
           <span class="nav-icon">👑</span>
           <span class="nav-label">Команда агентов</span>
+        </button>
+        <button class="nav-item" data-view="analytics">
+          <span class="nav-icon">📈</span>
+          <span class="nav-label">Аналитика</span>
+        </button>
+        <button class="nav-item" data-view="health">
+          <span class="nav-icon">🩺</span>
+          <span class="nav-label">Состояние</span>
         </button>
         <button class="nav-item" data-view="logs">
           <span class="nav-icon">📜</span>
@@ -196,31 +204,208 @@
           </div>
         </section>
 
-        <!-- 6. LOGS VIEW -->
-        <section id="view-logs" class="view-pane">
+        <!-- 6. ANALYTICS VIEW (P0-1) -->
+        <section id="view-analytics" class="view-pane">
+          <div class="overview-grid">
+            <div class="kpi-card">
+              <div class="kpi-label">Всего вызовов (24ч)</div>
+              <div class="kpi-value text-accent" id="analytics-total-calls">—</div>
+              <div class="kpi-sub" id="analytics-calls-breakdown">—</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Доля отказов / ошибок</div>
+              <div class="kpi-value" id="analytics-error-rate">—</div>
+              <div class="kpi-sub" id="analytics-error-rate-sub">—</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Латентность (p50 / p95 / max)</div>
+              <div class="kpi-value text-info" id="analytics-latency-p50">—</div>
+              <div class="kpi-sub" id="analytics-latency-sub">—</div>
+            </div>
+            <div class="kpi-card">
+              <div class="kpi-label">Расход токенов</div>
+              <div class="kpi-value text-muted" id="analytics-tokens-total">Н/Д</div>
+              <div class="kpi-sub" id="analytics-tokens-sub">Н/Д: провайдеры не отдают токены</div>
+            </div>
+          </div>
+
           <div class="section-card">
             <div class="section-card-header">
-              <div class="section-card-title">Журнал телеметрии и событий роутера</div>
-              <button class="btn btn-secondary btn-sm" id="btn-clear-logs">Очистить вид</button>
+              <div class="section-card-title">Телеметрия по провайдерам ИИ</div>
+              <div class="section-card-subtitle">Распределение запросов, отказов и задержек в окне измерений</div>
             </div>
-            <div class="logs-container" id="logs-container">
-              <div class="empty-text">Журнал событий пуст или сбор ещё не выполнен.</div>
+            <div class="table-responsive" id="analytics-providers-table">
+              <!-- Rendered by app.js -->
+            </div>
+          </div>
+
+          <div class="section-card">
+            <div class="section-card-header">
+              <div class="section-card-title">Телеметрия по ролям агентов</div>
+              <div class="section-card-subtitle">Нагрузка по ролям команды, частота сбоев и тайминги</div>
+            </div>
+            <div class="table-responsive" id="analytics-roles-table">
+              <!-- Rendered by app.js -->
             </div>
           </div>
         </section>
 
-        <!-- 7. SETTINGS VIEW -->
+        <!-- 7. HEALTH VIEW (P0-2) -->
+        <section id="view-health" class="view-pane">
+          <div class="readiness-banner" id="health-readiness-banner">
+            <!-- Readiness state banner rendered by app.js -->
+          </div>
+
+          <div class="section-card">
+            <div class="section-card-header">
+              <div class="section-card-title">Ресурсы хост-системы</div>
+              <div class="section-card-subtitle">Мониторинг CPU, памяти, диска и сетевых параметров</div>
+            </div>
+            <div class="host-resources-grid" id="health-host-resources">
+              <!-- Rendered by app.js -->
+            </div>
+          </div>
+
+          <div class="section-card">
+            <div class="section-card-header">
+              <div class="section-card-title">Предупреждения и диагностика</div>
+              <div class="section-card-subtitle">Анализ рисков, отсутствие резервов и деградация маршрутов</div>
+            </div>
+            <div class="warnings-list" id="health-warnings-list">
+              <!-- Rendered by app.js -->
+            </div>
+          </div>
+        </section>
+
+        <!-- 8. LOGS / EVENTS VIEW (P0-3) -->
+        <section id="view-logs" class="view-pane">
+          <div class="toolbar">
+            <div class="search-box">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="logs-search" placeholder="Поиск по событиям или деталям...">
+            </div>
+            <div class="filters-row">
+              <select id="logs-filter-level" class="select-filter">
+                <option value="all">Все уровни</option>
+                <option value="info">INFO</option>
+                <option value="success">SUCCESS</option>
+                <option value="warning">WARNING</option>
+                <option value="error">ERROR</option>
+              </select>
+              <select id="logs-filter-category" class="select-filter">
+                <option value="all">Все категории</option>
+                <option value="system">Система (system)</option>
+                <option value="account">Аккаунты (account)</option>
+                <option value="quota">Квоты (quota)</option>
+                <option value="routing">Маршрутизация (routing)</option>
+                <option value="auth">Авторизация (auth)</option>
+              </select>
+              <button class="btn btn-secondary btn-sm" id="btn-refresh-logs">↻ Обновить журнал</button>
+            </div>
+          </div>
+
+          <div class="section-card" style="margin-top:12px;">
+            <div class="section-card-header">
+              <div class="section-card-title">Журнал событий Hermes Hub</div>
+              <div class="section-card-subtitle">События маршрутизатора, обновления квот, авторизации и тестов</div>
+            </div>
+            <div class="logs-container" id="logs-container">
+              <!-- Rendered by app.js from /api/events -->
+            </div>
+          </div>
+        </section>
+
+        <!-- 9. SETTINGS VIEW (P0-4) -->
         <section id="view-settings" class="view-pane">
+          <!-- Hub Server Settings -->
           <div class="settings-card">
-            <h2 class="settings-group-title">Параметры веб-клиента</h2>
+            <h2 class="settings-group-title">Параметры сервера Hermes Hub</h2>
             <div class="setting-row">
               <div class="setting-info">
-                <div class="setting-label">Источник данных</div>
-                <div class="setting-desc">Автоматическое переключение между живым сервером и фикстурой</div>
+                <div class="setting-label">Хост и порт веб-сервера</div>
+                <div class="setting-desc">Сетевой адрес и порт для HTTP/REST API и веб-интерфейса</div>
+              </div>
+              <div class="setting-control" style="display:flex; gap:8px;">
+                <input type="text" id="setting-server-host" class="input-text" style="width:140px;" placeholder="127.0.0.1">
+                <input type="number" id="setting-server-port" class="input-text" style="width:90px;" placeholder="5800">
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Токен безопасности сервера</div>
+                <div class="setting-desc">Обязателен при внешнем подключении (host != 127.0.0.1)</div>
+              </div>
+              <div class="setting-control" style="display:flex; align-items:center; gap:8px;">
+                <span id="setting-token-status-badge" class="badge">Токен не задан</span>
+                <input type="password" id="setting-server-token-input" class="input-text" placeholder="Задать новый токен...">
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Интервал обновления квот</div>
+                <div class="setting-desc">Период фонового опроса квот провайдеров (секунды)</div>
+              </div>
+              <div class="setting-control">
+                <select id="setting-quota-interval" class="select-filter">
+                  <option value="60">60 секунд (1 мин)</option>
+                  <option value="120">120 секунд (2 мин)</option>
+                  <option value="300">300 секунд (5 мин — стандарт)</option>
+                  <option value="600">600 секунд (10 мин)</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Тема оформления</div>
+                <div class="setting-desc">Цветовая схема интерфейса Hub</div>
+              </div>
+              <div class="setting-control">
+                <select id="setting-theme" class="select-filter">
+                  <option value="system">Системная (по умолчанию)</option>
+                  <option value="dark">Тёмная (Dark)</option>
+                  <option value="light">Светлая (Light)</option>
+                </select>
+              </div>
+            </div>
+            <div class="settings-actions">
+              <button class="btn btn-primary" id="btn-save-hub-settings">Сохранить настройки сервера</button>
+            </div>
+          </div>
+
+          <!-- Read-Only System Paths -->
+          <div class="settings-card" style="margin-top:16px;">
+            <h2 class="settings-group-title">Системные пути и окружение</h2>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Каталог данных Hermes</div>
+                <div class="setting-desc mono-path" id="path-hermes-home">—</div>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Каталог конфигурации</div>
+                <div class="setting-desc mono-path" id="path-config-dir">—</div>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Файл журнала событий</div>
+                <div class="setting-desc mono-path" id="path-log-file">—</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Client Local Settings -->
+          <div class="settings-card" style="margin-top:16px;">
+            <h2 class="settings-group-title">Параметры веб-клиента (Браузер)</h2>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Источник данных в браузере</div>
+                <div class="setting-desc">Автоматическое переключение между Live API и фикстурой</div>
               </div>
               <div class="setting-control">
                 <select id="setting-source-mode" class="select-filter">
-                  <option value="auto">Авто (Live API с fallback на фикстуру)</option>
+                  <option value="auto">Авто (Live API с fallback)</option>
                   <option value="live">Строго Live API (/api/snapshot)</option>
                   <option value="fixture">Строго фикстура (snapshot.example.json)</option>
                 </select>
@@ -228,8 +413,8 @@
             </div>
             <div class="setting-row">
               <div class="setting-info">
-                <div class="setting-label">Интервал авто-опроса</div>
-                <div class="setting-desc">Частота обновления снимка состояния с сервера</div>
+                <div class="setting-label">Интервал авто-опроса UI</div>
+                <div class="setting-desc">Частота обновления снимка состояния в окне браузера</div>
               </div>
               <div class="setting-control">
                 <select id="setting-poll-interval" class="select-filter">
@@ -242,15 +427,15 @@
             </div>
             <div class="setting-row">
               <div class="setting-info">
-                <div class="setting-label">Токен безопасности (X-Hub-Token)</div>
-                <div class="setting-desc">Обязателен при запуске сервера на нелокальном IP адресе</div>
+                <div class="setting-label">Локальный токен клиента (X-Hub-Token)</div>
+                <div class="setting-desc">Токен для заголовка X-Hub-Token при внешних вызовах</div>
               </div>
               <div class="setting-control">
-                <input type="password" id="setting-auth-token" class="input-text" placeholder="Введите токен сервера...">
+                <input type="password" id="setting-client-token-input" class="input-text" placeholder="Введите токен...">
               </div>
             </div>
             <div class="settings-actions">
-              <button class="btn btn-primary" id="btn-save-client-settings">Сохранить параметры</button>
+              <button class="btn btn-secondary" id="btn-save-client-settings">Сохранить локальные параметры</button>
             </div>
           </div>
         </section>
