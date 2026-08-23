@@ -35,27 +35,21 @@ class RouterEngine:
         if self.affinity and hasattr(self.affinity, "ttl_seconds"):
             self.affinity.ttl_seconds = self.config.session_affinity_ttl_seconds
 
-    def resolve_role(self, request: Dict[str, Any], explicit_role: Optional[str] = None) -> str:
-        """Determine logical role from explicit parameter, request payload, or personality."""
+    def resolve_role(self, request: Dict[str, Any], explicit_role: Optional[str] = None) -> Optional[str]:
+        """Determine logical role from explicit parameter, request payload, or metadata.
+        
+        Returns None if role cannot be reliably determined (no guessing from prompts).
+        """
         if explicit_role:
             return explicit_role.strip().lower()
         if "role" in request and request["role"]:
             return str(request["role"]).strip().lower()
         if "personality" in request and request["personality"]:
             return str(request["personality"]).strip().lower()
-        # Inspect system message or metadata for subagent role hints
-        messages = request.get("messages", [])
-        if messages and isinstance(messages, list):
-            first = messages[0]
-            if isinstance(first, dict) and first.get("role") == "system":
-                sys_content = str(first.get("content", "")).lower()
-                if "role: coder" in sys_content or "developer" in sys_content or "coding agent" in sys_content:
-                    return "coder-primary"
-                if "role: reviewer" in sys_content or "code-reviewer" in sys_content or "review agent" in sys_content:
-                    return "reviewer"
-                if "role: researcher" in sys_content or "research agent" in sys_content:
-                    return "research"
-        return self.config.default_role
+        metadata = request.get("metadata", {})
+        if isinstance(metadata, dict) and metadata.get("role"):
+            return str(metadata["role"]).strip().lower()
+        return None
 
     def resolve_session_id(self, request: Dict[str, Any], explicit_session_id: Optional[str] = None) -> Optional[str]:
         if explicit_session_id:
@@ -75,7 +69,7 @@ class RouterEngine:
         session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute request with session affinity and role-aware failover."""
-        target_role = self.resolve_role(request, role)
+        target_role = self.resolve_role(request, role) or self.config.default_role
         target_session = self.resolve_session_id(request, session_id)
         role_policy = self.config.get_role_policy(target_role)
 

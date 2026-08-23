@@ -258,17 +258,28 @@ class ProfileAuthManager:
         return None
 
     @classmethod
-    def extract_jwt_identity(cls, token: str) -> Tuple[Optional[str], Optional[str]]:
-        """Extract email and subject (sub) from JWT id_token / access_token without verifying signature."""
+    def extract_jwt_claims(cls, token: str) -> dict[str, Any]:
+        """Extract all claims from JWT payload without verifying signature."""
         try:
             parts = token.split(".")
             if len(parts) < 2:
-                return None, None
+                return {}
             payload_b64 = parts[1]
             rem = len(payload_b64) % 4
             if rem:
                 payload_b64 += "=" * (4 - rem)
-            data = json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+            return json.loads(base64.urlsafe_b64decode(payload_b64).decode("utf-8"))
+        except Exception as e:
+            logger.debug("Failed to extract JWT claims: %s", e)
+            return {}
+
+    @classmethod
+    def extract_jwt_identity(cls, token: str) -> Tuple[Optional[str], Optional[str]]:
+        """Extract email and subject (sub) from JWT id_token / access_token without verifying signature."""
+        try:
+            data = cls.extract_jwt_claims(token)
+            if not data:
+                return None, None
             # Standard claims + OpenAI / Google custom profile claims
             email = (
                 data.get("email")
@@ -427,6 +438,7 @@ class ProfileAuthManager:
             tokens = auth_data.get("token") or auth_data.get("tokens", {})
             acc_token = tokens.get("access_token") if isinstance(tokens, dict) else (auth_data.get("access_token") or "")
             id_token = tokens.get("id_token") if isinstance(tokens, dict) else (auth_data.get("id_token") or "")
+            refresh_tok = tokens.get("refresh_token") if isinstance(tokens, dict) else (auth_data.get("refresh_token") or "")
             email = auth_data.get("email")
             if not email and id_token:
                 email, _ = cls.extract_jwt_identity(id_token)
@@ -436,6 +448,33 @@ class ProfileAuthManager:
             key = auth_data.get("api_key", "")
             is_oauth = bool(acc_token)
             is_auth = is_oauth or bool(key)
+
+            now = time.time()
+            acc_claims = cls.extract_jwt_claims(acc_token) if acc_token else {}
+            id_claims = cls.extract_jwt_claims(id_token) if id_token else {}
+
+            acc_exp = acc_claims.get("exp")
+            id_exp = id_claims.get("exp")
+
+            # Access token expiration with 60-second safety margin
+            access_token_expired = bool(acc_exp and now > (float(acc_exp) - 60))
+            id_token_expired = bool(id_exp and now > float(id_exp))
+
+            # If access_token expired and no refresh_token, it cannot be refreshed silently
+            is_expired = access_token_expired and not bool(refresh_tok)
+
+            status_err = None
+            if not is_auth:
+                status_str = "NOT_CONFIGURED"
+            elif is_expired:
+                status_str = "EXPIRED"
+                status_err = "Access-токен истёк, refresh token отсутствует"
+            else:
+                status_str = "AUTHENTICATED"
+                if access_token_expired and refresh_tok:
+                    status_err = "Access-токен истёк — доступно автоматическое обновление"
+                elif id_token_expired:
+                    status_err = "ID-токен истёк"
 
             account_id_masked = None
             if is_oauth:
@@ -450,8 +489,12 @@ class ProfileAuthManager:
                 "auth_mode": "oauth" if is_oauth else ("api_key" if key else "unconfigured"),
                 "email_masked": mask_email(email) if email else None,
                 "account_id_masked": account_id_masked,
-                "status": "AUTHENTICATED" if is_auth else "NOT_CONFIGURED",
-                "error": None,
+                "access_token_expired": access_token_expired,
+                "id_token_expired": id_token_expired,
+                "has_refresh_token": bool(refresh_tok),
+                "is_expired": is_expired,
+                "status": status_str,
+                "error": status_err,
             }
 
         elif provider in ("claude", "anthropic"):

@@ -501,8 +501,81 @@ class AccountQuotaService:
         )
 
     def _collect_codex_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
-        """Collect Session and Weekly quotas for OpenAI Codex."""
+        """Collect Session and Weekly quotas for OpenAI Codex using live provider API."""
         now = _utc_now()
+        tokens = auth_data.get("token") or auth_data.get("tokens") or auth_data
+        if not isinstance(tokens, dict):
+            tokens = {}
+        access_token = tokens.get("access_token") or auth_data.get("api_key") or auth_data.get("access_token")
+        if not access_token:
+            raise RuntimeError("Учётные данные OpenAI Codex не сохранены")
+
+        refresh_token = tokens.get("refresh_token")
+        custom_base_url = auth_data.get("custom_base_url") or "https://api.openai.com/v1"
+
+        def _refresh_codex_token() -> str:
+            if not refresh_token:
+                raise RuntimeError("OAuth-сессия OpenAI истекла, refresh token отсутствует")
+            from .codex_oauth import CODEX_OAUTH_TOKEN_URL, _post_form_json, CODEX_OAUTH_CLIENT_ID
+            res = _post_form_json(
+                CODEX_OAUTH_TOKEN_URL,
+                {
+                    "grant_type": "refresh_token",
+                    "client_id": CODEX_OAUTH_CLIENT_ID,
+                    "refresh_token": str(refresh_token),
+                },
+            )
+            new_acc = res.get("access_token")
+            if not new_acc:
+                raise RuntimeError("Не удалось обновить access token OpenAI")
+            tokens["access_token"] = new_acc
+            if "refresh_token" in res:
+                tokens["refresh_token"] = res["refresh_token"]
+            auth_data["token"] = tokens
+            ProfileAuthManager.save_profile_auth("openai-codex", profile_id, auth_data)
+            return str(new_acc)
+
+        def _query_api(endpoint: str, tok: str) -> dict[str, Any]:
+            url = f"{custom_base_url.rstrip('/')}{endpoint}"
+            req = urllib.request.Request(
+                url,
+                headers={
+                    "Authorization": f"Bearer {tok}",
+                    "Accept": "application/json",
+                    "User-Agent": "hermes-hub/1.0",
+                },
+            )
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                return json.loads(resp.read().decode("utf-8") or "{}")
+
+        unavailable_reason: Optional[str] = None
+        try:
+            try:
+                _query_api("/models", str(access_token))
+            except urllib.error.HTTPError as exc:
+                if exc.code == 401 and refresh_token:
+                    access_token = _refresh_codex_token()
+                    _query_api("/models", str(access_token))
+                elif exc.code == 401:
+                    unavailable_reason = "Авторизация истекла — обновите подключение"
+                elif exc.code == 403:
+                    unavailable_reason = "Доступ к API OpenAI ограничен для этого аккаунта"
+                else:
+                    raise
+        except urllib.error.HTTPError as exc:
+            if exc.code == 401:
+                unavailable_reason = "Авторизация истекла — обновите подключение"
+            else:
+                unavailable_reason = f"Ошибка связи с OpenAI API: {exc.code}"
+        except Exception as exc:
+            if "401" in str(exc) or "unauthorized" in str(exc).lower():
+                unavailable_reason = "Авторизация истекла — обновите подключение"
+            else:
+                unavailable_reason = f"Ошибка OpenAI: {exc}"
+
+        if not unavailable_reason:
+            unavailable_reason = "OpenAI Codex не предоставляет остаток через публичный API"
+
         b_session = QuotaBucket(
             id="codex.session",
             display_name="Session",
@@ -510,7 +583,7 @@ class AccountQuotaService:
             used_percent=None,
             remaining_percent=None,
             period="5h",
-            reset_at=now + timedelta(hours=5),
+            reset_at=None,
             status="unknown",
         )
         b_weekly = QuotaBucket(
@@ -520,16 +593,19 @@ class AccountQuotaService:
             used_percent=None,
             remaining_percent=None,
             period="7d",
-            reset_at=now + timedelta(days=7),
+            reset_at=None,
             status="unknown",
         )
 
+        buckets = [b_session, b_weekly]
+        has_measured = any(b.remaining_percent is not None for b in buckets)
         return QuotaSnapshot(
             account_id=profile_id,
             provider="openai-codex",
-            buckets=[b_session, b_weekly],
+            buckets=buckets,
             fetched_at=now,
-            source="baseline",
+            source="provider_api" if has_measured else "baseline",
+            unavailable_reason=unavailable_reason,
         )
 
     def _collect_opencode_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
@@ -553,21 +629,30 @@ class AccountQuotaService:
             with urllib.request.urlopen(request, timeout=20) as response:
                 return json.loads(response.read().decode("utf-8") or "{}")
 
-        # /models is the documented read-only endpoint and confirms that the
-        # key is accepted without spending a request from the user's limit.
-        _get("/models")
         usage: dict[str, Any] = {}
         unavailable_reason: Optional[str] = None
         try:
-            usage = _get("/usage")
+            _get("/models")
+            try:
+                usage = _get("/usage")
+            except urllib.error.HTTPError as exc:
+                raw = exc.read().decode("utf-8", "replace")
+                if exc.code == 403 and "subscription required" in raw.lower():
+                    unavailable_reason = "Для этого ключа не активна подписка OpenCode Go"
+                elif exc.code in (403, 404):
+                    unavailable_reason = "OpenCode Go не предоставляет остаток через публичный API"
+                else:
+                    raise
         except urllib.error.HTTPError as exc:
-            raw = exc.read().decode("utf-8", "replace")
-            if exc.code == 403 and "subscription required" in raw.lower():
-                unavailable_reason = "Для этого ключа не активна подписка OpenCode Go"
-            elif exc.code in (403, 404):
-                unavailable_reason = "OpenCode Go не предоставляет остаток через публичный API"
+            if exc.code == 401:
+                unavailable_reason = "Авторизация истекла — неверный или просроченный API-ключ"
             else:
-                raise
+                unavailable_reason = f"Ошибка OpenCode API: {exc.code}"
+        except Exception as exc:
+            if "401" in str(exc):
+                unavailable_reason = "Авторизация истекла — неверный или просроченный API-ключ"
+            else:
+                unavailable_reason = f"Ошибка OpenCode: {exc}"
 
         def _metric(*names: str) -> dict[str, Any]:
             for name in names:
@@ -615,7 +700,7 @@ class AccountQuotaService:
         )
 
     def _collect_claude_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
-        """Collect Session (5h), Weekly, and Opus/Sonnet usage for Claude (Anthropic)."""
+        """Collect Session (5h) and Weekly usage for Claude (Anthropic)."""
         now = _utc_now()
         b_session = QuotaBucket(
             id="claude.session",
@@ -624,7 +709,7 @@ class AccountQuotaService:
             used_percent=None,
             remaining_percent=None,
             period="5h",
-            reset_at=now + timedelta(hours=5),
+            reset_at=None,
             status="unknown",
         )
         b_weekly = QuotaBucket(
@@ -634,7 +719,7 @@ class AccountQuotaService:
             used_percent=None,
             remaining_percent=None,
             period="7d",
-            reset_at=now + timedelta(days=7),
+            reset_at=None,
             status="unknown",
         )
 
@@ -644,6 +729,7 @@ class AccountQuotaService:
             buckets=[b_session, b_weekly],
             fetched_at=now,
             source="baseline",
+            unavailable_reason="Claude не предоставляет остаток через публичный API",
         )
 
     def _collect_grok_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
@@ -656,6 +742,7 @@ class AccountQuotaService:
             used_percent=None,
             remaining_percent=None,
             period="7d",
+            reset_at=None,
             status="unknown",
         )
         b_chat = QuotaBucket(
@@ -664,6 +751,7 @@ class AccountQuotaService:
             model_family="grok",
             used_percent=None,
             remaining_percent=None,
+            reset_at=None,
             status="unknown",
         )
         b_build = QuotaBucket(
@@ -672,6 +760,7 @@ class AccountQuotaService:
             model_family="grok",
             used_percent=None,
             remaining_percent=None,
+            reset_at=None,
             status="unknown",
         )
         b_frequent = QuotaBucket(
@@ -681,6 +770,7 @@ class AccountQuotaService:
             used_absolute=None,
             remaining_absolute=None,
             limit_absolute=10,
+            reset_at=None,
             status="unknown",
         )
         b_normal = QuotaBucket(
@@ -690,6 +780,7 @@ class AccountQuotaService:
             used_absolute=None,
             remaining_absolute=None,
             limit_absolute=30,
+            reset_at=None,
             status="unknown",
         )
 
@@ -699,6 +790,7 @@ class AccountQuotaService:
             buckets=[b_weekly, b_chat, b_build, b_frequent, b_normal],
             fetched_at=now,
             source="baseline",
+            unavailable_reason="Grok не предоставляет остаток через публичный API",
         )
 
     def _generate_baseline_snapshot(self, provider: str, profile_id: str) -> QuotaSnapshot:

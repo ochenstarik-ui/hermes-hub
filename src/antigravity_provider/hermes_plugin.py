@@ -29,42 +29,47 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
     next_call = kwargs.get("next_call")
     provider = kwargs.get("provider")
 
-    # 1. Try routing through Multi-Provider Account Router if enabled
+    # 1. Try routing through Multi-Provider Account Router if enabled AND role is determined
     try:
         from .router import get_router_engine
         engine = get_router_engine()
         if engine.config.enabled:
             role = kwargs.get("role") or request.get("role")
-            session_id = kwargs.get("session_id") or request.get("session_id")
-            completion = engine.route_request(request, role=role, session_id=session_id)
-            # Исчерпанная цепочка — это отказ роутера, а не ответ модели.
-            # Возвращать её текст Гермесу нельзя: он подменит собой настоящий
-            # ответ провайдера, который Гермес выбрал бы сам, и пользователь
-            # получит «Failover Exhausted» вместо работы. Плагин обязан быть
-            # незаметным при отказе: пропускаем вызов дальше по цепочке.
-            if isinstance(completion, dict) and completion.get("router_error"):
-                logger.warning(
-                    "Router failover exhausted for role %r; passing the call downstream to Hermes: %s",
-                    role,
-                    completion.get("failover_trail"),
-                )
-                if callable(next_call):
-                    return next_call(request)
+            if not role and isinstance(request.get("metadata"), dict):
+                role = request["metadata"].get("role")
+            resolved_role = engine.resolve_role(request, explicit_role=role)
+
+            if resolved_role:
+                session_id = kwargs.get("session_id") or request.get("session_id")
+                completion = engine.route_request(request, role=resolved_role, session_id=session_id)
+                # Исчерпанная цепочка — это отказ роутера, а не ответ модели.
+                # Возвращать её текст Гермесу нельзя: он подменит собой настоящий
+                # ответ провайдера, который Гермес выбрал бы сам, и пользователь
+                # получит «Failover Exhausted» вместо работы. Плагин обязан быть
+                # незаметным при отказе: пропускаем вызов дальше по цепочке.
+                if isinstance(completion, dict) and completion.get("router_error"):
+                    logger.warning(
+                        "Router failover exhausted for role %r; passing the call downstream to Hermes: %s",
+                        resolved_role,
+                        completion.get("failover_trail"),
+                    )
+                    if callable(next_call):
+                        return next_call(request)
+                    return openai_completion_object(completion)
+                if isinstance(completion, dict) and "error" in completion and not completion.get("choices"):
+                    err_text = format_antigravity_error(completion.get("error"))
+                    completion = {
+                        "model": str(request.get("model") or DEFAULT_MODEL),
+                        "choices": [
+                            {
+                                "index": 0,
+                                "message": {"role": "assistant", "content": err_text},
+                                "finish_reason": "stop",
+                            }
+                        ],
+                        "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+                    }
                 return openai_completion_object(completion)
-            if isinstance(completion, dict) and "error" in completion and not completion.get("choices"):
-                err_text = format_antigravity_error(completion.get("error"))
-                completion = {
-                    "model": str(request.get("model") or DEFAULT_MODEL),
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {"role": "assistant", "content": err_text},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                    "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-                }
-            return openai_completion_object(completion)
     except Exception as router_exc:
         logger.debug("Router invocation fell back to default provider: %s", router_exc)
 
