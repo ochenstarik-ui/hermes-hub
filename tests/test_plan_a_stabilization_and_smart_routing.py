@@ -214,7 +214,7 @@ def test_router_engine_selection_trace_and_same_account_fallback():
         assert meta["selection_trace"]["selected_model"] == "google-antigravity/gemini-2.5-pro"
 
 
-# ── TEST 7: Non-Blocking _CM_LOCK and Credential Restoration ──
+# ── TEST 7: Custom Env Profile Isolation ──
 def test_antigravity_adapter_credential_restoration():
     from antigravity_provider.router.adapters.antigravity_adapter import AntigravityAdapter
     from antigravity_provider.router.profile_manager import ProfileAuthManager
@@ -223,16 +223,14 @@ def test_antigravity_adapter_credential_restoration():
     prof = RouterProfileConfig(profile_id="ag-test-1", provider="antigravity")
 
     with patch.object(ProfileAuthManager, "load_profile_auth", return_value={"token": "t123"}), \
-         patch.object(ProfileAuthManager, "read_windows_credential", return_value={"token": "prev_orig"}), \
-         patch.object(ProfileAuthManager, "write_windows_credential") as mock_write, \
-         patch("antigravity_provider.router.adapters.antigravity_adapter.agy_generate", return_value={"response": "ok"}):
+         patch("antigravity_provider.router.adapters.antigravity_adapter.agy_generate", return_value={"response": "ok"}) as mock_gen:
 
         res = adapter.invoke(prof, {"model": "gemini-2.5-flash", "messages": []})
         assert res == {"response": "ok"}
-        # Verify initial write and final restore occurred
-        assert mock_write.call_count == 2
-        assert mock_write.call_args_list[0][0][1] == {"token": "t123"}
-        assert mock_write.call_args_list[1][0][1] == {"token": "prev_orig"}
+        mock_gen.assert_called_once()
+        _, kwargs = mock_gen.call_args
+        custom_env = kwargs.get("custom_env", {})
+        assert "ag-test-1" in custom_env.get("USERPROFILE", "")
 
 
 # ── TEST 8: Thread-Safe Singletons ──

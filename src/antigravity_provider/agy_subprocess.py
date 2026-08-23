@@ -222,6 +222,123 @@ def discover_models(profile_id: str | None = None) -> dict[str, str]:
     return dict(models)
 
 
+def launch_native_agy_login(profile_id: str) -> subprocess.Popen:
+    """Launch agy CLI in a visible interactive terminal window with isolated profile environment.
+
+    A22 Requirement: Native login executed by agy itself within the target profile's isolated directory.
+    Zero interception, zero credential logging.
+    """
+    from antigravity_provider.router.adapters.antigravity_adapter import get_profile_env_dir
+
+    profile_dir = get_profile_env_dir(profile_id)
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    gemini_dir = profile_dir / ".gemini"
+    gemini_dir.mkdir(parents=True, exist_ok=True)
+
+    exe = get_agy_exe()
+    env = build_safe_subprocess_env(
+        overrides={
+            "USERPROFILE": str(profile_dir),
+            "HOME": str(profile_dir),
+            "HOMEPATH": str(profile_dir),
+            "HOMEDRIVE": str(profile_dir)[:2] if str(profile_dir)[1:2] == ":" else "",
+        }
+    )
+
+    if os.name == "nt":
+        # Launch visible console window on Windows
+        return subprocess.Popen(
+            [exe],
+            env=env,
+            creationflags=subprocess.CREATE_NEW_CONSOLE,
+        )
+    else:
+        # Cross-platform fallback (Linux/macOS)
+        import shutil
+
+        terminals = [
+            ["x-terminal-emulator", "-e", exe],
+            ["gnome-terminal", "--", exe],
+            ["xterm", "-e", exe],
+            ["konsole", "-e", exe],
+        ]
+        for term_cmd in terminals:
+            if shutil.which(term_cmd[0]):
+                return subprocess.Popen(term_cmd, env=env)
+        return subprocess.Popen([exe], env=env)
+
+
+def check_profile_native_auth_status(profile_id: str) -> tuple[bool, str | None, dict[str, Any] | None]:
+    """Check if agy native authentication has completed in profile's directory.
+
+    Returns (is_authenticated, email, auth_data).
+    A22 Requirement: Detection without credential logging or stream interception.
+    """
+    from antigravity_provider.router.adapters.antigravity_adapter import get_profile_env_dir
+
+    profile_dir = get_profile_env_dir(profile_id)
+    gemini_dir = profile_dir / ".gemini"
+    creds_file = gemini_dir / "oauth_creds.json"
+    accounts_file = gemini_dir / "google_accounts.json"
+
+    if not creds_file.is_file() or creds_file.stat().st_size == 0:
+        return False, None, None
+
+    try:
+        creds_data = json.loads(creds_file.read_text(encoding="utf-8"))
+        if not isinstance(creds_data, dict):
+            return False, None, None
+
+        # Verify essential fields
+        access_token = creds_data.get("access_token")
+        refresh_token = creds_data.get("refresh_token")
+        if not access_token and not refresh_token:
+            return False, None, None
+
+        email = None
+        if accounts_file.is_file() and accounts_file.stat().st_size > 0:
+            try:
+                acc_data = json.loads(accounts_file.read_text(encoding="utf-8"))
+                if isinstance(acc_data, dict):
+                    email = acc_data.get("active")
+            except Exception:
+                email = None
+
+        if not email:
+            auth_file = profile_dir / "auth.json"
+            if auth_file.is_file():
+                try:
+                    a_data = json.loads(auth_file.read_text(encoding="utf-8"))
+                    if isinstance(a_data, dict):
+                        email = a_data.get("email") or a_data.get("user_email")
+                except Exception:
+                    pass
+
+        if not email:
+            from antigravity_provider.router.profile_manager import ProfileAuthManager
+
+            id_token = creds_data.get("id_token")
+            if id_token:
+                email, _ = ProfileAuthManager.extract_jwt_identity(str(id_token))
+
+        auth_data = {
+            "auth_method": "oauth",
+            "email": email or "Google Account",
+            "token": creds_data,
+            "updated_at": time.time(),
+        }
+
+        # Keep profile's auth.json in sync
+        auth_file = profile_dir / "auth.json"
+        if not auth_file.is_file():
+            auth_file.write_text(json.dumps(auth_data, indent=2), encoding="utf-8")
+
+        return True, email, auth_data
+    except Exception as exc:
+        logger.debug("check_profile_native_auth_status error: %s", exc)
+        return False, None, None
+
+
 def _model_supported_efforts(agy_model: str) -> set[str]:
     """Return the set of effort levels supported by *agy_model*."""
     # Ensure discovery has run

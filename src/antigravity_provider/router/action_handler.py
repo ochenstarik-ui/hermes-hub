@@ -157,13 +157,15 @@ def do_set_model(profile_id: str, model: str, role_id: Optional[str] = None) -> 
     provider = pcfg.provider
 
     from antigravity_provider.router.model_discovery_service import ModelDiscoveryService
+    from antigravity_provider.router.model_registry import ModelRegistry
 
     discovered = ModelDiscoveryService.get().get_models(provider)
-    if discovered is None:
-        return False, f"Список моделей провайдера '{provider}' ещё не получен. Сначала нажмите «Обновить список моделей»."
+    canonical = [m.model_id for m in ModelRegistry.get().list_models(provider=provider)]
+    canonical_short = [m.split("/")[-1] for m in canonical]
 
-    if model not in discovered:
-        return False, f"Модель '{model}' отсутствует в списке обнаруженных моделей провайдера '{provider}'"
+    if discovered is not None:
+        if model not in discovered and model not in canonical and model not in canonical_short:
+            return False, f"Модель '{model}' отсутствует в списке обнаруженных моделей провайдера '{provider}'"
 
     updated = load_router_config()
     target = updated.profiles[profile_id]

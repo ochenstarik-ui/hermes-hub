@@ -78,23 +78,7 @@ class AntigravityAdapter(BaseProviderAdapter):
                     )
 
             with _AGY_INVOCATION_LOCK:
-                prev_cred = None
-                with _CM_LOCK:
-                    try:
-                        prev_cred = ProfileAuthManager.read_windows_credential("gemini:antigravity")
-                    except Exception:
-                        prev_cred = None
-                    ProfileAuthManager.write_windows_credential("gemini:antigravity", profile_auth)
-
-                try:
-                    res = agy_generate(req, custom_env=custom_env)
-                finally:
-                    with _CM_LOCK:
-                        try:
-                            if prev_cred:
-                                ProfileAuthManager.write_windows_credential("gemini:antigravity", prev_cred)
-                        except Exception:
-                            pass
+                res = agy_generate(req, custom_env=custom_env)
         else:
             res = agy_generate(req, custom_env=custom_env)
 

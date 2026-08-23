@@ -273,15 +273,10 @@ class ProfileAuthManager:
 
     @classmethod
     def set_main_profile(cls, provider: str, profile_id: str) -> Tuple[bool, str]:
-        """Set a profile as the main / active account for Hermes, updating Windows Credential Manager."""
+        """Set a profile as the main / active account for Hermes."""
         auth_data = cls.load_profile_auth(provider, profile_id)
         if not auth_data:
             return False, f"Profile '{profile_id}' has no saved authentication in {get_profile_auth_path(provider, profile_id)}"
-
-        if provider == "antigravity":
-            ok = cls.write_windows_credential("gemini:antigravity", auth_data)
-            if not ok:
-                return False, "Failed to write credential to Windows Credential Manager"
 
         state_file = paths.get_router_active_profile_path()
         state = {}

@@ -357,6 +357,12 @@ class ModelRegistry:
                     return desc
             return None
 
+    def list_models(self, provider: Optional[str] = None) -> list[ModelDescriptor]:
+        with self._lock:
+            if not provider:
+                return list(self._models.values())
+            return [m for m in self._models.values() if m.provider == provider]
+
     def register_model(self, descriptor: ModelDescriptor) -> None:
         with self._lock:
             self._models[descriptor.model_id] = descriptor

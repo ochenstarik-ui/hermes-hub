@@ -268,215 +268,132 @@ class AddAccountWizard(HubModal):
         self._build_step_2_footer()
 
     # ─────────────────────────────────────────────────────────────
-    #  GOOGLE ANTIGRAVITY OAUTH FLOW
+    #  GOOGLE ANTIGRAVITY OAUTH FLOW (Native agy CLI login)
     # ─────────────────────────────────────────────────────────────
 
     def _build_antigravity_oauth_flow(self):
+        disp_name, role_code, tier = AutoAssigner.get_display_name_and_role(self.target_slot)
+
         ctk.CTkLabel(
             self.body,
-            text="Для Google Antigravity требуется авторизация Google OAuth.",
+            text=f"Подключение Google Antigravity к слоту: {self.target_slot} ({disp_name})",
             font=Theme.font_body_bold(),
             text_color=Theme.TEXT_PRIMARY,
             anchor="w",
-        ).pack(fill="x", pady=(0, 2))
+        ).pack(fill="x", pady=(0, 4))
 
-        # Authorization link card
-        auth_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
-        auth_card.pack(fill="x", pady=(0, 8))
+        info_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
+        info_card.pack(fill="x", pady=(0, 8))
 
         ctk.CTkLabel(
-            auth_card,
-            text="Ссылка авторизации",
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_SECONDARY,
-        ).pack(anchor="w", padx=10, pady=(6, 2))
-
-        url_row = ctk.CTkFrame(auth_card, fg_color="transparent")
-        url_row.pack(fill="x", padx=10, pady=(0, 6))
-
-        self.oauth_url_entry = HubEntry(
-            url_row,
-            font=Theme.font_mono(),
-            height=32,
-            fg_color=Theme.PRIMARY,
-            border_color=Theme.BORDER,
+            info_card,
+            text="Родной вход через CLI agy в изолированном окружении профиля:",
+            font=Theme.font_body_bold(),
             text_color=Theme.TEXT_PRIMARY,
-        )
-        self.oauth_url_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
+            anchor="w",
+        ).pack(fill="x", padx=12, pady=(10, 4))
 
-        self.copy_url_btn = HubButton(
-            url_row,
-            text="📋",
-            variant="secondary",
-            width=40,
-            height=32,
-            command=self._copy_oauth_url,
-        )
-        self.copy_url_btn.pack(side="right")
+        ctk.CTkLabel(
+            info_card,
+            text=(
+                "1. Нажмите «Открыть терминал входа Antigravity (agy)» ниже.\n"
+                "2. Откроется видимое окно терминала agy и запустит вход Google в браузере.\n"
+                "3. Войдите в нужный Google-аккаунт в открывшемся браузере.\n"
+                "4. Hub автоматически обнаружит успешный вход и перейдет к следующему шагу."
+            ),
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_SECONDARY,
+            justify="left",
+            anchor="w",
+        ).pack(fill="x", padx=12, pady=(0, 10))
 
-        action_row = ctk.CTkFrame(auth_card, fg_color="transparent")
-        action_row.pack(fill="x", padx=10, pady=(0, 8))
+        btn_row = ctk.CTkFrame(self.body, fg_color="transparent")
+        btn_row.pack(fill="x", pady=(0, 6))
 
-        self.open_browser_btn = HubButton(
-            action_row,
-            text="🌐 Открыть в браузере",
+        self.launch_agy_btn = HubButton(
+            btn_row,
+            text="🚀 Открыть терминал входа Antigravity (agy)",
             variant="primary",
-            width=180,
-            command=self._open_oauth_browser,
+            height=40,
+            command=self._launch_agy_login,
         )
-        self.open_browser_btn.pack(side="left", padx=(0, 8))
+        self.launch_agy_btn.pack(side="left", fill="x", expand=True)
 
-        # Manual Callback Fallback Card
-        manual_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
-        manual_card.pack(fill="x", pady=(0, 8))
-
-        ctk.CTkLabel(
-            manual_card,
-            text="▸ Не удалось завершить авторизацию автоматически?",
-            font=Theme.font_body_bold(),
-            text_color=Theme.TEXT_PRIMARY,
-            anchor="w",
-        ).pack(fill="x", padx=10, pady=(6, 2))
-
-        ctk.CTkLabel(
-            manual_card,
-            text="Вставьте полный URL из адресной строки браузера (если localhost вернул ошибку):",
-            font=Theme.font_caption(),
-            text_color=Theme.TEXT_SECONDARY,
-            anchor="w",
-        ).pack(fill="x", padx=10, pady=(0, 4))
-
-        manual_entry_row = ctk.CTkFrame(manual_card, fg_color="transparent")
-        manual_entry_row.pack(fill="x", padx=10, pady=(0, 6))
-
-        self.manual_callback_entry = HubEntry(
-            manual_entry_row,
-            placeholder_text="http://127.0.0.1:49725/oauth-callback?state=...&code=...",
-            font=Theme.font_mono(),
-            height=32,
-            fg_color=Theme.PRIMARY,
-            border_color=Theme.BORDER,
-            text_color=Theme.TEXT_PRIMARY,
-        )
-        self.manual_callback_entry.pack(side="left", fill="x", expand=True, padx=(0, 6))
-
-        HubButton(
-            manual_entry_row,
-            text="📋 Вставить",
-            variant="secondary",
-            width=80,
-            height=32,
-            command=lambda: self._paste_into_entry(self.manual_callback_entry),
-        ).pack(side="right")
-
-        self.manual_submit_btn = HubButton(
-            manual_card,
-            text="✓ Завершить авторизацию",
-            variant="secondary",
-            height=30,
-            command=self._handle_manual_callback_submit,
-        )
-        self.manual_submit_btn.pack(anchor="w", padx=10, pady=(0, 6))
-
-        # Status text
         self.oauth_status_lbl = ctk.CTkLabel(
             self.body,
-            text="Создание сессии авторизации...",
+            text="Нажмите кнопку выше для открытия окна входа...",
             font=Theme.font_body(),
             text_color=Theme.TEXT_SECONDARY,
             anchor="w",
         )
-        self.oauth_status_lbl.pack(fill="x", pady=4)
+        self.oauth_status_lbl.pack(fill="x", pady=6)
 
         self._build_step_2_footer()
-        self._init_antigravity_oauth()
+        self._check_initial_native_status()
 
-    def _init_antigravity_oauth(self):
+    def _launch_agy_login(self):
         try:
-            from antigravity_provider.router.profile_oauth import start_profile_oauth
+            from antigravity_provider.agy_subprocess import launch_native_agy_login
 
-            session_id, auth_url, port = start_profile_oauth(self.target_slot)
-            self.oauth_session_id = session_id
-            self.oauth_url = auth_url
-            self.oauth_port = port
-
-            self.oauth_url_entry.delete(0, "end")
-            self.oauth_url_entry.insert(0, auth_url)
-
+            self.agy_proc = launch_native_agy_login(self.target_slot)
             self.oauth_status_lbl.configure(
-                text="Ожидание завершения авторизации в браузере...",
-                text_color=Theme.TEXT_SECONDARY,
+                text="Окно agy открыто. Завершите вход в браузере...",
+                text_color=Theme.ACCENT,
             )
-
             self._polling_active = True
-            threading.Thread(target=self._poll_antigravity_oauth, daemon=True).start()
+            threading.Thread(target=self._poll_native_agy_auth, daemon=True).start()
         except Exception as e:
             self.oauth_status_lbl.configure(
-                text=f"Ошибка создания сессии: {e}",
+                text=f"Ошибка запуска agy: {e}",
                 text_color=Theme.STATUS_ERROR,
             )
 
-    def _copy_oauth_url(self):
-        if self.oauth_url:
-            self.clipboard_clear()
-            self.clipboard_append(self.oauth_url)
-            self.copy_url_btn.configure(text="✓")
-            self.after(2000, lambda: self.copy_url_btn.configure(text="📋"))
+    def _check_initial_native_status(self):
+        from antigravity_provider.agy_subprocess import check_profile_native_auth_status
 
-    def _open_oauth_browser(self):
-        if self.oauth_url:
-            webbrowser.open(self.oauth_url)
-
-    def _handle_manual_callback_submit(self):
-        raw_url = self.manual_callback_entry.get().strip()
-        if not raw_url:
-            self.oauth_status_lbl.configure(text="❌ Вставьте полный URL callback", text_color=Theme.STATUS_ERROR)
-            return
-
-        from antigravity_provider.router.profile_oauth import get_oauth_session
-
-        session = get_oauth_session(self.oauth_session_id)
-        if not session:
-            self.oauth_status_lbl.configure(text="❌ Сессия не найдена", text_color=Theme.STATUS_ERROR)
-            return
-
-        ok, msg = session.handle_manual_callback_url(raw_url)
-        if ok:
-            info = getattr(session, "completed_profile_info", {}) or {}
-            self.discovered_identity = info.get("email") or "Google Account"
+        is_authed, email, auth_data = check_profile_native_auth_status(self.target_slot)
+        if is_authed:
+            self.discovered_identity = email or "Google Account"
             self.discovered_plan = "PRO"
             self.discovered_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-thinking"]
             self.is_verified = True
             self._show_step_3_validation()
-        else:
-            self.oauth_status_lbl.configure(text=f"❌ {msg}", text_color=Theme.STATUS_ERROR)
 
-    def _poll_antigravity_oauth(self):
-        from antigravity_provider.router.profile_oauth import get_oauth_session
+    def _poll_native_agy_auth(self):
+        from antigravity_provider.agy_subprocess import check_profile_native_auth_status
 
         for _ in range(300):
             if not self._polling_active:
                 return
             time.sleep(1)
-            session = get_oauth_session(self.oauth_session_id)
-            if not session:
-                continue
-
-            status = getattr(session, "status", "").lower()
-            if status in ("completed", "success"):
-                info = getattr(session, "completed_profile_info", {}) or {}
-                self.discovered_identity = info.get("email") or "Google Account"
+            is_authed, email, auth_data = check_profile_native_auth_status(self.target_slot)
+            if is_authed:
+                self.discovered_identity = email or "Google Account"
                 self.discovered_plan = "PRO"
                 self.discovered_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-thinking"]
                 self.is_verified = True
                 self.after(0, self._show_step_3_validation)
                 return
-            elif status in ("error", "failed", "cancelled"):
-                err_msg = getattr(session, "error_msg", None) or "Авторизация не удалась"
-                self.after(
-                    0, lambda m=err_msg: self.oauth_status_lbl.configure(text=f"❌ {m}", text_color=Theme.STATUS_ERROR)
-                )
-                return
+
+            if getattr(self, "agy_proc", None) and self.agy_proc.poll() is not None:
+                # Process exited, check one last time
+                is_authed, email, auth_data = check_profile_native_auth_status(self.target_slot)
+                if is_authed:
+                    self.discovered_identity = email or "Google Account"
+                    self.discovered_plan = "PRO"
+                    self.discovered_models = ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-thinking"]
+                    self.is_verified = True
+                    self.after(0, self._show_step_3_validation)
+                    return
+                else:
+                    self.after(
+                        0,
+                        lambda: self.oauth_status_lbl.configure(
+                            text="⚠️ Окно agy было закрыто до завершения авторизации. Нажмите кнопку, чтобы попробовать снова.",
+                            text_color=Theme.STATUS_WARNING,
+                        ),
+                    )
+                    return
 
     # ─────────────────────────────────────────────────────────────
     #  OPENAI CODEX OAUTH FLOW
@@ -1533,6 +1450,16 @@ class AddAccountWizard(HubModal):
         )
         self.finish_status_lbl.pack(fill="x", pady=(0, 4))
 
+        # Sequential multi-account helper for Antigravity and other providers
+        next_slot = AutoAssigner.find_free_slot(self.selected_provider)
+        if next_slot and next_slot != self.target_slot:
+            HubButton(
+                self.footer,
+                text=f"➕ Подключить следующий слот ({next_slot}) →",
+                variant="secondary",
+                command=lambda: self._finish_and_next_slot(next_slot),
+            ).pack(side="right", padx=(0, 10), pady=10)
+
         HubButton(
             self.footer,
             text="✓ Завершить подключение",
@@ -1540,56 +1467,99 @@ class AddAccountWizard(HubModal):
             command=self._finish,
         ).pack(side="right", padx=10, pady=10)
 
-    def _finish(self):
+    def _finish_and_next_slot(self, next_slot: str):
         if not self.target_slot:
-            self.finish_status_lbl.configure(
-                text="❌ Подключение невозможно: свободный слот не найден.",
-                text_color=Theme.STATUS_ERROR,
-            )
             return
-        profile_ok, profile_message = AutoAssigner.ensure_profile_definition(
-            self.selected_provider,
-            self.target_slot,
-        )
+        provider = getattr(self, "selected_provider", "antigravity")
+        slot = self.target_slot
+        profile_ok, _ = AutoAssigner.ensure_profile_definition(provider, slot)
         if not profile_ok:
-            self.finish_status_lbl.configure(text=f"❌ {profile_message}", text_color=Theme.STATUS_ERROR)
             return
-        # Most built-in slots already occur in a default chain.  Custom or
-        # repaired configs may not, so completion makes that invariant explicit
-        # without reordering a slot that is already assigned.
-        ok, message = ensure_profile_in_routing(self.target_slot)
+        ok, _ = ensure_profile_in_routing(slot)
         if not ok:
-            self.finish_status_lbl.configure(text=f"❌ {message}", text_color=Theme.STATUS_ERROR)
             return
-
-        # Всё, что проверяемо, уже проверено выше и сообщает об ошибке в самом
-        # окне. Дальше идут побочные действия, и ни одно из них не должно
-        # мешать закрытию: исключение здесь оставляло мастер открытым без
-        # единого признака ошибки, потому что под pythonw трейсбека не видно.
         try:
-            # A reused slot can carry cooldown from an older account.  Fresh OAuth
-            # credentials must start with fresh health state.
             from antigravity_provider.router.router_engine import get_router_engine
 
-            get_router_engine().health.clear_cooldown(self.target_slot)
+            get_router_engine().health.clear_cooldown(slot)
             EventLogService.get().log(
                 "account",
-                f"Подключен аккаунт {self.selected_provider}; слот {self.target_slot}; роль сохранена.",
+                f"Подключен аккаунт {provider}; слот {slot}; роль сохранена.",
                 level="success",
             )
         except Exception:
             pass
-
-        if self.on_complete:
+        if getattr(self, "on_complete", None):
             try:
                 self.on_complete(
                     {
-                        "provider": self.selected_provider,
-                        "profile_id": self.target_slot,
-                        "identity": self.discovered_identity,
+                        "provider": provider,
+                        "profile_id": slot,
+                        "identity": getattr(self, "discovered_identity", ""),
                     }
                 )
             except Exception:
                 pass
 
-        self.destroy()
+        # Reset state for next slot in sequence
+        self.target_slot = next_slot
+        self.discovered_identity = ""
+        self.discovered_plan = "Тариф: неизвестен"
+        self.discovered_models = []
+        self.is_verified = False
+        self.step = 2
+        self._show_step_2_auth()
+
+    def _finish(self):
+        if not getattr(self, "target_slot", None):
+            if hasattr(self, "finish_status_lbl"):
+                self.finish_status_lbl.configure(
+                    text="❌ Подключение невозможно: свободный слот не найден.",
+                    text_color=Theme.STATUS_ERROR,
+                )
+            return
+
+        provider = getattr(self, "selected_provider", "antigravity")
+        slot = self.target_slot
+
+        profile_ok, profile_message = AutoAssigner.ensure_profile_definition(
+            provider,
+            slot,
+        )
+        if not profile_ok:
+            if hasattr(self, "finish_status_lbl"):
+                self.finish_status_lbl.configure(text=f"❌ {profile_message}", text_color=Theme.STATUS_ERROR)
+            return
+
+        ok, message = ensure_profile_in_routing(slot)
+        if not ok:
+            if hasattr(self, "finish_status_lbl"):
+                self.finish_status_lbl.configure(text=f"❌ {message}", text_color=Theme.STATUS_ERROR)
+            return
+
+        try:
+            from antigravity_provider.router.router_engine import get_router_engine
+
+            get_router_engine().health.clear_cooldown(slot)
+            EventLogService.get().log(
+                "account",
+                f"Подключен аккаунт {provider}; слот {slot}; роль сохранена.",
+                level="success",
+            )
+        except Exception:
+            pass
+
+        if getattr(self, "on_complete", None):
+            try:
+                self.on_complete(
+                    {
+                        "provider": provider,
+                        "profile_id": slot,
+                        "identity": getattr(self, "discovered_identity", ""),
+                    }
+                )
+            except Exception:
+                pass
+
+        if hasattr(self, "destroy"):
+            self.destroy()
