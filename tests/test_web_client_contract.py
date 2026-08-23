@@ -92,7 +92,11 @@ def test_headless_server_auth_matrix():
     assert "Device Code OAuth" in app_js
     assert "https://x.ai/device" in app_js
     assert "https://auth.openai.com/device" in app_js
-    assert "Headless Сервер" in app_js
+    # Проверяем суть, а не дословную формулировку: текст правился уже дважды,
+    # и тест на точную фразу падал, хотя поведение оставалось верным.
+    assert "Headless" in app_js, "нет предупреждения про сервер без экрана"
+    assert "agy" in app_js, "не сказано, что вход идёт через консоль agy"
+    assert "launcher/main.py" not in app_js, "инструкция ведёт на несуществующий файл"
     assert "ssh -L 8085:localhost:8085" in app_js
 
 

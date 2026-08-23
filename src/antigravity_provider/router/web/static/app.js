@@ -1008,7 +1008,8 @@ function showWizardStep2(providerId) {
         Провайдер Antigravity требует интерактивного входа через консоль <code>agy</code>. Авторизация напрямую через веб-интерфейс невозможна.
         <div style="margin-top:6px;">
           <strong>Что делать:</strong><br>
-          1. Зайти по SSH на сервер и выполнить вход через нативный лаунчер: <code>python launcher/main.py</code><br>
+          1. Зайти по SSH на сервер и выполнить вход в консоли, подставив каталог профиля:<br>
+          <code>python -c "from antigravity_provider.agy_subprocess import launch_native_agy_login as L; L('ag-w1').wait()"</code><br>
           2. ИЛИ авторизоваться на локальном ПК и перенести директорию <code>~/.hermes/agy_profiles</code> на сервер.
         </div>
       </div>
