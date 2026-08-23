@@ -19,7 +19,7 @@ from antigravity_provider.router.ui.add_account_wizard import AddAccountWizard
 
 
 @pytest.fixture(scope="module")
-def root():
+def ui_root():
     app = ctk.CTk()
     app.withdraw()
     yield app
@@ -38,9 +38,10 @@ def _wizard(root, on_complete=None):
     return w
 
 
-def test_finish_closes_wizard_and_reports_result(root):
+@pytest.mark.ui
+def test_finish_closes_wizard_and_reports_result(ui_root):
     seen = []
-    w = _wizard(root, on_complete=seen.append)
+    w = _wizard(ui_root, on_complete=seen.append)
 
     w._finish()
 
@@ -50,13 +51,14 @@ def test_finish_closes_wizard_and_reports_result(root):
     ]
 
 
-def test_finish_closes_even_if_callback_raises(root):
+@pytest.mark.ui
+def test_finish_closes_even_if_callback_raises(ui_root):
     """Сбой в обработчике владельца не должен запирать пользователя в мастере."""
 
     def boom(_result):
         raise RuntimeError("обновление данных упало")
 
-    w = _wizard(root, on_complete=boom)
+    w = _wizard(ui_root, on_complete=boom)
 
     w._finish()
 

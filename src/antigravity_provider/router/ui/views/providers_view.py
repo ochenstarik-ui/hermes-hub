@@ -14,8 +14,13 @@ from antigravity_provider.router.ui.theme import Theme
 class ProviderCard(HubCard):
     def __init__(self, master: Any):
         super().__init__(master)
+        self.provider_id = ""
         top = ctk.CTkFrame(self, fg_color="transparent")
         top.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(Theme.CARD_PAD_Y, Theme.SPACE_SM))
+        
+        self.icon = ctk.CTkLabel(top, text="", width=24, height=24)
+        self.icon.pack(side="left", padx=(0, Theme.SPACE_SM))
+        
         self.title = ctk.CTkLabel(top, text="", font=Theme.font_heading(), text_color=Theme.TEXT_PRIMARY)
         self.title.pack(side="left")
         self.updated = ctk.CTkLabel(top, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
@@ -33,6 +38,11 @@ class ProviderCard(HubCard):
         self.models.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_SM, Theme.CARD_PAD_Y))
 
     def update_provider(self, summary: Any) -> None:
+        self.provider_id = summary.provider_id
+        from antigravity_provider.router.ui.assets import AssetManager
+        img = AssetManager.get().get_provider_image(summary.provider_id, size=(24, 24))
+        self.icon.configure(image=img, text="" if img else "◇")
+        self.icon.image = img
         self.title.configure(text=summary.provider_name)
         self.updated.configure(text=f"Обновлено: {summary.last_refresh_at or 'Н/Д — обнаружение ещё не запускалось'}")
         self.stats.configure(

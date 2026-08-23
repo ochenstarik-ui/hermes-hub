@@ -360,6 +360,10 @@ class Theme:
         return (cls.FONT_FAMILY_MONO, 12)
 
     @classmethod
+    def font_micro_bold(cls):
+        return (cls.FONT_FAMILY_UI, 10, "bold")
+
+    @classmethod
     def font_badge_bold(cls):
         return (cls.FONT_FAMILY_UI, 10, "bold")
 
