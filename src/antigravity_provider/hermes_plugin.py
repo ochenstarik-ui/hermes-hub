@@ -37,6 +37,20 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
             role = kwargs.get("role") or request.get("role")
             session_id = kwargs.get("session_id") or request.get("session_id")
             completion = engine.route_request(request, role=role, session_id=session_id)
+            # Исчерпанная цепочка — это отказ роутера, а не ответ модели.
+            # Возвращать её текст Гермесу нельзя: он подменит собой настоящий
+            # ответ провайдера, который Гермес выбрал бы сам, и пользователь
+            # получит «Failover Exhausted» вместо работы. Плагин обязан быть
+            # незаметным при отказе: пропускаем вызов дальше по цепочке.
+            if isinstance(completion, dict) and completion.get("router_error"):
+                logger.warning(
+                    "Router failover exhausted for role %r; passing the call downstream to Hermes: %s",
+                    role,
+                    completion.get("failover_trail"),
+                )
+                if callable(next_call):
+                    return next_call(request)
+                return openai_completion_object(completion)
             if isinstance(completion, dict) and "error" in completion and not completion.get("choices"):
                 err_text = format_antigravity_error(completion.get("error"))
                 completion = {
