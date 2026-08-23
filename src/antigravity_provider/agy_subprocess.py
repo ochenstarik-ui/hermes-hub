@@ -104,7 +104,7 @@ def _display_to_cli(display_name: str) -> tuple[str, str]:
 
 
 def discover_models() -> dict[str, str]:
-    """Discover available models by querying ``agy`` with an invalid model.
+    """Discover available models by querying ``agy models``.
 
     Returns a dict mapping *hermes-style* model ids
     (``google-antigravity/gemini-3.7-flash``) to *agy CLI* model ids
@@ -119,46 +119,62 @@ def discover_models() -> dict[str, str]:
     exe = get_agy_exe()
     try:
         result = subprocess.run(
-            [exe, "-p", "x", "--model", "__invalid_probe__",
-             "--output-format", "json", "--print-timeout", "10s"],
+            [exe, "models"],
             capture_output=True,
             text=True,
-            timeout=20,
+            timeout=10,
             encoding="utf-8",
             errors="replace",
             env=build_safe_subprocess_env(),
         )
         raw = result.stdout.strip()
-        if not raw:
-            logger.warning("discover_models: agy returned empty output")
+        if not raw or result.returncode != 0:
+            logger.warning("discover_models: agy models failed or returned empty output (rc=%s)", result.returncode)
+            if _AGY_MODEL_CACHE is None:
+                _AGY_MODEL_CACHE = {}
+                _AGY_EFFORT_MAP = {}
+            return dict(_AGY_MODEL_CACHE)
+    except subprocess.TimeoutExpired:
+        logger.warning("discover_models: agy models timed out")
+        if _AGY_MODEL_CACHE is None:
             _AGY_MODEL_CACHE = {}
-            return {}
-        data = json.loads(raw)
-        error_text = data.get("error", "")
+            _AGY_EFFORT_MAP = {}
+        return dict(_AGY_MODEL_CACHE)
     except Exception as exc:
         logger.warning("discover_models failed: %s", exc)
-        _AGY_MODEL_CACHE = {}
-        return {}
+        if _AGY_MODEL_CACHE is None:
+            _AGY_MODEL_CACHE = {}
+            _AGY_EFFORT_MAP = {}
+        return dict(_AGY_MODEL_CACHE)
 
     models: dict[str, str] = {}
     effort_map: dict[str, set[str]] = {}
-    if "Available models:" in error_text:
-        lines = error_text.split("Available models:")[1].strip().splitlines()
-        for line in lines:
-            line = line.strip()
-            if not line:
-                continue
-            cli_model, effort = _display_to_cli(line)
-            if not cli_model:
-                continue
-            hermes_id = f"google-antigravity/{cli_model}"
-            models[hermes_id] = cli_model
-            if cli_model not in effort_map:
-                effort_map[cli_model] = set()
-            # Only accept actual effort levels; parenthetical labels like
-            # "Thinking" are model variant markers, not --effort values.
-            if effort in ("low", "medium", "high"):
-                effort_map[cli_model].add(effort)
+    
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line or line.lower().startswith("model"):
+            continue
+            
+        parts = line.split('\t')
+        cli_model = parts[0].strip()
+        if not cli_model:
+            continue
+            
+        hermes_id = f"google-antigravity/{cli_model}"
+        models[hermes_id] = cli_model
+        if cli_model not in effort_map:
+            effort_map[cli_model] = set()
+            
+        # Parse effort from description or known capabilities if needed
+        # Assuming effort is not explicitly provided in the tabbed output or we extract it
+        if len(parts) > 1:
+            desc = parts[1].strip().lower()
+            if "(high)" in desc:
+                effort_map[cli_model].add("high")
+            if "(low)" in desc:
+                effort_map[cli_model].add("low")
+            if "(medium)" in desc:
+                effort_map[cli_model].add("medium")
 
     _AGY_MODEL_CACHE = models
     _AGY_EFFORT_MAP = effort_map

@@ -141,7 +141,7 @@ class AntigravityAdapter(BaseProviderAdapter):
                 return list(set(discovered.values()))
         except Exception:
             pass
-        return list(profile.preferred_models or ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.5-flash-thinking"])
+        return list(profile.preferred_models or [])
 
     def classify_error(self, exc: Exception, response_data: Optional[Dict[str, Any]] = None) -> ErrorClassification:
         if isinstance(exc, QuotaExceededError):

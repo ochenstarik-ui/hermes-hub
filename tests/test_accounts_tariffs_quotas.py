@@ -349,7 +349,13 @@ def test_opencode_shows_published_limits_and_subscription_error():
     ):
         snapshot = service._collect_opencode_quota("opengo-1", {"api_key": "test-key"})
 
-    assert snapshot.source == "provider_api"
+    # source описывает происхождение ЧИСЕЛ, а не факт ответа провайдера.
+    # Здесь лимиты 12/30/60 взяты из опубликованной таблицы тарифа, а
+    # остаток не измерен ни по одной корзине — заявлять provider_api
+    # значит обещать измерение, которого не было. Информация о том, что
+    # провайдер ответил и почему данных нет, сохраняется в
+    # unavailable_reason и не теряется.
+    assert snapshot.source == "baseline"
     assert snapshot.unavailable_reason == "Для этого ключа не активна подписка OpenCode Go"
     assert [bucket.limit_absolute for bucket in snapshot.buckets] == [12, 30, 60]
     assert [bucket.period for bucket in snapshot.buckets] == ["5h", "7d", "30d"]

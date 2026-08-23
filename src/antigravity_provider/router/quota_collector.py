@@ -490,14 +490,15 @@ class AccountQuotaService:
                 )
             )
         if not buckets:
-            raise RuntimeError("Cloud Code не вернул измеряемые квоты Claude или Gemini")
+            raise RuntimeError("Cloud Code не вернул данные квоты Claude или Gemini")
 
+        has_measured = any(b.remaining_percent is not None or b.used_absolute is not None for b in buckets)
         return QuotaSnapshot(
             account_id=profile_id,
             provider="antigravity",
             buckets=buckets,
             fetched_at=now,
-            source="provider_api",
+            source="provider_api" if has_measured else "baseline",
         )
 
     def _collect_codex_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
@@ -690,12 +691,13 @@ class AccountQuotaService:
                 )
             )
 
+        has_measured = any(b.remaining_percent is not None or b.used_absolute is not None for b in buckets)
         return QuotaSnapshot(
             account_id=profile_id,
             provider="opencode-go",
             buckets=buckets,
             fetched_at=now,
-            source="provider_api",
+            source="provider_api" if has_measured else "baseline",
             unavailable_reason=unavailable_reason,
         )
 

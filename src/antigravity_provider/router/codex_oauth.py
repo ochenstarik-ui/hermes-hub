@@ -33,6 +33,7 @@ CODEX_OAUTH_ISSUER = "https://auth.openai.com"
 CODEX_OAUTH_USER_CODE_URL = f"{CODEX_OAUTH_ISSUER}/api/accounts/deviceauth/usercode"
 CODEX_OAUTH_DEVICE_URL = f"{CODEX_OAUTH_ISSUER}/codex/device"
 CODEX_OAUTH_TOKEN_URL = f"{CODEX_OAUTH_ISSUER}/oauth/token"
+CODEX_REFRESH_URL = "https://api.codex-ai.ru/oauth/refresh"
 CODEX_OAUTH_POLL_URL = f"{CODEX_OAUTH_ISSUER}/api/accounts/deviceauth/token"
 
 _ACTIVE_CODEX_SESSIONS: Dict[str, "CodexOAuthSession"] = {}
@@ -321,7 +322,7 @@ def refresh_codex_token(profile_id: str) -> dict[str, Any]:
         "refresh_token": refresh_tok,
     }
     try:
-        data = _post_json(CODEX_OAUTH_TOKEN_URL, payload, timeout=15.0)
+        data = _post_json(CODEX_REFRESH_URL, payload, timeout=15.0)
     except urllib.error.HTTPError as exc:
         raw_err = exc.read().decode("utf-8", "replace")
         logger.warning("OpenAI token refresh HTTP %d: %s", exc.code, raw_err)
@@ -394,6 +395,27 @@ def stop_running_codex_processes() -> list[int]:
                 pass
     return stopped_pids
 
+def is_access_expired(auth_data: dict[str, Any]) -> bool:
+    tokens = auth_data.get("token") or auth_data.get("tokens", {})
+    acc_tok = tokens.get("access_token") if isinstance(tokens, dict) else (auth_data.get("access_token") or "")
+    if not acc_tok:
+        return True
+    acc_claims = ProfileAuthManager.extract_jwt_claims(acc_tok)
+    acc_exp = acc_claims.get("exp")
+    if acc_exp:
+        return time.time() > (float(acc_exp) - 60)
+    return False
+
+def is_refresh_expired(auth_data: dict[str, Any]) -> bool:
+    tokens = auth_data.get("token") or auth_data.get("tokens", {})
+    ref_tok = tokens.get("refresh_token") if isinstance(tokens, dict) else (auth_data.get("refresh_token") or "")
+    if not ref_tok:
+        return True
+    ref_claims = ProfileAuthManager.extract_jwt_claims(ref_tok)
+    ref_exp = ref_claims.get("exp")
+    if ref_exp:
+        return time.time() > (float(ref_exp) - 300)
+    return False
 
 def switch_active_codex_account(
     target_profile_id: str,
@@ -415,22 +437,20 @@ def switch_active_codex_account(
             except Exception:
                 pass
 
-    # Step 1: Проверка токенов аккаунта
-    _notify("check_tokens", "Проверка данных аккаунта...")
+    # Step 1: Проверка токенов
+    _notify("check_tokens", "Проверка токенов...")
     auth_data = ProfileAuthManager.load_profile_auth("openai-codex", target_profile_id)
     if not auth_data:
         raise RuntimeError(f"Профиль '{target_profile_id}' не найден.")
 
-    tokens = auth_data.get("token") or auth_data.get("tokens", {})
-    acc_tok = tokens.get("access_token") if isinstance(tokens, dict) else (auth_data.get("access_token") or "")
-    if acc_tok:
-        acc_claims = ProfileAuthManager.extract_jwt_claims(acc_tok)
-        acc_exp = acc_claims.get("exp")
-        if acc_exp and time.time() > (float(acc_exp) - 60):
-            _notify("refresh_tokens", "Обновление истёкшего access-токена...")
-            auth_data = refresh_codex_token(target_profile_id)
-            tokens = auth_data.get("token", {})
-    _notify("check_tokens", "Токены аккаунта проверены", status="done")
+    if is_refresh_expired(auth_data):
+        raise RuntimeError(f"Refresh token для '{target_profile_id}' истёк или отсутствует. Требуется повторная авторизация.")
+
+    if is_access_expired(auth_data):
+        _notify("refresh_tokens", "Обновление старого access-токена...")
+        auth_data = refresh_codex_token(target_profile_id)
+        
+    _notify("check_tokens", "Все токены валидны", status="done")
 
     # Step 2: Остановка прежнего процесса
     _notify("stop_clients", "Безопасная остановка процессов ChatGPT/Codex...")

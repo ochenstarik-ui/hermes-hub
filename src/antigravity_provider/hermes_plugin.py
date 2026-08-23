@@ -39,6 +39,11 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
                 role = request["metadata"].get("role")
             resolved_role = engine.resolve_role(request, explicit_role=role)
 
+            if not resolved_role:
+                if callable(next_call):
+                    return next_call(request)
+                return request
+
             if resolved_role:
                 session_id = kwargs.get("session_id") or request.get("session_id")
                 completion = engine.route_request(request, role=resolved_role, session_id=session_id)
