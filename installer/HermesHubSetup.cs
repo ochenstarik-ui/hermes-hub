@@ -279,6 +279,18 @@ namespace HermesHubSetup
                     File.Copy(launcherSrc, Path.Combine(HermesHome, "HermesHub.exe"), true);
                 }
 
+                string webLauncherSrc = Path.Combine(sourceRoot, @"launcher\HermesHubWeb.exe");
+                if (!File.Exists(webLauncherSrc))
+                {
+                    webLauncherSrc = Path.Combine(sourceRoot, "HermesHubWeb.exe");
+                }
+
+                if (File.Exists(webLauncherSrc))
+                {
+                    File.Copy(webLauncherSrc, Path.Combine(TargetInstallDir, "HermesHubWeb.exe"), true);
+                    File.Copy(webLauncherSrc, Path.Combine(HermesHome, "HermesHubWeb.exe"), true);
+                }
+
                 // Copy Setup.exe itself to target dir for uninstaller/repair
                 string setupSrc = Process.GetCurrentProcess().MainModule.FileName;
                 if (File.Exists(setupSrc))
@@ -419,6 +431,12 @@ namespace HermesHubSetup
                     try { File.Delete(homeExe); } catch { }
                 }
 
+                string homeWebExe = Path.Combine(HermesHome, "HermesHubWeb.exe");
+                if (File.Exists(homeWebExe))
+                {
+                    try { File.Delete(homeWebExe); } catch { }
+                }
+
                 // Remove plugin
                 string pluginDir = Path.Combine(HermesHome, @"plugins\antigravity-provider");
                 if (Directory.Exists(pluginDir))
@@ -504,19 +522,53 @@ namespace HermesHubSetup
             try
             {
                 string startMenu = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
-                string shortcutPath = Path.Combine(startMenu, "Hermes Hub.lnk");
-                string targetExe = Path.Combine(TargetInstallDir, "HermesHub.exe");
+                string targetWebExe = Path.Combine(TargetInstallDir, "HermesHubWeb.exe");
+                if (!File.Exists(targetWebExe)) targetWebExe = Path.Combine(HermesHome, "HermesHubWeb.exe");
+
+                string targetDesktopExe = Path.Combine(TargetInstallDir, "HermesHub.exe");
+                if (!File.Exists(targetDesktopExe)) targetDesktopExe = Path.Combine(HermesHome, "HermesHub.exe");
 
                 Type shellType = Type.GetTypeFromProgID("WScript.Shell");
                 if (shellType != null)
                 {
                     dynamic shell = Activator.CreateInstance(shellType);
-                    dynamic shortcut = shell.CreateShortcut(shortcutPath);
-                    shortcut.TargetPath = targetExe;
-                    shortcut.WorkingDirectory = TargetInstallDir;
-                    shortcut.Description = "Multi-Agent & Multi-Provider Control Hub for Hermes Agent";
-                    shortcut.IconLocation = targetExe + ",0";
-                    shortcut.Save();
+
+                    // 1. Web Application Window Shortcut (Primary Web App mode)
+                    if (File.Exists(targetWebExe))
+                    {
+                        string webShortcutPath = Path.Combine(startMenu, "Hermes Hub (Web).lnk");
+                        dynamic webShortcut = shell.CreateShortcut(webShortcutPath);
+                        webShortcut.TargetPath = targetWebExe;
+                        webShortcut.WorkingDirectory = TargetInstallDir;
+                        webShortcut.Description = "Hermes Hub — Web Application Window";
+                        webShortcut.IconLocation = targetWebExe + ",0";
+                        webShortcut.Save();
+                    }
+
+                    // 2. Native Desktop Shortcut (CustomTkinter GUI)
+                    if (File.Exists(targetDesktopExe))
+                    {
+                        string desktopShortcutPath = Path.Combine(startMenu, "Hermes Hub (Desktop).lnk");
+                        dynamic desktopShortcut = shell.CreateShortcut(desktopShortcutPath);
+                        desktopShortcut.TargetPath = targetDesktopExe;
+                        desktopShortcut.WorkingDirectory = TargetInstallDir;
+                        desktopShortcut.Description = "Hermes Hub — Native Desktop App";
+                        desktopShortcut.IconLocation = targetDesktopExe + ",0";
+                        desktopShortcut.Save();
+                    }
+
+                    // 3. Standard "Hermes Hub.lnk" shortcut
+                    string standardTarget = File.Exists(targetWebExe) ? targetWebExe : targetDesktopExe;
+                    if (File.Exists(standardTarget))
+                    {
+                        string standardShortcutPath = Path.Combine(startMenu, "Hermes Hub.lnk");
+                        dynamic standardShortcut = shell.CreateShortcut(standardShortcutPath);
+                        standardShortcut.TargetPath = standardTarget;
+                        standardShortcut.WorkingDirectory = TargetInstallDir;
+                        standardShortcut.Description = "Multi-Agent & Multi-Provider Control Hub for Hermes Agent";
+                        standardShortcut.IconLocation = standardTarget + ",0";
+                        standardShortcut.Save();
+                    }
                 }
             }
             catch { }
@@ -527,8 +579,18 @@ namespace HermesHubSetup
             try
             {
                 string startMenu = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
-                string shortcutPath = Path.Combine(startMenu, "Hermes Hub.lnk");
-                if (File.Exists(shortcutPath)) File.Delete(shortcutPath);
+                string[] shortcuts = new string[]
+                {
+                    "Hermes Hub.lnk",
+                    "Hermes Hub (Web).lnk",
+                    "Hermes Hub (Desktop).lnk",
+                    "Hermes Hub Web.lnk"
+                };
+                foreach (string sc in shortcuts)
+                {
+                    string p = Path.Combine(startMenu, sc);
+                    if (File.Exists(p)) try { File.Delete(p); } catch { }
+                }
             }
             catch { }
         }

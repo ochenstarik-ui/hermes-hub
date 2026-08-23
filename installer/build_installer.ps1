@@ -12,6 +12,20 @@ $DistDir = Join-Path $RepoRoot "dist"
 New-Item -ItemType Directory -Path $DistDir -Force | Out-Null
 $OutFile = Join-Path $DistDir "HermesHubSetup.exe"
 
+$LauncherDir = Join-Path $RepoRoot "launcher"
+$HubCs = Join-Path $LauncherDir "HermesHub.cs"
+$HubWebCs = Join-Path $LauncherDir "HermesHubWeb.cs"
+
+Write-Host "Compiling native launchers..." -ForegroundColor Cyan
+if (Test-Path $HubCs) {
+    $HubExe = Join-Path $LauncherDir "HermesHub.exe"
+    & $CscPath /target:winexe /out:"$HubExe" /r:System.Windows.Forms.dll /r:System.Drawing.dll "$HubCs"
+}
+if (Test-Path $HubWebCs) {
+    $HubWebExe = Join-Path $LauncherDir "HermesHubWeb.exe"
+    & $CscPath /target:winexe /out:"$HubWebExe" /r:System.Windows.Forms.dll /r:System.Drawing.dll "$HubWebCs"
+}
+
 Write-Host "Compiling HermesHubSetup.exe..." -ForegroundColor Cyan
 & $CscPath /target:winexe /out:"$OutFile" /r:System.Windows.Forms.dll /r:System.Drawing.dll "$SourceFile"
 

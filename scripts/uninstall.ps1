@@ -26,6 +26,10 @@ $HomeLauncher = Join-Path $HermesHome "HermesHub.exe"
 if (Test-Path $HomeLauncher) {
     Remove-Item -Path $HomeLauncher -Force -ErrorAction SilentlyContinue
 }
+$HomeWebLauncher = Join-Path $HermesHome "HermesHubWeb.exe"
+if (Test-Path $HomeWebLauncher) {
+    Remove-Item -Path $HomeWebLauncher -Force -ErrorAction SilentlyContinue
+}
 
 Write-Host "[2/3] Removing plugin integration..." -ForegroundColor Gray
 $PluginDir = Join-Path $HermesHome "plugins\antigravity-provider"
