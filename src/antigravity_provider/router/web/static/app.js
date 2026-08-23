@@ -777,15 +777,20 @@ function renderAnalyticsView() {
   // KPI 4: Tokens (Honesty rule: null means N/D, never 0)
   const tokensEl = document.getElementById('analytics-tokens-total');
   const tokensSubEl = document.getElementById('analytics-tokens-sub');
+  const hasTokens = global.total_tokens !== null && global.total_tokens !== undefined;
   if (tokensEl) {
-    if (global.total_tokens !== null && global.total_tokens !== undefined) {
+    if (hasTokens) {
       tokensEl.textContent = global.total_tokens.toLocaleString('ru-RU');
     } else {
       tokensEl.textContent = 'Н/Д';
     }
   }
   if (tokensSubEl) {
-    tokensSubEl.textContent = 'Н/Д: провайдеры не отдают данные о токенах';
+    if (hasTokens) {
+      tokensSubEl.textContent = 'Учитывается провайдером';
+    } else {
+      tokensSubEl.textContent = 'Н/Д: провайдеры не отдают данные о токенах';
+    }
   }
 
   // Providers Table

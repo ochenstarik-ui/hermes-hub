@@ -78,7 +78,7 @@ def health_check():
 def sanitize_snapshot(snap_dict: Any) -> Any:
     import re
     secret_patterns = [
-        re.compile(r'(access_token|refresh_token|api_key|token|password|secret|key)=([^\s&,"]+)', re.IGNORECASE),
+        re.compile(r'((?:access_token|refresh_token|api_key|token|password|secret|key)=)([^\s&,"]+)', re.IGNORECASE),
         re.compile(r'(sk-[a-zA-Z0-9_\-]{8,})'),
         re.compile(r'(gho_[a-zA-Z0-9_\-]{8,})'),
         re.compile(r'(Bearer\s+)([a-zA-Z0-9_\-\.]{8,})', re.IGNORECASE),
@@ -88,7 +88,7 @@ def sanitize_snapshot(snap_dict: Any) -> Any:
         res = val
         for pat in secret_patterns:
             if pat.groups == 2:
-                res = pat.sub(r'\1=***', res)
+                res = pat.sub(r'\g<1>***', res)
             elif pat.groups == 1:
                 res = pat.sub(r'***', res)
         return res
