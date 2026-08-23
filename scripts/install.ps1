@@ -58,6 +58,11 @@ if (Test-Path $LauncherExe) {
     Copy-Item -Path $LauncherExe -Destination (Join-Path $TargetDir "HermesHub.exe") -Force
     Copy-Item -Path $LauncherExe -Destination (Join-Path $HermesHome "HermesHub.exe") -Force
 }
+$WebLauncherExe = Join-Path $RepoRoot "launcher\HermesHubWeb.exe"
+if (Test-Path $WebLauncherExe) {
+    Copy-Item -Path $WebLauncherExe -Destination (Join-Path $TargetDir "HermesHubWeb.exe") -Force
+    Copy-Item -Path $WebLauncherExe -Destination (Join-Path $HermesHome "HermesHubWeb.exe") -Force
+}
 
 # 5. Deploy Plugin Integration into Hermes
 Write-Host "[4/6] Deploying plugin components to Hermes..." -ForegroundColor Yellow
