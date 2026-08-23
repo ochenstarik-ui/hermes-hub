@@ -161,10 +161,19 @@ class AgentCardWidget(HubCard):
         )
         self.menu_btn.pack(side="right")
         self._bind_settings_click(self)
+        try:
+            self._canvas.configure(takefocus=1)
+        except (AttributeError, tk.TclError):
+            pass
+        self.bind("<Return>", self._open_settings, add="+")
+        self.bind("<space>", self._open_settings, add="+")
+        self.bind("<Enter>", self._hover_on, add="+")
+        self.bind("<Leave>", self._hover_off, add="+")
 
     def _bind_settings_click(self, widget: Any) -> None:
         if isinstance(widget, ctk.CTkButton):
             return
+        widget.configure(cursor="hand2")
         widget.bind("<Button-1>", self._open_settings, add="+")
         for child in widget.winfo_children():
             self._bind_settings_click(child)
@@ -180,6 +189,16 @@ class AgentCardWidget(HubCard):
                 "profile_id": agent.assigned_profile_id or "",
                 "provider": agent.provider,
             },
+        )
+
+    def _hover_on(self, _event: Any = None) -> None:
+        self.configure(fg_color=Theme.SURFACE_HOVER, border_color=Theme.BORDER_HOVER)
+
+    def _hover_off(self, _event: Any = None) -> None:
+        is_orchestrator = bool(self.agent_data and self.agent_data.is_main_orchestrator)
+        self.configure(
+            fg_color=Theme.SURFACE,
+            border_color=Theme.BORDER_ACCENT if is_orchestrator else Theme.BORDER,
         )
 
     def update_agent(self, a: AgentViewModel):
@@ -243,7 +262,7 @@ class AgentCardWidget(HubCard):
                 else Theme.TEXT_MUTED
             )
         )
-        quota_label = a.active_quota_label or "Н/Д"
+        quota_label = a.active_quota_label or "Н/Д — провайдер не отдал лимиты"
         session = f" • сессия {a.session_id}" if a.session_id else ""
         self.quota_lbl.configure(text=f"Квота: {quota_label}{session}", text_color=quota_color)
 
@@ -332,6 +351,7 @@ class TeamView(ctk.CTkFrame):
         self._drag_role = ""
         self._drag_origin = (0.0, 0.0)
         self._drag_node_origin = (0.0, 0.0)
+        self._drag_moved = False
         self._node_items: Dict[str, tuple[int, ...]] = {}
         self._edge_items: Dict[str, tuple[int, ...]] = {}
         self._event_bus = EventBus.get()
@@ -491,6 +511,7 @@ class TeamView(ctk.CTkFrame):
             self.selected_role = role
             self.selected_edge = ""
             self._drag_role = role
+            self._drag_moved = False
             self._drag_origin = self._world(event.x, event.y)
             node = next((item for item in self.controller.graph.nodes if item.role_id == role), None)
             self._drag_node_origin = (node.x, node.y) if node else (0.0, 0.0)
@@ -505,6 +526,8 @@ class TeamView(ctk.CTkFrame):
             return
         x, y = self._world(event.x, event.y)
         dx, dy = x - self._drag_origin[0], y - self._drag_origin[1]
+        if abs(dx) + abs(dy) > 1.5:
+            self._drag_moved = True
         self._drag_origin = (x, y)
         node.x += dx
         node.y += dy
@@ -513,6 +536,7 @@ class TeamView(ctk.CTkFrame):
 
     def _on_release(self, _event: Any) -> None:
         if self._drag_role:
+            clicked_role = self._drag_role
             node = next((n for n in self.controller.graph.nodes if n.role_id == self._drag_role), None)
             if node:
                 final_x, final_y = node.x, node.y
@@ -520,6 +544,21 @@ class TeamView(ctk.CTkFrame):
                 self.controller.move_node(node.role_id, final_x, final_y)
             self._drag_role = ""
             self._set_dirty_text()
+            if not self._drag_moved and self.on_action:
+                pipeline = self._pipeline_for(clicked_role)
+                active_profile = pipeline.active_profile_id if pipeline else ""
+                active_node = next(
+                    (item for item in list(getattr(pipeline, "nodes", []) or []) if item.profile_id == active_profile),
+                    None,
+                )
+                self.on_action(
+                    "agent_settings",
+                    {
+                        "role_id": clicked_role,
+                        "profile_id": active_profile,
+                        "provider": getattr(active_node, "provider", ""),
+                    },
+                )
 
     def _on_zoom(self, event: Any) -> str:
         factor = 1.1 if event.delta > 0 else 0.9
@@ -668,7 +707,11 @@ class TeamView(ctk.CTkFrame):
         node = next((item for item in self.controller.graph.nodes if item.role_id == role), None)
         self.inspector_title.configure(text=node.label if node else role)
         self.inspector_status.configure(
-            text=f"Активный: {pipeline.active_profile_id if pipeline and pipeline.active_profile_id else 'Н/Д'}"
+            text=(
+                f"Активный: {pipeline.active_profile_id}"
+                if pipeline and pipeline.active_profile_id
+                else "Активный: Н/Д — профиль не назначен"
+            )
         )
         config = load_router_config()
         policy = config.roles.get(role)
@@ -686,16 +729,20 @@ class TeamView(ctk.CTkFrame):
             ctk.CTkLabel(
                 card, text=profile_id, font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY
             ).pack(anchor="w", padx=8)
-            provider = profile.provider if profile else "Н/Д"
-            model = live.model if live else (profile.preferred_models[0] if profile and profile.preferred_models else "Н/Д")
+            provider = profile.provider if profile else "Н/Д — аккаунт не подключён"
+            model = live.model if live else (
+                profile.preferred_models[0]
+                if profile and profile.preferred_models
+                else "Н/Д — список моделей ещё не получен"
+            )
             identity = live.account_identity if live and live.account_identity else "Аккаунт: Н/Д"
-            quota = live.quota_status if live else "Н/Д"
+            quota = live.quota_status if live else "Н/Д — аккаунт не подключён"
             if profile_id in self._quota_overrides:
                 raw_quota = self._quota_overrides[profile_id]
                 quota = getattr(raw_quota, "status", None) or getattr(raw_quota, "quota_status", None) or quota
             if str(quota).strip().lower() in {"", "unknown", "none", "not_configured"}:
-                quota = "Н/Д"
-            reason = live.failover_reason if live and live.failover_reason else "Н/Д"
+                quota = "Н/Д — провайдер не отдал лимиты"
+            reason = live.failover_reason if live and live.failover_reason else "переключений ещё не было"
             ctk.CTkLabel(
                 card,
                 text=f"{provider} • {model}\n{identity}\nКвота: {quota}\nFailover: {reason}",

@@ -38,10 +38,22 @@ def _config():
     return SimpleNamespace(roles=roles, profiles=profiles)
 
 
-def test_antigravity_agent_catalog_keeps_gemini_pro_choices():
-    choices = app_module.AGENT_MODEL_OPTIONS["antigravity"]
-    assert "gemini-3.1-pro" in choices
-    assert "gemini-2.5-pro" in choices
+def test_agent_catalog_uses_backend_cache_without_literal_fallback(monkeypatch):
+    from antigravity_provider.router.ui import model_catalog
+
+    service = SimpleNamespace(get_cached=lambda _provider: {"models": ["provider-model-a", "provider-model-b"]})
+    monkeypatch.setattr(model_catalog, "_service", lambda: service)
+    cached = model_catalog.get_cached_models("antigravity")
+    assert cached.models == ("provider-model-a", "provider-model-b")
+
+
+def test_agent_catalog_empty_cache_is_explicit(monkeypatch):
+    from antigravity_provider.router.ui import model_catalog
+
+    monkeypatch.setattr(model_catalog, "_service", lambda: None)
+    cached = model_catalog.get_cached_models("antigravity")
+    assert cached.models == ()
+    assert "ещё не подключена" in cached.unavailable_reason
 
 
 def test_default_graph_migrates_six_roles_without_changing_chains():

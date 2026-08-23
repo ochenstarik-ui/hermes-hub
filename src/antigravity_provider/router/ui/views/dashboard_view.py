@@ -94,9 +94,19 @@ class _EndpointCard(HubCard):
         self.progress.pack(fill="x", pady=(5, 0))
         self.progress.set(0)
         self._click_action: Optional[Callable[[], None]] = None
+        self._status = "unknown"
         self._bind_click_tree(self)
+        try:
+            self._canvas.configure(takefocus=1)
+        except (AttributeError, tk.TclError):
+            pass
+        self.bind("<Return>", self._activate, add="+")
+        self.bind("<space>", self._activate, add="+")
+        self.bind("<Enter>", self._hover_on, add="+")
+        self.bind("<Leave>", self._hover_off, add="+")
 
     def _bind_click_tree(self, widget: Any) -> None:
+        widget.configure(cursor="hand2")
         widget.bind("<Button-1>", self._activate, add="+")
         for child in widget.winfo_children():
             self._bind_click_tree(child)
@@ -109,6 +119,16 @@ class _EndpointCard(HubCard):
         if self._click_action:
             self._click_action()
 
+    def _hover_on(self, _event: Any = None) -> None:
+        if self._click_action:
+            self.configure(fg_color=Theme.SURFACE_HOVER, border_color=Theme.BORDER_HOVER)
+
+    def _hover_off(self, _event: Any = None) -> None:
+        self.configure(
+            fg_color=Theme.SURFACE,
+            border_color=Theme.BORDER_ACCENT if self._status == "healthy" else Theme.BORDER,
+        )
+
     def update_card(
         self,
         provider_key: str,
@@ -119,6 +139,7 @@ class _EndpointCard(HubCard):
         quota_percent: Optional[float],
         status: str,
     ) -> None:
+        self._status = status
         image = AssetManager.get().get_provider_image(provider_key, size=(30, 30))
         self.icon.configure(image=image, text="" if image else "◇")
         self.icon.image = image
@@ -181,12 +202,8 @@ class _RouteDiagram(ctk.CTkFrame):
         self.pack_propagate(False)
         self.canvas = tk.Canvas(self, bg=Theme.SURFACE, highlightthickness=0, bd=0)
         self.canvas.place(relx=0, rely=0, relwidth=1, relheight=1)
-        self.provider_slots = [ctk.CTkFrame(self, height=76, fg_color="transparent") for _ in range(3)]
-        self.agent_slots = [ctk.CTkFrame(self, height=68, fg_color="transparent") for _ in range(5)]
-        for index, slot in enumerate(self.provider_slots):
-            slot.place(relx=0.012, rely=0.02 + index * 0.29, relwidth=0.30)
-        for index, slot in enumerate(self.agent_slots):
-            slot.place(relx=0.71, rely=0.01 + index * 0.185, relwidth=0.278)
+        self.provider_slots: list[Any] = []
+        self.agent_slots: list[Any] = []
         self.orchestrator = _OrchestratorNode(self)
         self.orchestrator.place(relx=0.51, rely=0.46, anchor="center")
         self.context = HubCard(self, corner_radius=Theme.RADIUS_MD, height=46)
@@ -201,13 +218,33 @@ class _RouteDiagram(ctk.CTkFrame):
             text_color=Theme.TEXT_MUTED,
         )
         self.context_status.pack()
-        self._left_labels = ["", "", ""]
-        self._right_labels = ["", "", "", "", ""]
+        self._left_labels: list[str] = []
+        self._right_labels: list[str] = []
         self.bind("<Configure>", self._redraw)
 
+    def sync_slots(self, provider_count: int, agent_count: int) -> None:
+        """Grow/shrink endpoint slots to match the snapshot without hard caps."""
+        while len(self.provider_slots) < provider_count:
+            self.provider_slots.append(ctk.CTkFrame(self, height=76, fg_color="transparent"))
+        while len(self.agent_slots) < agent_count:
+            self.agent_slots.append(ctk.CTkFrame(self, height=68, fg_color="transparent"))
+        for index, slot in enumerate(self.provider_slots):
+            if index >= provider_count:
+                slot.place_forget()
+                continue
+            y = 0.02 + index * (0.78 / max(provider_count - 1, 1))
+            slot.place(relx=0.012, rely=y, relwidth=0.30)
+        for index, slot in enumerate(self.agent_slots):
+            if index >= agent_count:
+                slot.place_forget()
+                continue
+            y = 0.01 + index * (0.80 / max(agent_count - 1, 1))
+            slot.place(relx=0.71, rely=y, relwidth=0.278)
+        self._redraw()
+
     def set_labels(self, left: list[str], right: list[str]) -> None:
-        self._left_labels = (left + ["", "", ""])[:3]
-        self._right_labels = (right + ["", "", "", "", ""])[:5]
+        self._left_labels = list(left)
+        self._right_labels = list(right)
         self._redraw()
 
     def _redraw(self, _event: Any = None) -> None:
@@ -215,7 +252,10 @@ class _RouteDiagram(ctk.CTkFrame):
         self.canvas.delete("route")
         center_x, center_y = width * 0.51, height * 0.40
         left_x, right_x = width * 0.312, width * 0.71
-        left_ys = [height * (0.02 + index * 0.29) + 38 for index in range(3)]
+        left_count = len(self._left_labels)
+        left_ys = [
+            height * (0.02 + index * (0.78 / max(left_count - 1, 1))) + 38 for index in range(left_count)
+        ]
         for index, y_pos in enumerate(left_ys):
             self.canvas.create_line(
                 left_x,
@@ -241,7 +281,10 @@ class _RouteDiagram(ctk.CTkFrame):
                 anchor="w",
                 tags="route",
             )
-        right_ys = [height * (0.01 + index * 0.185) + 34 for index in range(5)]
+        right_count = len(self._right_labels)
+        right_ys = [
+            height * (0.01 + index * (0.80 / max(right_count - 1, 1))) + 34 for index in range(right_count)
+        ]
         for index, y_pos in enumerate(right_ys):
             self.canvas.create_line(
                 center_x + 48,
@@ -376,7 +419,6 @@ class DashboardView(ctk.CTkFrame):
         self.on_action = on_action
         self._provider_cards: Dict[str, _EndpointCard] = {}
         self._agent_cards: Dict[str, _EndpointCard] = {}
-        self._provider_status_rows: Dict[str, _StatusRow] = {}
         self._event_rows: list[_EventRow] = []
         self._build()
 
@@ -417,17 +459,25 @@ class DashboardView(ctk.CTkFrame):
 
         self.metrics = ctk.CTkFrame(self.scroll, fg_color="transparent")
         self.metrics.pack(fill="x", pady=(0, 8))
-        for column in range(5):
+        for column in range(6):
             self.metrics.grid_columnconfigure(column, weight=1, uniform="kpi")
         self.quota_metric = _KpiCard(self.metrics, "Квота сегодня", "Н/Д", "нет измерения")
         self.calls_metric = _KpiCard(self.metrics, "Вызовы", "Н/Д", "активно: 0")
         self.agents_metric = _KpiCard(self.metrics, "Подключено аккаунтов", "0", "авторизованы")
         self.latency_metric = _KpiCard(self.metrics, "Время отклика", "Н/Д", "P50")
         self.failover_metric = _KpiCard(self.metrics, "Переключения", "Н/Д", "failover")
+        self.host_metric = _KpiCard(self.metrics, "Нагрузка CPU", "Н/Д", "нет измерения хоста")
         for index, metric in enumerate(
-            (self.quota_metric, self.calls_metric, self.agents_metric, self.latency_metric, self.failover_metric)
+            (
+                self.quota_metric,
+                self.calls_metric,
+                self.agents_metric,
+                self.latency_metric,
+                self.failover_metric,
+                self.host_metric,
+            )
         ):
-            metric.grid(row=0, column=index, padx=(0 if index == 0 else 3, 0 if index == 4 else 3), sticky="nsew")
+            metric.grid(row=0, column=index, padx=(0 if index == 0 else 3, 0 if index == 5 else 3), sticky="nsew")
 
         body = ctk.CTkFrame(self.scroll, fg_color="transparent")
         body.pack(fill="x")
@@ -440,46 +490,6 @@ class DashboardView(ctk.CTkFrame):
         ).pack(anchor="w", padx=10, pady=(8, 0))
         self.route_diagram = _RouteDiagram(route_card)
         self.route_diagram.pack(fill="both", expand=True, padx=6, pady=(2, 6))
-
-        # Metrics still exist as data probes but are intentionally not shown on
-        # Overview.  The previous right rail duplicated Accounts/Status data
-        # and made the useful routing canvas unnecessarily narrow.
-        self.realtime = HubCard(self, height=1)
-        self.realtime.grid_propagate(False)
-        ctk.CTkLabel(
-            self.realtime,
-            text="Статус в реальном времени",
-            font=Theme.font_body_bold(),
-            text_color=Theme.TEXT_PRIMARY,
-        ).pack(anchor="w", padx=10, pady=(8, 5))
-        ctk.CTkLabel(self.realtime, text="ПРОВАЙДЕРЫ", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED).pack(
-            anchor="w", padx=10
-        )
-        self.provider_status = ctk.CTkFrame(self.realtime, fg_color="transparent")
-        self.provider_status.pack(fill="x", padx=10, pady=(2, 5))
-        ctk.CTkFrame(self.realtime, height=1, fg_color=Theme.BORDER_SUBTLE).pack(fill="x", padx=10, pady=3)
-        ctk.CTkLabel(
-            self.realtime, text="СИСТЕМНЫЕ ПОКАЗАТЕЛИ", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED
-        ).pack(anchor="w", padx=10, pady=(2, 1))
-        systems = ctk.CTkFrame(self.realtime, fg_color="transparent")
-        systems.pack(fill="x", padx=10)
-        self.system_rows = {
-            "cpu": _SystemRow(systems, "CPU"),
-            "memory": _SystemRow(systems, "Память"),
-            "disk": _SystemRow(systems, "Диск"),
-            "network": _SystemRow(systems, "Сеть"),
-        }
-        for row in self.system_rows.values():
-            row.pack(fill="x")
-        ctk.CTkFrame(self.realtime, height=1, fg_color=Theme.BORDER_SUBTLE).pack(fill="x", padx=10, pady=4)
-        ctk.CTkLabel(self.realtime, text="ТЕКУЩАЯ НАГРУЗКА", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED).pack(
-            anchor="w", padx=10
-        )
-        load = ctk.CTkFrame(self.realtime, fg_color="transparent")
-        load.pack(fill="x", padx=10, pady=(2, 0))
-        self.load_rows = {key: _StatusRow(load) for key in ("active", "failovers", "errors")}
-        for row in self.load_rows.values():
-            row.pack(fill="x")
 
         self.events_card = HubCard(self.scroll)
         self.events_card.pack(fill="x", pady=(8, 0))
@@ -526,7 +536,8 @@ class DashboardView(ctk.CTkFrame):
             if bucket and bucket.remaining_percent is not None:
                 remaining = float(bucket.remaining_percent)
                 return bucket.formatted_remaining(), remaining
-        return agent.active_quota_label or "Нет данных API", None
+        reason = getattr(quota, "unavailable_reason", None) if quota else None
+        return reason or agent.active_quota_label or "Нет телеметрии: роль ещё не вызывалась", None
 
     @staticmethod
     def _sync_endpoint_cards(
@@ -573,13 +584,17 @@ class DashboardView(ctk.CTkFrame):
         latency = global_telemetry.get("latency_p50_ms") if has_telemetry else None
         failovers = global_telemetry.get("failovers_count") if has_telemetry else None
         active_calls = snapshot.metrics.get("active_calls_total")
+        host = dict(snapshot.metrics.get("host") or {})
+        cpu = host.get("cpu_percent") if host.get("has_data") else None
         quota_text, quota_percent = self._quota_measurement(snapshot)
         self.quota_metric.set_metric(
             quota_text, "реальная корзина" if quota_percent is not None else "нет измерения", quota_percent
         )
         self.calls_metric.set_metric(
             str(total_calls) if total_calls is not None else "Н/Д",
-            f"активно: {active_calls}" if isinstance(active_calls, int) else "Н/Д",
+            f"активно: {active_calls}"
+            if isinstance(active_calls, int)
+            else "нет телеметрии: запросы ещё не выполнялись",
             float(total_calls) if total_calls is not None else None,
         )
         self.agents_metric.set_metric(
@@ -589,16 +604,23 @@ class DashboardView(ctk.CTkFrame):
         )
         self.latency_metric.set_metric(
             f"{latency:.0f} мс" if latency is not None else "Н/Д",
-            "P50",
+            "P50" if latency is not None else "нет телеметрии: запросы ещё не выполнялись",
             float(latency) if latency is not None else None,
         )
         self.failover_metric.set_metric(
             str(failovers) if failovers is not None else "Н/Д",
-            "failover",
+            "failover" if failovers is not None else "нет телеметрии переключений",
             float(failovers) if failovers is not None else None,
         )
+        self.host_metric.set_metric(
+            f"{cpu:.0f}%" if cpu is not None else "Н/Д",
+            "host_measurement" if cpu is not None else "psutil не вернул измерение",
+            float(cpu) if cpu is not None else None,
+        )
 
-        providers = list(snapshot.providers)[:3]
+        providers = list(snapshot.providers)
+        agents = [agent for agent in snapshot.agents if not agent.is_main_orchestrator]
+        self.route_diagram.sync_slots(len(providers), len(agents))
         self._sync_endpoint_cards(
             self.route_diagram.provider_slots,
             self._provider_cards,
@@ -615,7 +637,7 @@ class DashboardView(ctk.CTkFrame):
                                 for profile in snapshot.profiles_by_provider.get(provider.provider_id, [])
                                 if profile.preferred_models
                             ),
-                            "модель: Н/Д",
+                            "модели не обнаружены",
                         )
                     ),
                     "Онлайн" if provider.online_count else "Недоступен",
@@ -633,9 +655,8 @@ class DashboardView(ctk.CTkFrame):
                 orchestrator.is_active,
             )
         else:
-            self.route_diagram.orchestrator.update_node("Не назначен", "Н/Д", False)
+            self.route_diagram.orchestrator.update_node("Аккаунт не подключён", "Роль не настроена", False)
 
-        agents = [agent for agent in snapshot.agents if not agent.is_main_orchestrator][:5]
         agent_items = []
         for agent in agents:
             agent_quota_text, agent_quota_percent = self._agent_quota_measurement(snapshot, agent)
@@ -674,57 +695,13 @@ class DashboardView(ctk.CTkFrame):
         left_labels: list[str] = []
         for provider in providers:
             share = dict(provider_telemetry.get(provider.provider_id) or {}).get("call_share")
-            left_labels.append(f"{share:.0%}" if share is not None else "")
+            left_labels.append(f"{share:.0%}" if share is not None else "нет телеметрии")
         right_labels: list[str] = []
         for agent in agents:
             measured = dict(role_telemetry.get(agent.role_id) or {})
             calls = measured.get("total_calls") if measured.get("has_data") else None
-            right_labels.append(f"{calls} выз." if calls is not None else "")
+            right_labels.append(f"{calls} выз." if calls is not None else "нет вызовов")
         self.route_diagram.set_labels(left_labels, right_labels)
-
-        live_provider_ids = {provider.provider_id for provider in providers}
-        for provider_id in list(self._provider_status_rows):
-            if provider_id not in live_provider_ids:
-                self._provider_status_rows.pop(provider_id).destroy()
-        for provider in providers:
-            row = self._provider_status_rows.get(provider.provider_id)
-            if row is None:
-                row = _StatusRow(self.provider_status)
-                row.pack(fill="x")
-                self._provider_status_rows[provider.provider_id] = row
-            provider_latency = dict(provider_telemetry.get(provider.provider_id) or {}).get("latency_p50_ms")
-            detail = f"{provider.online_count}/{provider.connected_count} онлайн"
-            if provider_latency is not None:
-                detail += f" • {provider_latency:.0f} мс"
-            row.update_row(provider.provider_name, detail, "healthy" if provider.online_count else "warning")
-
-        host = dict(snapshot.metrics.get("host") or {})
-        host_available = bool(host.get("has_data"))
-        cpu = host.get("cpu_percent") if host_available else None
-        memory = host.get("memory_percent") if host_available else None
-        disk = host.get("disk_percent") if host_available else None
-        network_total = sum(
-            value for value in (host.get("net_bytes_sent"), host.get("net_bytes_recv")) if isinstance(value, int)
-        )
-        network_mb = network_total / (1024 * 1024) if network_total else None
-        self.system_rows["cpu"].update_metric(f"{cpu:.0f}%" if cpu is not None else "Н/Д", cpu)
-        self.system_rows["memory"].update_metric(f"{memory:.0f}%" if memory is not None else "Н/Д", memory)
-        self.system_rows["disk"].update_metric(f"{disk:.0f}%" if disk is not None else "Н/Д", disk)
-        self.system_rows["network"].update_metric(
-            f"{network_mb:.0f} МБ" if network_mb is not None else "Н/Д", network_mb
-        )
-        error_rate = global_telemetry.get("error_rate") if has_telemetry else None
-        self.load_rows["active"].update_row(
-            "Активные вызовы", str(active_calls) if isinstance(active_calls, int) else "Н/Д", "healthy"
-        )
-        self.load_rows["failovers"].update_row(
-            "Переключения", str(failovers) if failovers is not None else "Н/Д", "warning"
-        )
-        self.load_rows["errors"].update_row(
-            "Доля ошибок",
-            f"{error_rate:.1%}" if error_rate is not None else "Н/Д",
-            "error" if error_rate else "healthy",
-        )
 
     def update_events(self, events: Iterable[Any]) -> None:
         items = list(events)[:5]

@@ -34,7 +34,7 @@ class ProviderCard(HubCard):
 
     def update_provider(self, summary: Any) -> None:
         self.title.configure(text=summary.provider_name)
-        self.updated.configure(text=f"Обновлено: {summary.last_refresh_at or 'Н/Д'}")
+        self.updated.configure(text=f"Обновлено: {summary.last_refresh_at or 'Н/Д — обнаружение ещё не запускалось'}")
         self.stats.configure(
             text=(
                 f"Онлайн {summary.online_count}/{summary.connected_count} • "
@@ -44,7 +44,12 @@ class ProviderCard(HubCard):
             )
         )
         self.models.configure(
-            text="Модели: " + (" • ".join(summary.discovered_models) if summary.discovered_models else "Н/Д")
+            text="Модели: "
+            + (
+                " • ".join(summary.discovered_models)
+                if summary.discovered_models
+                else "Н/Д — список моделей ещё не получен"
+            )
         )
 
 

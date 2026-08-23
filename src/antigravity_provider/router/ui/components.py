@@ -808,6 +808,7 @@ class RouteTargetWidget(HubCard):
         self.subtitle.pack(anchor="w", padx=Theme.CARD_PAD_X)
         self.quota = ctk.CTkLabel(self, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
         self.quota.pack(anchor="w", padx=Theme.CARD_PAD_X)
+        self.quota_tooltip = Tooltip(self.quota, "")
         self.failover = ctk.CTkLabel(
             self, text="", font=Theme.font_micro(), text_color=Theme.COLOR_CAUTION, wraplength=260, justify="left"
         )
@@ -830,7 +831,17 @@ class RouteTargetWidget(HubCard):
             "warning": "Квота: заканчивается",
             "exhausted": "Квота: исчерпана",
         }
-        self.quota.configure(text=quota_labels.get(quota_status, "Квота: Н/Д"))
+        if quota_status in quota_labels:
+            quota_text = quota_labels[quota_status]
+            quota_reason = ""
+        elif status in {"not_configured", "auth_required", "auth_expired"}:
+            quota_text = "Квота: Н/Д — аккаунт не подключён"
+            quota_reason = "Аккаунт не авторизован, поэтому лимиты запросить нельзя"
+        else:
+            quota_text = "Квота: Н/Д — провайдер не отдаёт лимиты"
+            quota_reason = "В текущем ответе провайдера отсутствуют измеримые данные квоты"
+        self.quota.configure(text=quota_text)
+        self.quota_tooltip.text = quota_reason
         if failover_reason:
             self.failover.configure(text=f"Переключено: {failover_reason}")
             self.failover.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_XS, Theme.SPACE_SM))
@@ -864,7 +875,9 @@ class AccountCardWidget(HubCard):
         on_action: Optional[Callable[[str, Any], None]] = None,
         **kwargs,
     ):
-        super().__init__(master, **kwargs)
+        super().__init__(master, height=148, **kwargs)
+        self.pack_propagate(False)
+        self.grid_propagate(False)
         self.profile_id = profile_id
         self.profile_model: Any = None
         self.on_action = on_action
@@ -877,20 +890,31 @@ class AccountCardWidget(HubCard):
         top.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(Theme.CARD_PAD_Y, Theme.SPACE_XS))
         self.provider = ctk.CTkLabel(top, text=provider, font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
         self.provider.pack(side="left")
-        self.profile_mark = ctk.CTkLabel(top, text="◇", font=Theme.font_caption(), text_color=Theme.TEXT_ACCENT)
+        self.profile_mark = ctk.CTkButton(
+            top,
+            text="⋮",
+            width=28,
+            height=20,
+            fg_color="transparent",
+            hover_color=Theme.SURFACE_HOVER,
+            text_color=Theme.TEXT_SECONDARY,
+            command=lambda: self._trigger("account_details"),
+        )
         self.profile_mark.pack(side="right")
 
         self.identity = EllipsizedLabel(self, text=identity, font=Theme.font_body_bold(), text_color=Theme.TEXT_PRIMARY)
         self.identity.pack(anchor="w", padx=Theme.CARD_PAD_X)
         self.meta = ctk.CTkLabel(self, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED)
         self.meta.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_XS, 0))
-        self.plan_badge = PlanBadge(self, text="")
-        self.status = StatusBadge(self, status)
-        self.status.pack(anchor="w", padx=Theme.CARD_PAD_X, pady=Theme.SPACE_SM)
+        self.badges = ctk.CTkFrame(self, fg_color="transparent")
+        self.badges.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(Theme.SPACE_XS, Theme.SPACE_SM))
+        self.plan_badge = PlanBadge(self.badges, text="")
+        self.status = StatusBadge(self.badges, status)
+        self.status.pack(side="left")
 
         self.compact_quota = ctk.CTkFrame(self, fg_color="transparent")
         self.compact_quota_cells: list[dict[str, Any]] = []
-        for index in range(4):
+        for index in range(1):
             cell = ctk.CTkFrame(self.compact_quota, fg_color="transparent")
             cell.grid(row=index // 2, column=index % 2, sticky="nsew", padx=(0, 10), pady=(2, 6))
             title = ctk.CTkLabel(cell, text="", font=Theme.font_micro(), text_color=Theme.TEXT_PRIMARY, anchor="w")
@@ -978,6 +1002,35 @@ class AccountCardWidget(HubCard):
             command=lambda: self._trigger("delete_credentials"),
         ).pack(side="right")
         self.set_compact(True)
+        self._bind_details_click(self)
+        try:
+            self._canvas.configure(takefocus=1)
+        except (AttributeError, tk.TclError):
+            pass
+        self.bind("<Return>", self._open_details, add="+")
+        self.bind("<space>", self._open_details, add="+")
+        self.bind("<Enter>", self._hover_on, add="+")
+        self.bind("<Leave>", self._hover_off, add="+")
+
+    def _bind_details_click(self, widget: Any) -> None:
+        if isinstance(widget, ctk.CTkButton):
+            return
+        widget.configure(cursor="hand2")
+        widget.bind("<Button-1>", self._open_details, add="+")
+        for child in widget.winfo_children():
+            self._bind_details_click(child)
+
+    def _open_details(self, _event: Any = None) -> str:
+        self._trigger("account_details")
+        return "break"
+
+    def _hover_on(self, _event: Any = None) -> None:
+        self.configure(fg_color=Theme.SURFACE_HOVER, border_color=Theme.BORDER_HOVER)
+
+    def _hover_off(self, _event: Any = None) -> None:
+        profile = self.profile_model
+        border = Theme.BORDER_ACCENT if profile and getattr(profile, "is_main_account", False) else Theme.BORDER
+        self.configure(fg_color=Theme.SURFACE, border_color=border)
 
     @staticmethod
     def resolve_identity(profile: Any) -> str:
@@ -1015,7 +1068,7 @@ class AccountCardWidget(HubCard):
         self.compact = True
         self.details.pack_forget()
         self.compact_quota.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(0, Theme.SPACE_XS))
-        self.compact_actions.pack(fill="x", padx=Theme.CARD_PAD_X, pady=(0, Theme.CARD_PAD_Y))
+        self.compact_actions.pack_forget()
 
     def update_account(self, profile: Any, quota_snapshot: Optional[Any] = None) -> None:
         self.profile_model = profile
@@ -1027,12 +1080,7 @@ class AccountCardWidget(HubCard):
         if self.plan_badge.set_plan(
             getattr(profile, "plan_code", "UNKNOWN"), getattr(profile, "plan_source", "unknown")
         ):
-            self.plan_badge.pack(
-                anchor="w",
-                padx=Theme.CARD_PAD_X,
-                pady=(Theme.SPACE_SM, 0),
-                before=self.status,
-            )
+            self.plan_badge.pack(side="left", padx=(0, Theme.SPACE_XS), before=self.status)
         else:
             self.plan_badge.pack_forget()
         self.configure(border_color=Theme.BORDER_ACCENT if profile.is_main_account else Theme.BORDER)
@@ -1057,9 +1105,16 @@ class AccountCardWidget(HubCard):
             card_health = profile.health_state
             card_label = getattr(profile, "health_label_ru", None)
         self.status.set_status(card_health, card_label)
+        visible_buckets = sorted(
+            buckets,
+            key=lambda bucket: (
+                getattr(bucket, "remaining_percent", None) is None,
+                float(getattr(bucket, "remaining_percent", 101.0) or 0.0),
+            ),
+        )[:1]
         for index, cell in enumerate(self.compact_quota_cells):
-            if index < len(buckets):
-                bucket = buckets[index]
+            if index < len(visible_buckets):
+                bucket = visible_buckets[index]
                 remaining = getattr(bucket, "remaining_percent", None)
                 color = (
                     Theme.STATUS_HEALTHY
