@@ -351,3 +351,46 @@ def test_snapshot_unavailable_reason_can_flow_to_account_bucket() -> None:
     )
     assert snapshot.buckets[0].remaining_percent is None
     assert snapshot.unavailable_reason == "Авторизация недоступна"
+
+
+@pytest.mark.ui
+def test_dashboard_renders_all_five_providers_in_order(ui_root) -> None:
+    provider_ids = ["antigravity", "openai-codex", "opencode-go", "claude", "grok"]
+    providers = [
+        ProviderSummary(
+            provider_id=pid,
+            provider_name=pid.upper(),
+            total_slots=2,
+            connected_count=1,
+            online_count=1,
+            auth_required_count=0,
+            quota_exhausted_count=0,
+            cold_spare_count=0,
+            discovered_models=["model-1"],
+            last_refresh_at="12:00:00",
+        )
+        for pid in provider_ids
+    ]
+    snapshot = HubSnapshot(
+        generation=1,
+        seq=1,
+        timestamp=time.time(),
+        profiles_by_provider={},
+        all_profiles={},
+        readiness=_readiness(),
+        agents=[],
+        providers=providers,
+        routing={},
+        quotas={},
+    )
+    view = DashboardView(ui_root)
+    try:
+        view.pack()
+        view.update_data(snapshot)
+        ui_root.update_idletasks()
+        assert len(view._provider_cards) == 5
+        assert set(view._provider_cards.keys()) == set(provider_ids)
+        for slot in view.route_diagram.provider_slots[:5]:
+            assert slot.winfo_manager() == "place"
+    finally:
+        view.destroy()

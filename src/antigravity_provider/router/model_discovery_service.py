@@ -109,6 +109,19 @@ class ModelDiscoveryService:
                 "has_cache": True,
             }
 
+    def get_cached(self, provider: str) -> Dict[str, Any]:
+        """Convenience alias for get_models_with_metadata."""
+        return self.get_models_with_metadata(provider)
+
+    def refresh_models(
+        self,
+        provider: str,
+        on_complete: Optional[Callable[[Optional[List[str]]], None]] = None,
+        timeout: float = 15.0,
+    ) -> None:
+        """Trigger background model discovery with strict timeout (alias)."""
+        return self.refresh_models_async(provider, on_complete=on_complete, timeout=timeout)
+
     # ─────────────────────────────────────────────────────────────
     #  DISCOVERY PROBES WITH TIMEOUT
     # ─────────────────────────────────────────────────────────────

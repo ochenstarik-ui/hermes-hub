@@ -914,21 +914,23 @@ class AccountCardWidget(HubCard):
 
         self.compact_quota = ctk.CTkFrame(self, fg_color="transparent")
         self.compact_quota_cells: list[dict[str, Any]] = []
-        for index in range(1):
+        for index in range(4):
             cell = ctk.CTkFrame(self.compact_quota, fg_color="transparent")
-            cell.grid(row=index // 2, column=index % 2, sticky="nsew", padx=(0, 10), pady=(2, 6))
-            title = ctk.CTkLabel(cell, text="", font=Theme.font_micro(), text_color=Theme.TEXT_PRIMARY, anchor="w")
-            title.pack(fill="x")
-            value = ctk.CTkLabel(cell, text="", font=Theme.font_caption(), text_color=Theme.TEXT_SECONDARY, anchor="e")
-            value.pack(fill="x")
+            cell.grid(row=index // 2, column=index % 2, sticky="nsew", padx=(0, 8), pady=(1, 2))
+            top_line = ctk.CTkFrame(cell, fg_color="transparent")
+            top_line.pack(fill="x")
+            title = ctk.CTkLabel(top_line, text="", font=Theme.font_micro(), text_color=Theme.TEXT_SECONDARY, anchor="w")
+            title.pack(side="left")
+            value = ctk.CTkLabel(top_line, text="", font=Theme.font_micro_bold(), text_color=Theme.TEXT_PRIMARY, anchor="e")
+            value.pack(side="right")
             progress = ctk.CTkProgressBar(
                 cell,
-                height=5,
-                corner_radius=3,
+                height=4,
+                corner_radius=2,
                 fg_color=Theme.SURFACE_MUTED,
                 progress_color=Theme.STATUS_HEALTHY,
             )
-            progress.pack(fill="x", pady=(2, 1))
+            progress.pack(fill="x", pady=(1, 0))
             progress.set(0)
             reset = ctk.CTkLabel(cell, text="", font=Theme.font_micro(), text_color=Theme.TEXT_MUTED, anchor="w")
             reset.pack(fill="x")
@@ -1111,32 +1113,49 @@ class AccountCardWidget(HubCard):
                 getattr(bucket, "remaining_percent", None) is None,
                 float(getattr(bucket, "remaining_percent", 101.0) or 0.0),
             ),
-        )[:1]
-        for index, cell in enumerate(self.compact_quota_cells):
-            if index < len(visible_buckets):
-                bucket = visible_buckets[index]
-                remaining = getattr(bucket, "remaining_percent", None)
-                color = (
-                    Theme.STATUS_HEALTHY
-                    if getattr(bucket, "status", "unknown") == "healthy"
-                    else Theme.STATUS_WARNING
-                    if getattr(bucket, "status", "unknown") == "warning"
-                    else Theme.TEXT_MUTED
-                )
-                detail = bucket.formatted_remaining()
-                if detail == "Н/Д" and unavailable_reason:
-                    limit = getattr(bucket, "limit_absolute", None)
-                    unit = getattr(bucket, "unit", None)
-                    prefix = f"Лимит ${limit} • " if limit is not None and unit == "USD" else ""
-                    detail = f"{prefix}{unavailable_reason}"
-                cell["title"].configure(text=bucket.display_name)
-                cell["value"].configure(text=detail, text_color=color)
-                cell["progress"].configure(progress_color=color)
-                cell["progress"].set(float(remaining) / 100.0 if remaining is not None else 0)
-                cell["reset"].configure(text=bucket.formatted_reset() or "Период указан провайдером")
-                cell["frame"].grid()
-            else:
-                cell["frame"].grid_remove()
+        )[:4]
+        if visible_buckets:
+            for index, cell in enumerate(self.compact_quota_cells):
+                if index < len(visible_buckets):
+                    bucket = visible_buckets[index]
+                    remaining = getattr(bucket, "remaining_percent", None)
+                    color = (
+                        Theme.STATUS_HEALTHY
+                        if getattr(bucket, "status", "unknown") == "healthy"
+                        else Theme.STATUS_WARNING
+                        if getattr(bucket, "status", "unknown") == "warning"
+                        else (Theme.STATUS_ERROR if getattr(bucket, "status", "unknown") == "exhausted" else Theme.TEXT_MUTED)
+                    )
+                    detail = bucket.formatted_remaining()
+                    if detail == "Н/Д" and unavailable_reason:
+                        limit = getattr(bucket, "limit_absolute", None)
+                        unit = getattr(bucket, "unit", None)
+                        prefix = f"Лимит ${limit} • " if limit is not None and unit == "USD" else ""
+                        detail = f"{prefix}{unavailable_reason}"
+                    cell["title"].configure(text=bucket.display_name)
+                    cell["value"].configure(text=detail, text_color=color)
+                    cell["progress"].configure(progress_color=color)
+                    cell["progress"].set(float(remaining) / 100.0 if remaining is not None else 0)
+                    reset_txt = bucket.formatted_reset() or "Период указан провайдером"
+                    cell["reset"].configure(text=reset_txt)
+                    cell["frame"].grid(row=index // 2, column=index % 2, sticky="nsew", padx=(0, 8), pady=(1, 2))
+                else:
+                    cell["frame"].grid_remove()
+        else:
+            # Fallback when no bucket objects exist
+            reason = unavailable_reason or (
+                "Аккаунт не подключён" if profile.health_state in {"not_configured", "auth_required", "auth_expired"}
+                else "Провайдер не отдаёт лимиты"
+            )
+            cell = self.compact_quota_cells[0]
+            cell["title"].configure(text="Квота")
+            cell["value"].configure(text=f"Н/Д", text_color=Theme.TEXT_MUTED)
+            cell["progress"].configure(progress_color=Theme.COLOR_NEUTRAL)
+            cell["progress"].set(0)
+            cell["reset"].configure(text=reason)
+            cell["frame"].grid(row=0, column=0, columnspan=2, sticky="nsew", padx=(0, 8), pady=(1, 2))
+            for other in self.compact_quota_cells[1:]:
+                other["frame"].grid_remove()
         seen: set[str] = set()
         for bucket in buckets:
             key = str(getattr(bucket, "id", "") or getattr(bucket, "display_name", "bucket"))
