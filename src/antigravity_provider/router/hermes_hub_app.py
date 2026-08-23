@@ -54,9 +54,11 @@ from antigravity_provider.router.adapters import get_adapter
 # Единственная реализация действий живёт в action_handler: её используют
 # и десктоп, и веб-API. Второй копии в проекте быть не должно.
 from antigravity_provider.router.action_handler import (
+    ActionExecutor,
     do_delete_credentials,
     do_save_settings,
     do_set_main,
+    do_set_model,
     do_set_orchestrator,
     do_test_profile,
 )
@@ -756,18 +758,12 @@ class HermesHubApp(ctk.CTk):
 
         def _save_profile_model() -> None:
             selected = model_var.get()
-            if selected == "Список моделей ещё не получен" or not profile_config:
-                self._show_toast("❌ Сначала получите список моделей")
-                return
-            updated = load_router_config()
-            target = updated.profiles[profile_id]
-            target.preferred_models = [selected] + [item for item in target.preferred_models if item != selected]
-            updated.profiles[profile_id] = target
-            if save_router_config(updated):
-                self._show_toast(f"✅ Модель профиля сохранена: {selected}")
+            ok, msg = do_set_model(profile_id, selected)
+            if ok:
+                self._show_toast(f"✅ {msg}")
                 self._refresh_data()
             else:
-                self._show_toast("❌ Не удалось сохранить модель профиля")
+                self._show_toast(f"❌ {msg}")
 
         HubButton(
             model_row,
@@ -1136,18 +1132,11 @@ class HermesHubApp(ctk.CTk):
         def _save_agent() -> None:
             current_pid = choices[account_var.get()]
             current_model = model_var.get()
-            if current_model == "Список моделей ещё не получен":
-                result.configure(text="✕ Сначала получите список моделей", text_color=Theme.STATUS_ERROR)
-                return
-            updated = load_router_config()
-            profile = updated.profiles[current_pid]
-            profile.preferred_models = [current_model] + [m for m in profile.preferred_models if m != current_model]
-            updated.profiles[current_pid] = profile
-            if role_id in updated.roles:
-                updated.roles[role_id].default_model = current_model
-            if not save_router_config(updated):
-                result.configure(text="✕ Не удалось сохранить модель", text_color=Theme.STATUS_ERROR)
-                return
+            if current_model and current_model != "Список моделей ещё не получен":
+                ok_model, msg_model = do_set_model(current_pid, current_model, role_id=role_id)
+                if not ok_model:
+                    result.configure(text=f"✕ {msg_model}", text_color=Theme.STATUS_ERROR)
+                    return
             ok, message = AutoAssigner.assign_profile_to_role(current_pid, role_id, is_primary=True)
             result.configure(
                 text=f"{'✓' if ok else '✕'} {message}",

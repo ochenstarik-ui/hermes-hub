@@ -103,7 +103,7 @@ def _display_to_cli(display_name: str) -> tuple[str, str]:
     return cli, effort
 
 
-def discover_models() -> dict[str, str]:
+def discover_models(profile_id: str | None = None) -> dict[str, str]:
     """Discover available models by querying ``agy models``.
 
     Returns a dict mapping *hermes-style* model ids
@@ -117,15 +117,35 @@ def discover_models() -> dict[str, str]:
         return dict(_AGY_MODEL_CACHE)
 
     exe = get_agy_exe()
+
+    # agy читает учётные данные из $HOME/$USERPROFILE, а адаптер подменяет их
+    # на каталог профиля — так шесть аккаунтов и сосуществуют. Раньше эта
+    # команда запускалась в ГЛОБАЛЬНОМ окружении, где вход не выполнен, и
+    # отвечала «Please sign in to view available models» — при шести рабочих
+    # OAuth-профилях. Список моделей поэтому был пуст всегда.
+    if profile_id:
+        from antigravity_provider.router.adapters.antigravity_adapter import get_profile_env_dir
+
+        profile_dir = get_profile_env_dir(profile_id)
+        env = build_safe_subprocess_env(
+            overrides={
+                "USERPROFILE": str(profile_dir),
+                "HOME": str(profile_dir),
+                "HOMEPATH": str(profile_dir),
+            }
+        )
+    else:
+        env = build_safe_subprocess_env()
+
     try:
         result = subprocess.run(
             [exe, "models"],
             capture_output=True,
             text=True,
-            timeout=10,
+            timeout=60,
             encoding="utf-8",
             errors="replace",
-            env=build_safe_subprocess_env(),
+            env=env,
         )
         raw = result.stdout.strip()
         if not raw or result.returncode != 0:
