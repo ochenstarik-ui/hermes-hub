@@ -34,14 +34,10 @@ if sys.platform == "win32":
         pass
 
 # ── Ensure plugin and repo paths are on sys.path ──
-_SRC_DIR = Path(__file__).resolve().parent.parent.parent
-if str(_SRC_DIR) not in sys.path:
-    sys.path.insert(0, str(_SRC_DIR))
-import antigravity_provider.paths as _paths
-_HERMES_HOME = _paths.get_hermes_home()
-_PLUGIN_SRC = _HERMES_HOME / "plugins" / "antigravity-provider" / "src"
-_AGENT_DIR = _HERMES_HOME / "hermes-agent"
-for _p in [_PLUGIN_SRC, _AGENT_DIR]:
+_LOCAL = Path(os.environ.get("LOCALAPPDATA", ""))
+_PLUGIN_SRC = _LOCAL / "hermes" / "plugins" / "antigravity-provider" / "src"
+_AGENT_DIR = _LOCAL / "hermes" / "hermes-agent"
+for _p in [_PLUGIN_SRC, _AGENT_DIR, Path(__file__).resolve().parent.parent.parent]:
     _ps = str(_p)
     if _p.exists() and _ps not in sys.path:
         sys.path.insert(0, _ps)
@@ -50,6 +46,15 @@ from antigravity_provider.router.router_config import load_router_config, save_r
 from antigravity_provider.router.profile_manager import ProfileAuthManager
 from antigravity_provider.router.auto_assigner import AutoAssigner
 from antigravity_provider.router.adapters import get_adapter
+# Единственная реализация действий живёт в action_handler: её используют
+# и десктоп, и веб-API. Второй копии в проекте быть не должно.
+from antigravity_provider.router.action_handler import (
+    do_delete_credentials,
+    do_save_settings,
+    do_set_main,
+    do_set_orchestrator,
+    do_test_profile,
+)
 from antigravity_provider import paths
 from antigravity_provider.version import __version__
 
@@ -89,78 +94,513 @@ def _load_saved_theme() -> str:
     return str(settings.get("theme", "dark"))
 
 
+# ═══════════════════════════════════════════════════════════════
+#  Actions Layer (Safe & Non-blocking)
+# ═══════════════════════════════════════════════════════════════
+
+
+class HermesHubApp(ctk.CTk):
+    def __init__(self):
+        self._theme_name = Theme.apply_scheme(_load_saved_theme())
+        ctk.set_appearance_mode("dark" if self._theme_name == "dark" else "light")
+        super().__init__()
+        self.title("Hermes Hub")
+        self.geometry("1380x880")
+        self.minsize(1100, 700)
+
+        ctk.set_default_color_theme("blue")
+        self.configure(fg_color=Theme.BG_WINDOW)
+
+        # Set Windows Multi-Resolution Icon
+        ico_path = AssetManager.get().get_ico_path()
+        if ico_path and os.path.exists(ico_path):
+            try:
+                self.iconbitmap(ico_path)
+            except Exception:
+                pass
+
+        self._current_view = "overview"
+        self._views: Dict[str, ctk.CTkFrame] = {}
+        self._view_generations: Dict[str, int] = {}
+        self._shutting_down = False
+        self._resize_timer_id = None
+
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        self.bind("<Configure>", self._on_window_configure)
+
+        self._build_layout()
+        self._show_view("overview")
+
+        try:
+            from antigravity_provider.router.scheduler import HermesRefreshScheduler
+
+            HermesRefreshScheduler.get().start()
+        except Exception:
+            pass
+
+        try:
+            from antigravity_provider.router.quota_collector import AccountQuotaService
+
+            AccountQuotaService.get().start_background_scheduler()
+        except Exception:
+            pass
+
+        self.after(50, self._refresh_data)
+        self.after(800, self._refresh_quotas_on_startup)
+
+    def _refresh_quotas_on_startup(self) -> None:
+        """Populate measured quota cards immediately instead of after the 5-minute scheduler tick."""
+        if self._shutting_down:
+            return
+        try:
+            from antigravity_provider.router.scheduler import HermesRefreshScheduler
+
+            HermesRefreshScheduler.get().trigger_refresh_all(on_complete=lambda: self.after(0, self._refresh_data))
+        except Exception as exc:
+            logger.warning("Initial quota refresh could not start: %s", exc)
+
+    def _build_layout(self):
+        # ── Sidebar (Left) ──
+        self.sidebar = ctk.CTkFrame(self, width=Theme.WIDTH_SIDEBAR, fg_color=Theme.BG_SIDEBAR, corner_radius=0)
+        self.sidebar.pack(side="left", fill="y")
+        self.sidebar.pack_propagate(False)
+
+        # Top Centered Brand Logo
+        brand_container = ctk.CTkFrame(self.sidebar, fg_color="transparent")
+        brand_container.pack(fill="x", padx=Theme.SPACE_MD, pady=(Theme.SPACE_LG, Theme.SPACE_SM))
+
+        logo_img = AssetManager.get().get_logo_image(size=(78, 78))
+        if logo_img:
+            logo_lbl = ctk.CTkLabel(brand_container, image=logo_img, text="")
+            logo_lbl.pack(anchor="center", pady=(0, 6))
+
+        ctk.CTkLabel(
+            brand_container,
+            text="HERMES HUB",
+            font=(Theme.FONT_FAMILY_TITLE, 17, "bold"),
+            text_color=Theme.TEXT_ACCENT,
+        ).pack(anchor="center")
+        ctk.CTkFrame(self.sidebar, height=1, fg_color=Theme.BORDER_ACCENT).pack(
+            fill="x", padx=Theme.SPACE_MD, pady=(Theme.SPACE_XS, Theme.SPACE_SM)
+        )
+
+        # Nav Items with clean Fluent glyphs
+        self._nav_items = [
+            ("overview", "Обзор", "overview"),
+            ("team", "Команда", "team"),
+            ("accounts", "Аккаунты", "accounts"),
+            ("routing", "Маршрутизация", "routing"),
+            ("providers", "Модели и провайдеры", "providers"),
+            ("analytics", "Аналитика", "analytics"),
+            ("health", "Состояние", "health"),
+            ("logs", "Журнал событий", "logs"),
+            ("settings", "Настройки", "settings"),
+            ("about", "О программе", "about"),
+        ]
+
+        self.nav_frame = ctk.CTkScrollableFrame(
+            self.sidebar,
+            fg_color="transparent",
+            corner_radius=0,
+            scrollbar_fg_color=Theme.BG_SIDEBAR,
+            scrollbar_button_color=Theme.BG_SIDEBAR,
+            scrollbar_button_hover_color=Theme.BORDER_HOVER,
+        )
+        self.nav_frame.pack(fill="both", expand=True)
+        self._nav_buttons: Dict[str, ctk.CTkButton] = {}
+        for key, label, icon in self._nav_items:
+            icon_image = AssetManager.get().get_nav_icon(icon, size=19)
+            btn = ctk.CTkButton(
+                self.nav_frame,
+                text=label,
+                image=icon_image,
+                compound="left",
+                font=Theme.font_body(),
+                height=Theme.HEIGHT_NAV_ITEM,
+                fg_color="transparent",
+                hover_color=Theme.SIDEBAR_HOVER,
+                text_color=Theme.SIDEBAR_TEXT,
+                anchor="w",
+                corner_radius=Theme.RADIUS_SM,
+                command=lambda k=key: self._show_view(k),
+            )
+            btn.pack(fill="x", padx=Theme.SPACE_SM, pady=1)
+            self._nav_buttons[key] = btn
+
+        self.sidebar_version = ctk.CTkLabel(
+            self.sidebar,
+            text=f"Hermes Hub v{__version__}",
+            font=Theme.font_micro(),
+            text_color=Theme.SIDEBAR_MUTED,
+        )
+        self.sidebar_version.pack(side="bottom", pady=(0, Theme.SPACE_SM))
+        user_card = ctk.CTkFrame(
+            self.sidebar,
+            fg_color=Theme.SIDEBAR_SELECTED,
+            border_width=1,
+            border_color=Theme.BORDER,
+            corner_radius=Theme.RADIUS_MD,
+        )
+        user_card.pack(side="bottom", fill="x", padx=Theme.SPACE_SM, pady=Theme.SPACE_SM)
+        ctk.CTkLabel(
+            user_card,
+            text="AD",
+            width=30,
+            height=30,
+            corner_radius=15,
+            fg_color=Theme.ACCENT,
+            text_color=Theme.TEXT_ON_ACCENT,
+            font=Theme.font_badge_bold(),
+        ).pack(side="left", padx=Theme.SPACE_SM, pady=Theme.SPACE_SM)
+        ctk.CTkLabel(
+            user_card,
+            text="Administrator\nОсновная команда",
+            justify="left",
+            font=Theme.font_micro(),
+            text_color=Theme.SIDEBAR_TEXT,
+        ).pack(side="left")
+
+        # ── Global top bar ──
+        self.statusbar = ctk.CTkFrame(self, height=Theme.HEIGHT_HEADER, fg_color=Theme.BG_HEADER, corner_radius=0)
+        self.statusbar.pack(side="top", fill="x")
+        self.statusbar.pack_propagate(False)
+
+        self.status_left = ctk.CTkLabel(
+            self.statusbar,
+            text="● Состояние загружается",
+            font=Theme.font_caption(),
+            text_color=Theme.STATUS_HEALTHY,
+        )
+        self.status_left.pack(side="left", padx=Theme.SPACE_LG)
+        self.status_left.configure(cursor="hand2")
+        self.status_left.bind("<Button-1>", lambda _event: self._show_view("health"), add="+")
+
+        self.global_search = ctk.CTkEntry(
+            self.statusbar,
+            placeholder_text="Поиск по агентам, аккаунтам, задачам…     Ctrl + K",
+            width=360,
+            height=Theme.HEIGHT_INPUT,
+            fg_color=Theme.SURFACE,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.global_search.pack(side="left", padx=Theme.SPACE_MD)
+        self.global_search.bind("<Return>", self._run_global_search)
+        self.bind_all("<Control-k>", self._focus_global_search)
+
+        for icon_name, command in (
+            ("settings", lambda: self._show_view("settings")),
+            ("about", lambda: self._show_view("about")),
+            ("logs", lambda: self._show_view("logs")),
+        ):
+            HubButton(
+                self.statusbar,
+                text="",
+                image=AssetManager.get().get_nav_icon(icon_name, size=18),
+                variant="ghost",
+                width=Theme.HEIGHT_BTN_MD,
+                command=command,
+            ).pack(side="right", padx=Theme.SPACE_XS)
+        self.add_account_button = HubButton(
+            self.statusbar,
+            text="+  Добавить аккаунт",
+            variant="primary",
+            command=lambda: self._handle_action("add_account", {}),
+        )
+        self.add_account_button.pack(side="right", padx=(Theme.SPACE_XS, Theme.SPACE_MD))
+
+        self.status_right = ctk.CTkLabel(
+            self.statusbar,
+            text="Snapshot: Н/Д",
+            font=Theme.font_micro(),
+            text_color=Theme.TEXT_MUTED,
+        )
+
+        # ── Main Content Area ──
+        self.content = ctk.CTkFrame(self, fg_color=Theme.BG_WINDOW, corner_radius=0)
+        self.content.pack(side="right", fill="both", expand=True)
+
+        # Pre-instantiate all views so switching is 100% instant (0-15 ms)
+        for key, _, _ in self._nav_items:
+            self._views[key] = self._create_view(key)
+
+    def _focus_global_search(self, _event=None) -> str:
+        self.global_search.focus_set()
+        return "break"
+
+    def _run_global_search(self, _event=None) -> str:
+        query = self.global_search.get().strip()
+        self._show_view("accounts")
+        accounts = self._views.get("accounts")
+        if accounts and hasattr(accounts, "search"):
+            accounts.search.delete(0, "end")
+            accounts.search.insert(0, query)
+            accounts._set_search(query)
+        return "break"
+
+    def _create_view(self, view_name: str) -> ctk.CTkFrame:
+        """Create view widget instance."""
+        if view_name == "overview":
+            return DashboardView(
+                self.content,
+                app_state={},
+                on_navigate=self._show_view,
+                on_action=self._handle_action,
+            )
+        elif view_name == "team":
+            return TeamView(self.content, app_state={}, on_action=self._handle_action)
+        elif view_name == "accounts":
+            return AccountsView(self.content, app_state={}, on_action=self._handle_action)
+        elif view_name == "providers":
+            return ProvidersView(self.content, app_state={}, on_action=self._handle_action)
+        elif view_name == "routing":
+            return RoutingView(self.content, on_action=self._handle_action)
+        elif view_name == "analytics":
+            return AnalyticsView(self.content)
+        elif view_name == "health":
+            return HealthView(self.content, app_state={}, on_refresh=self._refresh_data)
+        elif view_name == "logs":
+            return LogsView(self.content)
+        elif view_name == "settings":
+            return SettingsView(self.content, on_action=self._handle_action, theme_name=self._theme_name)
+        elif view_name == "about":
+            return AboutView(self.content)
+        else:
+            return TeamView(self.content, app_state={}, on_action=self._handle_action)
+
+    def _show_view(self, view_name: str):
+        """Instant view switching using pack_forget() and cached widgets with lazy generation update."""
+        t0 = time.time()
+        prev_view = self._current_view
+        self._current_view = view_name
+
+        # Update sidebar button states
+        for key, btn in self._nav_buttons.items():
+            if key == view_name:
+                btn.configure(
+                    fg_color=Theme.SIDEBAR_SELECTED,
+                    text_color=Theme.TEXT_ACCENT,
+                    border_width=1,
+                    border_color=Theme.BORDER_ACCENT,
+                )
+            else:
+                btn.configure(
+                    fg_color="transparent",
+                    text_color=Theme.SIDEBAR_TEXT,
+                    border_width=0,
+                )
+
+        # Hide currently active views
+        for v in self._views.values():
+            v.pack_forget()
+
+        # Show target view instantly
+        target_view = self._views.get(view_name)
+        if target_view:
+            target_view.pack(fill="both", expand=True)
+
+            # Lazy update if view state is behind current snapshot generation
+            from antigravity_provider.router.state_store import HubStateStore
+
+            snap = HubStateStore.get().get_snapshot()
+            if self._view_generations.get(view_name, 0) < snap.generation:
+                if hasattr(target_view, "update_data"):
+                    try:
+                        target_view.update_data(snap)
+                    except Exception as ex:
+                        logger.warning("Error in lazy view update for %s: %s", view_name, ex)
+                self._view_generations[view_name] = snap.generation
+            self._update_auxiliary_data(target_view)
+
+        # Instrument tab switch latency
+        el_ms = round((time.time() - t0) * 1000, 2)
+        if el_ms > 100:
+            logger.warning(f"[TAB SWITCH SLOW] {prev_view} -> {view_name}: {el_ms} ms")
+        else:
+            logger.debug(f"[TAB SWITCH] {prev_view} -> {view_name}: {el_ms} ms")
+
+    def _on_window_configure(self, event):
+        """Debounce window resize to maintain 60fps smoothness."""
+        if event.widget != self:
+            return
+        if self._resize_timer_id:
+            try:
+                self.after_cancel(self._resize_timer_id)
+            except Exception:
+                pass
+        self._resize_timer_id = self.after(100, self._handle_debounced_resize)
+
+    def _handle_debounced_resize(self):
+        self._resize_timer_id = None
+
+    # ─────── Data Refresh (Threaded via Scheduler & HubStateStore) ───────
+
+    def _refresh_data(self):
+        if self._shutting_down:
+            return
+        try:
+            self.status_left.configure(text="Обновление состояния...")
+        except Exception:
+            pass
+
+        def _load():
+            if self._shutting_down:
+                return
+            try:
+                from antigravity_provider.router.state_store import HubStateStore
+
+                snap = HubStateStore.get().refresh(force_scan=True)
+                if not self._shutting_down:
+                    self.after(0, lambda: self._on_data_loaded(snap))
+            except Exception as e:
+                if not self._shutting_down:
+                    try:
+                        self.after(0, lambda err=str(e): self._on_data_error(err))
+                    except Exception:
+                        pass
+
+        threading.Thread(target=_load, daemon=True).start()
+
+    def _on_data_loaded(self, snapshot_or_readiness: Any):
+        if self._shutting_down:
+            return
+
+        from antigravity_provider.router.state_store import HubSnapshot, HubStateStore
+
+        if isinstance(snapshot_or_readiness, HubSnapshot):
+            snap = snapshot_or_readiness
+            readiness = snap.readiness
+        else:
+            snap = HubStateStore.get().get_snapshot()
+            readiness = snapshot_or_readiness
+
+        freshness = "⚠ Данные устарели" if snap.is_stale else f"Snapshot #{snap.seq}"
+        self.status_left.configure(
+            text=f"● {readiness.title_ru}{' · Подробнее' if readiness.state != 'healthy' else ''}",
+            text_color=Theme.STATUS_HEALTHY
+            if readiness.state == "healthy"
+            else Theme.STATUS_WARNING
+            if readiness.state in ("limited", "degraded")
+            else Theme.STATUS_ERROR,
+        )
+
+        self.status_right.configure(
+            text=f"{freshness} • {readiness.accounts_connected_count} аккаунтов • {readiness.roles_ready_count} ролей",
+            text_color=Theme.STATUS_WARNING if snap.is_stale else Theme.TEXT_MUTED,
+        )
+
+        # Update ONLY the currently visible view (others are updated lazily on tab switch)
+        curr_view = self._views.get(self._current_view)
+        if curr_view and hasattr(curr_view, "update_data"):
+            try:
+                curr_view.update_data(snap)
+            except Exception as ex:
+                logger.warning("Error updating current view %s: %s", self._current_view, ex)
+            self._view_generations[self._current_view] = snap.generation
+            self._update_auxiliary_data(curr_view)
+
+    @staticmethod
+    def _update_auxiliary_data(view: Any) -> None:
+        if hasattr(view, "update_events"):
+            try:
+                view.update_events(EventLogService.get().get_events(limit=20))
+            except Exception as ex:
+                logger.warning("Error updating event presentation: %s", ex)
+
+    def _on_data_error(self, error: str):
+        if self._shutting_down:
+            return
+        self.status_left.configure(text=f"Ошибка: {error}")
+
     # ─────── Action Handler ───────
 
-    def _handle_action(self, action: str, data: dict):
+    def _handle_action(self, action: str, data: Dict[str, Any]):
         pid = data.get("profile_id", "")
-        
-        # 1. UI Navigation
-        if action in ["oauth", "add_account"]:
+        prov = data.get("provider", "")
+
+        if action == "set_main":
+            self._run_in_thread(
+                lambda: do_set_main(prov, pid),
+                on_success=lambda r: self._show_account_action_result(pid, r[1], r[0]),
+            )
+        elif action == "set_orchestrator":
+            self._run_in_thread(
+                lambda: do_set_orchestrator(pid),
+                on_success=lambda r: self._show_account_action_result(pid, r[1], r[0]),
+            )
+        elif action == "test":
+            self._show_account_action_result(pid, f"Тестирование {data.get('display_name', pid)}…", None)
+            self._run_in_thread(
+                lambda: do_test_profile(prov, pid),
+                on_success=lambda result: self._show_test_result(result, pid),
+            )
+        elif action == "oauth" or action == "add_account":
             self._open_add_account_wizard()
-            return
+        elif action == "delete_credentials":
+            self._run_in_thread(
+                lambda: do_delete_credentials(prov, pid),
+                on_success=lambda r: self._show_account_action_result(pid, r[1], r[0]),
+            )
         elif action == "assign_role":
             self._open_assign_role_modal(pid, data.get("display_name", pid))
-            return
         elif action == "account_details":
             self._open_account_details_modal(pid)
-            return
         elif action == "agent_settings":
-            self._open_agent_settings_modal(data.get("role_id", ""), pid)
-            return
+            self._open_agent_settings_modal(
+                data.get("role_id", ""),
+                pid,
+            )
+        elif action == "auto_assign_all":
+            self._show_toast("⚡ Автоматическое распределение ролей...")
+            self._run_in_thread(
+                lambda: AutoAssigner.auto_assign_all(),
+                on_success=lambda r: self._show_toast("✅ Роли успешно распределены"),
+            )
+        elif action == "refresh_data":
+            self._refresh_data()
+        elif action == "refresh_all":
+            from antigravity_provider.router.scheduler import HermesRefreshScheduler
+
+            HermesRefreshScheduler.get().trigger_refresh_all(on_complete=lambda: self.after(0, self._refresh_data))
+        elif action == "refresh_account":
+            from antigravity_provider.router.scheduler import HermesRefreshScheduler
+
+            HermesRefreshScheduler.get().trigger_refresh_account(
+                prov,
+                pid,
+                on_complete=lambda: self.after(0, self._refresh_data),
+            )
         elif action == "edit_route":
-            self._open_route_editor_modal(data.get("role_id", ""))
-            return
+            role_id = data.get("role_id", "")
+            self._open_route_editor_modal(role_id)
         elif action == "open_routing":
             self._show_view("routing")
             routing = self._views.get("routing")
             if routing and hasattr(routing, "focus_role"):
                 routing.focus_role(data.get("role_id", ""))
-            return
-        elif action == "refresh_data":
-            self._refresh_data()
-            return
-            
-        # 2. Execution logic via shared handler
-        from antigravity_provider.router.action_handler import ActionExecutor
-        
-        if action == "test":
-            self._show_account_action_result(pid, f"Тестирование {data.get('display_name', pid)}…", None)
-        elif action == "auto_assign_all":
-            self._show_toast("⚡ Автоматическое распределение ролей...")
-            
-        def _on_success(res: dict):
-            ok = res.get("ok", False)
-            msg = res.get("message", "")
-            
-            if action == "test":
-                self._show_test_result(res.get("data", {}), pid)
-            elif action == "check_updates":
-                upd_res = res.get("data")
-                if upd_res:
-                    self._show_toast(
-                        f"Доступна версия {upd_res.manifest.version}"
-                        if upd_res.update_available and upd_res.manifest
-                        else (f"Ошибка: {upd_res.error}" if upd_res.error else "Установлена актуальная версия")
-                    )
-            elif action == "save_settings":
+        elif action == "save_settings":
+
+            def _settings_saved(result: Tuple[bool, str]) -> None:
                 requested_theme = str(data.get("theme", self._theme_name))
                 if requested_theme != self._theme_name:
                     self._apply_theme(requested_theme)
-                self._show_toast(f"✅ {msg}")
-            elif action in ["refresh_all", "refresh_account"]:
-                self.after(0, self._refresh_data)
-            else:
-                if msg and msg not in ["Навигация", "запущено"]:
-                    prefix = "✅" if ok else "❌"
-                    self._show_toast(f"{prefix} {msg}")
-                    if action in ["set_main", "set_orchestrator", "delete_credentials"]:
-                        self._show_account_action_result(pid, msg, ok)
-                        
-        # Execute in a thread since Desktop shouldn't block UI
-        self._run_in_thread(
-            lambda: ActionExecutor.execute(action, data),
-            on_success=_on_success
-        )
+                self._show_toast(f"✅ {result[1]}")
+
+            self._run_in_thread(
+                lambda: do_save_settings(data),
+                on_success=_settings_saved,
+            )
+        elif action == "check_updates":
+            from antigravity_provider.updater import UpdateManager
+
+            self._run_in_thread(
+                lambda: UpdateManager().check_for_updates(),
+                on_success=lambda result: self._show_toast(
+                    f"Доступна версия {result.manifest.version}"
+                    if result.update_available and result.manifest
+                    else (f"Ошибка: {result.error}" if result.error else "Установлена актуальная версия")
+                ),
+            )
 
     def _open_assign_role_modal(self, profile_id: str, display_name: str):
         modal = HubModal(self, title=f"Назначение роли: {display_name}", width=500, height=420)

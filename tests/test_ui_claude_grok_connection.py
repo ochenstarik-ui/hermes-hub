@@ -6,6 +6,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from antigravity_provider.router.auto_assigner import AutoAssigner
+from antigravity_provider.router import action_handler
 from antigravity_provider.router.router_config import RouterConfig, RouterProfileConfig, RolePolicy
 from antigravity_provider.router.ui.add_account_wizard import ensure_profile_in_routing
 from antigravity_provider.router.hermes_hub_app import do_test_profile
@@ -83,10 +84,10 @@ def test_do_test_profile_for_grok_and_claude():
     mock_adapter = MagicMock()
     mock_adapter.health_check.return_value = True
 
-    with patch("antigravity_provider.router.hermes_hub_app.load_router_config", return_value=config), \
+    with patch("antigravity_provider.router.action_handler.load_router_config", return_value=config), \
          patch("antigravity_provider.router.profile_manager.ProfileAuthManager.get_profile_status", return_value={"authenticated": True, "is_expired": False}), \
          patch("antigravity_provider.router.profile_manager.ProfileAuthManager.load_profile_auth", return_value={"api_key": "test"}), \
-         patch("antigravity_provider.router.hermes_hub_app.get_adapter", return_value=mock_adapter):
+         patch("antigravity_provider.router.action_handler.get_adapter", return_value=mock_adapter):
         
         res_grok = do_test_profile("grok", "grok-worker-1")
         assert res_grok["success"] is True

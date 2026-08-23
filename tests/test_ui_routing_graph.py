@@ -8,6 +8,7 @@ import pytest
 pytest.importorskip("customtkinter")
 
 from antigravity_provider.router.ui import routing_graph as graph_module
+from antigravity_provider.router import action_handler
 from antigravity_provider.router.ui import add_account_wizard as wizard_module
 from antigravity_provider.router.ui.views import team_view as team_module
 from antigravity_provider.router import hermes_hub_app as app_module
@@ -164,13 +165,13 @@ def test_profile_test_does_not_invoke_model_or_oauth(monkeypatch):
         def invoke(*_args, **_kwargs):
             raise AssertionError("profile test must never invoke inference")
 
-    monkeypatch.setattr(app_module, "load_router_config", lambda: config)
-    monkeypatch.setattr(app_module.ProfileAuthManager, "get_profile_status", lambda *_args: {"authenticated": True})
-    monkeypatch.setattr(app_module.ProfileAuthManager, "load_profile_auth", lambda *_args: {"token": "present"})
-    monkeypatch.setattr(app_module, "get_adapter", lambda _provider: Adapter())
-    monkeypatch.setattr(app_module.EventLogService, "get", lambda: SimpleNamespace(log=lambda *_args, **_kwargs: None))
+    monkeypatch.setattr(action_handler, "load_router_config", lambda: config)
+    monkeypatch.setattr(action_handler.ProfileAuthManager, "get_profile_status", lambda *_args: {"authenticated": True})
+    monkeypatch.setattr(action_handler.ProfileAuthManager, "load_profile_auth", lambda *_args: {"token": "present"})
+    monkeypatch.setattr(action_handler, "get_adapter", lambda _provider: Adapter())
+    monkeypatch.setattr(action_handler.EventLogService, "get", lambda: SimpleNamespace(log=lambda *_args, **_kwargs: None))
 
-    result = app_module.do_test_profile("antigravity", "connected")
+    result = action_handler.do_test_profile("antigravity", "connected")
     assert result["success"] is True
     assert "runtime" in result["response"]
 

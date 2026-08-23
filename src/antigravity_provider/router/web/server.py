@@ -1,10 +1,13 @@
+import json
 import os
 import sys
 import threading
 import dataclasses
 import logging
-from typing import Dict, Any
+from typing import Any, Dict
 
+from antigravity_provider import paths
+from antigravity_provider.version import __version__
 from fastapi import FastAPI, Request, HTTPException, Depends, Header
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,12 +29,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+def _web_settings() -> Dict[str, Any]:
+    """Настройки веб-API живут в hub_settings.json, а не в RouterConfig.
+
+    Прежняя версия читала config.hub — такого атрибута у RouterConfig нет,
+    поэтому /api/snapshot и /api/action падали с 500, а run_server не
+    поднимался вовсе. Работал только /api/health, у которого нет проверки
+    авторизации, — из-за чего дефект и выглядел как рабочий сервер.
+    """
+    settings_file = paths.get_hermes_home() / "hub_settings.json"
+    try:
+        return json.loads(settings_file.read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
 def get_auth_token(x_hub_token: str = Header(None)) -> bool:
-    config = load_router_config()
-    server_host = config.hub.get('web_api_host', '127.0.0.1')
+    settings = _web_settings()
+    server_host = settings.get('web_api_host', '127.0.0.1')
     
     if server_host != '127.0.0.1':
-        required_token = config.hub.get('web_api_token', '')
+        required_token = settings.get('web_api_token', '')
         if not required_token:
             raise HTTPException(status_code=500, detail="Server misconfigured: external bind requires a token")
         if x_hub_token != required_token:
@@ -42,7 +61,7 @@ def get_auth_token(x_hub_token: str = Header(None)) -> bool:
 def health_check():
     return {
         "ok": True,
-        "version": "1.0.0",
+        "version": __version__,
         "auth_flows": {
             "openai-codex": {"supported": True, "reason": "device-code"},
             "grok": {"supported": True, "reason": "device-code"},
@@ -101,10 +120,10 @@ async def handle_action(request: Request, authorized: bool = Depends(get_auth_to
 
 def run_server():
     import uvicorn
-    config = load_router_config()
-    host = config.hub.get('web_api_host', '127.0.0.1')
-    port = int(config.hub.get('web_api_port', 5800))
-    token = config.hub.get('web_api_token', '')
+    settings = _web_settings()
+    host = settings.get('web_api_host', '127.0.0.1')
+    port = int(settings.get('web_api_port', 5800))
+    token = settings.get('web_api_token', '')
     
     if host != '127.0.0.1' and not token:
         logger.error("Cannot bind Web API externally without web_api_token")

@@ -1,5 +1,6 @@
 import time
 import json
+import os
 import logging
 import threading
 from typing import Any, Dict, Tuple, Optional, Callable
@@ -11,6 +12,7 @@ from antigravity_provider.router.auto_assigner import AutoAssigner
 from antigravity_provider.router.scheduler import HermesRefreshScheduler
 from antigravity_provider.updater import UpdateManager
 from antigravity_provider import paths
+from antigravity_provider.router.adapters import get_adapter
 
 logger = logging.getLogger('hermes.router.actions')
 
@@ -31,7 +33,6 @@ def do_set_orchestrator(profile_id: str) -> Tuple[bool, str]:
     return ok, msg
 
 def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
-    from antigravity_provider.router.adapters import get_adapter
     config = load_router_config()
     pcfg = config.get_profile(profile_id)
     if not pcfg:
@@ -84,21 +85,30 @@ def do_delete_credentials(provider: str, profile_id: str) -> Tuple[bool, str]:
     return True, 'Учетные данные отсутствовали'
 
 def do_save_settings(settings: Dict[str, Any]) -> Tuple[bool, str]:
-    settings_file = paths.get_hermes_home() / 'hub_settings.json'
+    settings_file = paths.get_hermes_home() / "hub_settings.json"
     settings_file.parent.mkdir(parents=True, exist_ok=True)
     existing: Dict[str, Any] = {}
     if settings_file.exists():
         try:
-            existing = json.loads(settings_file.read_text(encoding='utf-8'))
+            existing = json.loads(settings_file.read_text(encoding="utf-8"))
         except Exception:
-            pass
-    for k, v in settings.items():
-        existing[k] = v
+            existing = {}
+    existing.update(settings)
     try:
-        settings_file.write_text(json.dumps(existing, indent=2), encoding='utf-8')
-        return True, 'Настройки сохранены'
+        # Запись через временный файл и os.replace: обрыв на середине не
+        # должен оставить настройки битыми. В домашнем каталоге Hermes уже
+        # лежит config.yaml.corrupt.<дата>.bak — этот риск не теоретический.
+        temp_file = settings_file.with_suffix(".json.tmp")
+        temp_file.write_text(json.dumps(existing, indent=2, ensure_ascii=False), encoding="utf-8")
+        os.replace(temp_file, settings_file)
     except Exception as e:
-        return False, f'Не удалось сохранить настройки: {e}'
+        return False, f"Не удалось сохранить настройки: {e}"
+
+    from antigravity_provider.router.quota_collector import AccountQuotaService
+
+    AccountQuotaService.get().set_refresh_interval(int(settings.get("quota_refresh_interval_sec", 300)))
+    return True, "Настройки сохранены"
+
 
 class ActionExecutor:
     """Shared execution layer for Desktop and Web actions."""
