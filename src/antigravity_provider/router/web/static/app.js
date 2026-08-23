@@ -998,24 +998,38 @@ function showWizardStep2(providerId) {
         </div>
       </div>
     `;
-  } else if (providerId === 'antigravity' || providerId === 'claude') {
+  } else if (providerId === 'antigravity') {
     bodyHtml = `
       <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
-        Шаг 2 из 3: Авторизация ${providerId === 'antigravity' ? 'Google Antigravity' : 'Claude'}
+        Шаг 2 из 3: Авторизация Google Antigravity
       </div>
       <div class="modal-feedback info" style="margin-bottom:14px;">
-        <strong>⚠️ Внимание (Headless Сервер):</strong><br>
-        Провайдер ${providerId} использует локальный OAuth redirect (localhost). На сервере без браузера редирект придёт на локальную машину.
+        <strong>Для серверов (Headless режим):</strong><br>
+        Провайдер Antigravity требует интерактивного входа через консоль <code>agy</code>. Авторизация напрямую через веб-интерфейс невозможна.
         <div style="margin-top:6px;">
-          <strong>Рекомендуемые варианты:</strong><br>
-          1. Использовать API Key провайдера.<br>
-          2. Пробросить порт через SSH: <code>ssh -L 8085:localhost:8085 user@server</code><br>
-          3. Авторизоваться на локальном ПК и скопировать <code>~/.hermes/agy_profiles</code> на сервер.
+          <strong>Что делать:</strong><br>
+          1. Зайти по SSH на сервер и выполнить вход через нативный лаунчер: <code>python launcher/main.py</code><br>
+          2. ИЛИ авторизоваться на локальном ПК и перенести директорию <code>~/.hermes/agy_profiles</code> на сервер.
+        </div>
+      </div>
+    `;
+  } else if (providerId === 'claude') {
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Авторизация Claude
+      </div>
+      <div class="modal-feedback info" style="margin-bottom:14px;">
+        <strong>Для серверов (Headless режим):</strong><br>
+        Провайдер Claude использует локальный OAuth redirect (localhost). На сервере без браузера редирект придёт на локальную машину.
+        <div style="margin-top:6px;">
+          <strong>Альтернативные действия:</strong><br>
+          1. Использовать API Key напрямую.<br>
+          2. Пробросить порт через SSH: <code>ssh -L 8085:localhost:8085 user@server</code>
         </div>
       </div>
       <div style="margin-bottom:12px;">
-        <label style="display:block; font-weight:600; margin-bottom:4px;">Вставьте API Key / Токен авторизации:</label>
-        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="Введите ключ или токен...">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">Впишите API Key / Сгенерированный токен:</label>
+        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="Вставьте токен или нажмите Далее...">
       </div>
     `;
   } else {
