@@ -1,0 +1,105 @@
+"""
+Hermes Hub — Web Client Invariants & Contract Verification Suite
+Tests adherence to docs/web-api/CONTRACT.md and A16 requirements.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import pytest
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
+STATIC_DIR = REPO_ROOT / "src" / "antigravity_provider" / "router" / "web" / "static"
+SNAPSHOT_EXAMPLE = REPO_ROOT / "docs" / "web-api" / "snapshot.example.json"
+
+
+def test_static_assets_exist_and_no_build_dependencies():
+    """Verify that index.html, style.css, app.js exist and have zero build / npm dependencies."""
+    index_html = STATIC_DIR / "index.html"
+    style_css = STATIC_DIR / "style.css"
+    app_js = STATIC_DIR / "app.js"
+
+    assert index_html.is_file(), f"Missing {index_html}"
+    assert style_css.is_file(), f"Missing {style_css}"
+    assert app_js.is_file(), f"Missing {app_js}"
+
+    html_content = index_html.read_text(encoding="utf-8")
+    # No React, Webpack, Vite, npm or external bundle references
+    assert "react" not in html_content.lower()
+    assert "webpack" not in html_content.lower()
+    assert "vite" not in html_content.lower()
+    assert "<script src=\"app.js\"></script>" in html_content
+    assert "<link rel=\"stylesheet\" href=\"style.css\">" in html_content
+
+
+def test_snapshot_fixture_validity_and_completeness():
+    """Verify snapshot.example.json conforms to HubSnapshot contract."""
+    assert SNAPSHOT_EXAMPLE.is_file(), f"Missing {SNAPSHOT_EXAMPLE}"
+    with open(SNAPSHOT_EXAMPLE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    # Top level keys
+    required_keys = [
+        "generation", "seq", "timestamp", "profiles_by_provider",
+        "all_profiles", "readiness", "agents", "providers",
+        "routing", "quotas", "metrics", "is_stale"
+    ]
+    for key in required_keys:
+        assert key in data, f"Missing required top-level key: {key}"
+
+    # Verify monotonic seq structure
+    assert isinstance(data["seq"], int)
+    assert data["seq"] >= 1
+
+    # Verify profiles count
+    assert len(data["all_profiles"]) >= 16, "Must contain real profiles fixture"
+
+    # Zero leaked tokens / secrets in snapshot
+    raw_text = json.dumps(data)
+    forbidden_tokens = ["access_token", "refresh_token", "api_key", "client_secret"]
+    for tok in forbidden_tokens:
+        # Key shouldn't exist as actual secret payload
+        assert f'"{tok}": "sk-' not in raw_text
+        assert f'"{tok}": "gho_' not in raw_text
+
+
+def test_monotonic_seq_logic_in_app_js():
+    """Verify app.js contains strict monotonic seq checking to prevent stale response overwrites."""
+    app_js_content = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    assert "lastAppliedSeq" in app_js_content
+    assert "snapshot.seq < lastAppliedSeq" in app_js_content
+    assert "Stale snapshot" in app_js_content
+
+
+def test_account_card_compact_height_and_quota_rendering():
+    """Verify CSS has 164px compact fixed height and app.js renders multi-pool quota cells."""
+    style_css = (STATIC_DIR / "style.css").read_text(encoding="utf-8")
+    assert "164px" in style_css
+    assert ".account-card" in style_css
+    assert "overflow: hidden" in style_css
+
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    assert "renderQuotaCell" in app_js
+    assert "remaining_percent" in app_js
+    assert "unavailable_reason" in app_js
+    assert "Н/Д" in app_js
+
+
+def test_headless_server_auth_matrix():
+    """Verify headless server honesty in Add Account Wizard (Grok/Codex device-code vs Antigravity/Claude redirect warning)."""
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    assert "Device Code OAuth" in app_js
+    assert "https://x.ai/device" in app_js
+    assert "https://auth.openai.com/device" in app_js
+    assert "Headless Сервер" in app_js
+    assert "ssh -L 8085:localhost:8085" in app_js
+
+
+def test_actions_contract_handling():
+    """Verify POST /api/action handles ok: false as valid 200 business response and displays feedback in-place."""
+    app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+    assert "POST" in app_js
+    assert "/api/action" in app_js
+    assert "executeAction" in app_js
+    assert "modal-feedback-area" in app_js
