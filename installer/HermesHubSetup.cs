@@ -18,7 +18,7 @@ namespace HermesHubSetup
         // Подставляется сборщиком из фактического git-коммита. Раньше здесь
         // жил зашитый "8cddc9f", то есть манифест сообщал неправду о том, из
         // какого кода собран установщик.
-        public const string BuildCommit = "57e7ca2";
+        public const string BuildCommit = "ef6a9e1";
         public const string MIN_HERMES_VERSION = "0.20.0";
         public const string MAX_TESTED_HERMES = "0.20.4";
 
@@ -993,7 +993,7 @@ namespace HermesHubSetup
                 lblDone.Height = 140;
 
                 chkLaunchNow = new CheckBox();
-                chkLaunchNow.Text = "Запустить Hermes Hub сейчас";
+                chkLaunchNow.Text = "Запустить веб-интерфейс Hermes Hub сейчас";
                 chkLaunchNow.Checked = true;
                 chkLaunchNow.Location = new Point(0, 150);
                 chkLaunchNow.AutoSize = true;
@@ -1030,10 +1030,19 @@ namespace HermesHubSetup
             {
                 if (chkLaunchNow != null && chkLaunchNow.Checked)
                 {
-                    string exe = Path.Combine(SetupEngine.TargetInstallDir, "HermesHub.exe");
-                    if (File.Exists(exe))
+                    // Запускаем ВЕБ-интерфейс, а не десктоп. Владелец после
+                    // установки получал десктопное окно и принимал его за старую
+                    // версию: внешне оно и правда другое. Веб — то, ради чего
+                    // ставили; десктоп остаётся доступен своим ярлыком.
+                    string webExe = Path.Combine(SetupEngine.TargetInstallDir, "HermesHubWeb.exe");
+                    string desktopExe = Path.Combine(SetupEngine.TargetInstallDir, "HermesHub.exe");
+                    if (File.Exists(webExe))
                     {
-                        Process.Start(exe);
+                        Process.Start(webExe);
+                    }
+                    else if (File.Exists(desktopExe))
+                    {
+                        Process.Start(desktopExe);
                     }
                 }
                 this.Close();

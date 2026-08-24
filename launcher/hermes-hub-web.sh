@@ -121,7 +121,13 @@ done
 
 if [ -n "$CHROMIUM_BIN" ]; then
     # Launch in Application Window mode without address bar, tabs, or menus
-    "$CHROMIUM_BIN" --app="$TARGET_URL" --window-size=1400,900 "$@"
+    # Отдельный профиль: иначе запущенный браузер передаёт окно уже
+    # работающему экземпляру и сразу завершается — ожидание его закрытия
+    # срабатывает мгновенно. На Windows это приводило к тому, что сервер
+    # убивали, пока страница ещё грузилась.
+    BROWSER_PROFILE="$HERMES_HOME/web_browser_profile"
+    mkdir -p "$BROWSER_PROFILE"
+    "$CHROMIUM_BIN" --app="$TARGET_URL" --window-size=1400,900         --user-data-dir="$BROWSER_PROFILE" --no-first-run --no-default-browser-check "$@"
 else
     # Fallback to standard default browser
     echo "Запуск в обычном браузере: режим приложения (без адресной строки) требует Google Chrome, Chromium или Microsoft Edge."

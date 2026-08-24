@@ -178,17 +178,28 @@ namespace HermesHub
             // 4. Locate browser in strict priority: Edge -> Chrome -> Chromium registry -> Fallback
             string browserPath = FindChromiumBrowser();
             Process browserProc = null;
+            DateTime browserStartedAt = DateTime.UtcNow;
 
             if (!string.IsNullOrEmpty(browserPath))
             {
                 ProcessStartInfo browserPsi = new ProcessStartInfo();
                 browserPsi.FileName = browserPath;
-                browserPsi.Arguments = string.Format("--app=\"{0}\" --window-size=1400,900", targetUrl);
+                // Отдельный профиль браузера обязателен. Без него запущенный
+                // msedge.exe передаёт задачу УЖЕ РАБОТАЮЩЕМУ экземпляру и тут же
+                // завершается: WaitForExit возвращается мгновенно, лаунчер
+                // считает окно закрытым и убивает сервер, пока страница ещё
+                // грузится. Владелец видел ERR_CONNECTION_REFUSED.
+                string browserProfile = Path.Combine(hermesHome, "web_browser_profile");
+                try { Directory.CreateDirectory(browserProfile); } catch { }
+                browserPsi.Arguments = string.Format(
+                    "--app=\"{0}\" --window-size=1400,900 --user-data-dir=\"{1}\" --no-first-run --no-default-browser-check",
+                    targetUrl, browserProfile);
                 browserPsi.UseShellExecute = false;
 
                 try
                 {
                     browserProc = Process.Start(browserPsi);
+                    browserStartedAt = DateTime.UtcNow;
                 }
                 catch (Exception ex)
                 {
@@ -225,6 +236,14 @@ namespace HermesHub
                     browserProc.WaitForExit();
                 }
                 catch { }
+
+                // Подстраховка: если процесс браузера завершился почти сразу,
+                // это почти наверняка передача окна другому экземпляру, а не
+                // закрытие пользователем. Убивать сервер в этом случае нельзя.
+                if (DateTime.UtcNow - browserStartedAt < TimeSpan.FromSeconds(5))
+                {
+                    return;
+                }
 
                 try
                 {
