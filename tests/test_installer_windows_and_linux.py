@@ -47,7 +47,10 @@ def test_windows_csharp_launchers_and_setup_compile():
     setup_cs = INSTALLER_DIR / "HermesHubSetup.cs"
     res3 = subprocess.run([
         csc_path, "/target:winexe", f"/out:{temp_out / 'HermesHubSetup.exe'}",
-        "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", str(setup_cs)
+        # Установщик несёт содержимое вшитым ресурсом и распаковывает его через
+        # ZipFile — сборка требует System.IO.Compression.FileSystem.
+        "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll",
+        "/r:System.IO.Compression.FileSystem.dll", str(setup_cs)
     ], capture_output=True, text=True)
     assert res3.returncode == 0, f"HermesHubSetup.cs compilation failed: {res3.stdout}\n{res3.stderr}"
 

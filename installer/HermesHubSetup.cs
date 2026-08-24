@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
 using System.IO;
+using System.Reflection;
+using System.IO.Compression;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -1019,6 +1021,32 @@ namespace HermesHubSetup
 
     static class Program
     {
+
+        private static string ExtractEmbeddedPayload()
+        {
+            try
+            {
+                var asm = Assembly.GetExecutingAssembly();
+                using (Stream res = asm.GetManifestResourceStream("payload"))
+                {
+                    if (res == null) return null;
+                    string target = Path.Combine(Path.GetTempPath(),
+                        "HermesHubSetup_" + Guid.NewGuid().ToString("N").Substring(0, 8));
+                    Directory.CreateDirectory(target);
+                    string tmpZip = Path.Combine(target, "_payload.zip");
+                    using (var fs = File.Create(tmpZip)) res.CopyTo(fs);
+                    ZipFile.ExtractToDirectory(tmpZip, target);
+                    File.Delete(tmpZip);
+                    return Directory.Exists(Path.Combine(target, "src")) ? target : null;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine("Не удалось распаковать встроенные файлы: " + ex.Message);
+                return null;
+            }
+        }
+
         [STAThread]
         static int Main(string[] args)
         {
@@ -1051,6 +1079,15 @@ namespace HermesHubSetup
             if (!Directory.Exists(Path.Combine(sourceRoot, "src")) && Directory.Exists(Path.Combine(appDir, @"..\src")))
             {
                 sourceRoot = Path.GetFullPath(Path.Combine(appDir, ".."));
+            }
+            // Ни рядом с exe, ни уровнем выше исходников нет — значит установщик
+            // запущен как самостоятельный файл. Содержимое вшито в него ресурсом
+            // и распаковывается во временный каталог. Так владельцу достаточно
+            // одного exe, без копирования репозитория на целевую машину.
+            if (!Directory.Exists(Path.Combine(sourceRoot, "src")))
+            {
+                string extracted = ExtractEmbeddedPayload();
+                if (extracted != null) sourceRoot = extracted;
             }
 
             // Uninstall Mode

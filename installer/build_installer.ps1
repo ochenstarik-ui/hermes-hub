@@ -26,8 +26,29 @@ if (Test-Path $HubWebCs) {
     & $CscPath /target:winexe /out:"$HubWebExe" /r:System.Windows.Forms.dll /r:System.Drawing.dll "$HubWebCs"
 }
 
+# Собираем полезную нагрузку: всё, что нужно PerformInstall на целевой машине.
+# Она вшивается в exe ресурсом, чтобы установщик был одним файлом и не требовал
+# копировать репозиторий.
+Write-Host "Packing payload..." -ForegroundColor Cyan
+$PayloadDir = Join-Path $env:TEMP ("hubpayload_" + [guid]::NewGuid().ToString("N").Substring(0,8))
+New-Item -ItemType Directory -Force $PayloadDir | Out-Null
+foreach ($item in @("src", "launcher", "assets", "config", "scripts")) {
+    $srcPath = Join-Path $RepoRoot $item
+    if (Test-Path $srcPath) {
+        Copy-Item $srcPath -Destination (Join-Path $PayloadDir $item) -Recurse -Force
+    }
+}
+# Каталоги сборки и кеши в дистрибутив не нужны.
+Get-ChildItem $PayloadDir -Recurse -Directory -Include "__pycache__", ".venv", "node_modules" -ErrorAction SilentlyContinue |
+    Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
+$PayloadZip = Join-Path $env:TEMP "hub_payload.zip"
+if (Test-Path $PayloadZip) { Remove-Item $PayloadZip -Force }
+Compress-Archive -Path (Join-Path $PayloadDir "*") -DestinationPath $PayloadZip -CompressionLevel Optimal
+$payloadKB = [int]((Get-Item $PayloadZip).Length / 1KB)
+Write-Host "Payload packed: $payloadKB KB" -ForegroundColor Gray
+
 Write-Host "Compiling HermesHubSetup.exe..." -ForegroundColor Cyan
-& $CscPath /target:winexe /out:"$OutFile" /r:System.Windows.Forms.dll /r:System.Drawing.dll "$SourceFile"
+& $CscPath /target:winexe /out:"$OutFile" /r:System.Windows.Forms.dll /r:System.Drawing.dll /r:System.IO.Compression.FileSystem.dll /resource:"$PayloadZip",payload "$SourceFile"
 
 if ($LASTEXITCODE -eq 0) {
     Write-Host "Installer compiled successfully: $OutFile" -ForegroundColor Green
@@ -42,3 +63,6 @@ if ($LASTEXITCODE -eq 0) {
 } else {
     Write-Error "Installer compilation FAILED with exit code $LASTEXITCODE"
 }
+
+Remove-Item $PayloadDir -Recurse -Force -ErrorAction SilentlyContinue
+Remove-Item $PayloadZip -Force -ErrorAction SilentlyContinue
