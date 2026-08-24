@@ -1566,28 +1566,19 @@ function showWizardStep2(providerId) {
   let bodyHtml = '';
 
   if (providerId === 'grok' || providerId === 'openai-codex') {
-    // Здесь стояли ВЫДУМАННЫЕ код устройства (GRK-7842 / CDX-9104) и жёстко
-    // вписанный адрес x.ai/device, который отдаёт 404. Мастер не был подключён
-    // к серверу вовсе: пользователь вводил бы несуществующий код бесконечно.
-    // Пока поток не проведён через API, честнее сказать правду и указать
-    // рабочий путь, чем показывать правдоподобную пустышку.
+    // Поток кода устройства проведён через веб-API. Адрес и код приходят от
+    // ПРОВАЙДЕРА и подставляются сюда; ничего не вписано в код. Раньше здесь
+    // стояли выдуманные GRK-7842 и CDX-9104 при жёстко вписанном адресе.
     const providerName = providerId === 'grok' ? 'Grok (xAI)' : 'OpenAI Codex';
     bodyHtml = `
       <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
-        Шаг 2 из 3: Авторизация ${providerName}
+        Шаг 2 из 3: Авторизация ${providerName} по коду устройства
       </div>
-      <div class="modal-feedback warning" style="margin-bottom:14px;">
-        <strong>Подключение через веб-интерфейс пока не реализовано.</strong><br>
-        Вход по коду устройства выполняется на стороне сервера, и этот поток
-        ещё не выведен в веб-API. Показывать здесь код было бы обманом:
-        настоящий код выдаёт провайдер, а не интерфейс.
-        <div style="margin-top:8px;">
-          <strong>Рабочий путь:</strong> подключите аккаунт в десктопном
-          приложении Hermes Hub — там поток проведён полностью и получает
-          настоящий адрес и код от провайдера.
-        </div>
+      <div id="device-auth-box" style="background:var(--surface-muted); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+        <div style="color:var(--text-secondary);">Запрашиваем код у провайдера…</div>
       </div>
     `;
+    setTimeout(() => startDeviceAuth(providerId), 0);
   } else if (providerId === 'antigravity') {
     bodyHtml = `
       <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
@@ -1990,5 +1981,82 @@ function formatIsoDate(isoStr) {
     });
   } catch (e) {
     return isoStr;
+  }
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Авторизация по коду устройства (Grok, OpenAI Codex)
+// ─────────────────────────────────────────────────────────────
+
+let _deviceAuthTimer = null;
+
+function stopDeviceAuthPolling() {
+  if (_deviceAuthTimer) {
+    clearInterval(_deviceAuthTimer);
+    _deviceAuthTimer = null;
+  }
+}
+
+async function startDeviceAuth(providerId) {
+  stopDeviceAuthPolling();
+  const box = document.getElementById('device-auth-box');
+  if (!box) return;
+
+  const res = await executeAction('start_device_auth', { provider: providerId });
+  if (!res || !res.ok) {
+    box.innerHTML = `<div class="modal-feedback error">${escapeHtml((res && res.message) || 'Не удалось начать авторизацию')}</div>`;
+    return;
+  }
+
+  const d = res.data || {};
+  window._wiz_device_session = d.session_id;
+  window._wiz_device_profile = d.profile_id;
+
+  box.innerHTML = `
+    <div style="font-weight:700; margin-bottom:6px;">1. Откройте ссылку:</div>
+    <div style="display:flex; gap:8px; margin-bottom:12px;">
+      <input type="text" class="input-text" style="flex:1;" id="wiz-auth-url" value="${escapeHtml(d.url || '')}" readonly>
+      <button class="btn btn-secondary btn-sm" onclick="window.open(document.getElementById('wiz-auth-url').value, '_blank')">Открыть</button>
+      <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('wiz-auth-url').value); showToast('Ссылка скопирована', 'success');">Копировать</button>
+    </div>
+    <div style="font-weight:700; margin-bottom:6px;">2. Введите код:</div>
+    <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
+      <div style="font-family:var(--font-mono); font-size:22px; font-weight:700; color:var(--text-accent); letter-spacing:2px;" id="wiz-auth-code">${escapeHtml(d.code || '')}</div>
+      <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('wiz-auth-code').innerText); showToast('Код скопирован', 'success');">Копировать код</button>
+    </div>
+    <div id="device-auth-status" style="font-size:12px; color:var(--text-muted);">
+      3. Подтвердите доступ — окно обновится само. Код живёт недолго, не откладывайте.
+    </div>
+  `;
+
+  _deviceAuthTimer = setInterval(() => pollDeviceAuth(providerId), 3000);
+}
+
+async function pollDeviceAuth(providerId) {
+  const status = document.getElementById('device-auth-status');
+  if (!status) {
+    stopDeviceAuthPolling();
+    return;
+  }
+
+  const res = await executeAction('poll_device_auth', {
+    provider: providerId,
+    session_id: window._wiz_device_session,
+  });
+
+  if (!res) return;
+
+  const state = (res.data || {}).status;
+  if (res.ok && state === 'completed') {
+    stopDeviceAuthPolling();
+    status.innerHTML = '<span style="color:var(--status-healthy); font-weight:600;">Аккаунт подключён</span>';
+    showToast('Аккаунт подключён', 'success');
+    fetchSnapshot();
+    return;
+  }
+  if (!res.ok) {
+    // Отказ и просроченный код — конечные исходы, а не ожидание.
+    stopDeviceAuthPolling();
+    status.innerHTML = `<span style="color:var(--status-error); font-weight:600;">${escapeHtml(res.message || 'Авторизация не завершена')}</span>`;
   }
 }

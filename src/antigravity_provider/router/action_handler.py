@@ -238,6 +238,63 @@ class ActionExecutor:
         """
         pid = data.get('profile_id', '')
         prov = data.get('provider', '')
+
+        # Device-flow для Grok и Codex через веб. Backend был готов давно, но
+        # наружу не выведен: веб-мастер показывал заглушку «не реализовано», и
+        # подключить эти провайдеры можно было только из десктопа. Настоящие
+        # адрес и код выдаёт провайдер — интерфейс их только отображает.
+        if action == 'start_device_auth':
+            provider = (data.get('provider') or '').strip().lower()
+            slot = data.get('profile_id') or AutoAssigner.find_free_slot(provider)
+            if not slot:
+                return {'ok': False, 'message': f'Нет свободного слота для провайдера {provider}'}
+            try:
+                if provider == 'grok':
+                    from antigravity_provider.router.grok_oauth import start_grok_oauth
+
+                    session_id, url, code = start_grok_oauth(slot)
+                elif provider in ('openai-codex', 'codex'):
+                    from antigravity_provider.router.codex_oauth import start_codex_oauth
+
+                    session_id, url, code = start_codex_oauth(slot)
+                else:
+                    return {'ok': False, 'message': f'Провайдер {provider} не использует код устройства'}
+            except Exception as exc:
+                return {'ok': False, 'message': f'Не удалось начать авторизацию: {exc}'}
+
+            if not code:
+                return {'ok': False, 'message': 'Провайдер не выдал код устройства'}
+            return {
+                'ok': True,
+                'message': 'Код устройства получен',
+                'data': {'session_id': session_id, 'url': url, 'code': code, 'profile_id': slot},
+            }
+
+        if action == 'poll_device_auth':
+            provider = (data.get('provider') or '').strip().lower()
+            session_id = data.get('session_id') or ''
+            if provider == 'grok':
+                from antigravity_provider.router.grok_oauth import get_grok_oauth_session
+
+                session = get_grok_oauth_session(session_id)
+            elif provider in ('openai-codex', 'codex'):
+                from antigravity_provider.router.codex_oauth import get_codex_oauth_session
+
+                session = get_codex_oauth_session(session_id)
+            else:
+                return {'ok': False, 'message': f'Провайдер {provider} не использует код устройства'}
+
+            if session is None:
+                return {'ok': False, 'message': 'Сессия авторизации не найдена или истекла'}
+
+            status = getattr(session, 'status', 'unknown')
+            if status == 'completed':
+                return {'ok': True, 'message': 'Аккаунт подключён', 'data': {'status': status}}
+            if status in ('failed', 'timeout'):
+                reason = getattr(session, 'error_msg', None) or 'Авторизация не завершена'
+                return {'ok': False, 'message': reason, 'data': {'status': status}}
+            return {'ok': True, 'message': 'Ожидание подтверждения', 'data': {'status': status}}
+
         # Подключение аккаунта: для локального сервера это не навигация, а
         # настоящее сохранение профиля с адресом.
         if action == 'add_account':
