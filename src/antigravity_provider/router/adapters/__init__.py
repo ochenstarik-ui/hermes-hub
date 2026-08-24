@@ -8,6 +8,7 @@ from .claude_adapter import ClaudeAdapter
 from .codex_adapter import CodexAdapter
 from .deepseek_adapter import DeepSeekResponsesAdapter
 from .grok_adapter import GrokAdapter
+from .local_adapter import LocalLLMAdapter
 from .opencode_adapter import OpenCodeGoAdapter
 
 _ADAPTERS: dict[str, BaseProviderAdapter] = {
@@ -24,6 +25,11 @@ _ADAPTERS: dict[str, BaseProviderAdapter] = {
     "xai": GrokAdapter(),
     "xai-oauth": GrokAdapter(),
     "deepseek": DeepSeekResponsesAdapter(),
+    "local": LocalLLMAdapter(),
+    "local-llm": LocalLLMAdapter(),
+    "llama.cpp": LocalLLMAdapter(),
+    "ollama": LocalLLMAdapter(),
+    "vllm": LocalLLMAdapter(),
 }
 
 

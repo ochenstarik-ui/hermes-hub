@@ -78,6 +78,8 @@ class SubscriptionPlan:
             "TIER2": "TIER 2",
             "SUPERGROK": "SUPERGROK",
             "GROK PRO": "GROK PRO",
+            "LOCAL": "LOCAL",
+            "LOCAL MODEL": "LOCAL MODEL",
         }
         disp = display_map.get(cleaned, display_map.get(code_upper, cleaned))
         return cls(
@@ -172,7 +174,9 @@ class QuotaBucket:
             self.used_percent = max(0.0, min(100.0, 100.0 - float(self.remaining_percent)))
 
         # Auto-determine status
-        if self.remaining_percent is not None:
+        if self.status == "unlimited":
+            pass
+        elif self.remaining_percent is not None:
             if self.remaining_percent <= 0.0 or (self.used_percent is not None and self.used_percent >= 100.0):
                 self.status = "exhausted"
             elif self.remaining_percent < 15.0:
@@ -193,6 +197,8 @@ class QuotaBucket:
 
     def formatted_remaining(self) -> str:
         """User-facing unambiguous string."""
+        if self.status == "unlimited" or self.period == "unlimited":
+            return "Без ограничений"
         if self.remaining_absolute is not None and self.limit_absolute is not None:
             used = self.used_absolute if self.used_absolute is not None else (self.limit_absolute - self.remaining_absolute)
             rem_pct_str = f" · Осталось {self.remaining_percent:.0f}%" if self.remaining_percent is not None else ""

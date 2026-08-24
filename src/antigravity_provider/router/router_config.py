@@ -251,6 +251,23 @@ def get_default_router_config() -> RouterConfig:
             preferred_models=["grok-3", "grok-3-mini"],
             max_concurrency=2,
         ),
+        # 6. Local LLM Pool (2 accounts)
+        "local-1": RouterProfileConfig(
+            profile_id="local-1",
+            provider="local",
+            account_id="local-acc-1",
+            capabilities=["reviewer", "coder-secondary", "reasoning", "coding"],
+            preferred_models=["Qwen3.8-27B-Q4_K_M.gguf", "default"],
+            max_concurrency=1,
+        ),
+        "local-2": RouterProfileConfig(
+            profile_id="local-2",
+            provider="local",
+            account_id="local-acc-2",
+            capabilities=["fast", "research", "coding"],
+            preferred_models=["Qwen3-4B-Instruct-2507-Q4_K_M.gguf", "default"],
+            max_concurrency=1,
+        ),
     }
 
     roles: dict[str, RolePolicy] = {

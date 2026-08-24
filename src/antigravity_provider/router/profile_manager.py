@@ -316,6 +316,21 @@ class ProfileAuthManager:
             except Exception as e:
                 logger.warning("Failed to write .gemini/oauth_creds.json for profile=%s: %s", profile_id, e)
 
+        # For Local provider, synchronize custom_base_url in router_profiles.yaml
+        if provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
+            base_url = auth_data.get("base_url")
+            if base_url:
+                try:
+                    from antigravity_provider.router.router_config import load_router_config, save_router_config
+                    rcfg = load_router_config()
+                    if profile_id in rcfg.profiles:
+                        rcfg.profiles[profile_id].custom_base_url = str(base_url).strip()
+                        if auth_data.get("models") and isinstance(auth_data["models"], list):
+                            rcfg.profiles[profile_id].preferred_models = list(auth_data["models"])
+                        save_router_config(rcfg)
+                except Exception as e:
+                    logger.warning("Failed to sync custom_base_url for local profile=%s: %s", profile_id, e)
+
         from antigravity_provider.router.event_bus import (
             EVENT_ACCOUNT_ADDED,
             EVENT_ACCOUNT_AUTH_CHANGED,
@@ -416,6 +431,12 @@ class ProfileAuthManager:
             val = os.environ.get(env_var) or os.environ.get("OPENCODE_API_KEY")
             if val:
                 return {"provider": "opencode-go", "profile_id": profile_id, "api_key": val}
+
+        elif provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
+            env_var = f"LOCAL_LLM_URL_{profile_id.upper().replace('-', '_')}"
+            val = os.environ.get(env_var) or os.environ.get("LOCAL_LLM_BASE_URL")
+            if val:
+                return {"provider": provider, "profile_id": profile_id, "base_url": val}
 
         return None
 
@@ -554,6 +575,55 @@ class ProfileAuthManager:
             masked = f"opencode-...{api_key[-4:]}"
             return True, masked, ["opencode-go-3"]
         return False, None, []
+
+    @classmethod
+    def verify_local_endpoint(
+        cls, base_url: str, api_key: Optional[str] = None
+    ) -> Tuple[bool, Optional[str], List[str], Optional[str]]:
+        """Verify local OpenAI-compatible endpoint ({base_url}/models) and return (valid, display_name, models, error_msg)."""
+        url_str = (base_url or "").strip().rstrip("/")
+        if not url_str:
+            return False, None, [], "URL сервера не указан"
+        if not url_str.startswith(("http://", "https://")):
+            url_str = f"http://{url_str}"
+
+        headers = {
+            "Accept": "application/json",
+            "User-Agent": "hermes-hub/1.0",
+        }
+        if api_key and api_key.strip():
+            headers["Authorization"] = f"Bearer {api_key.strip()}"
+
+        try:
+            req = urllib.request.Request(
+                f"{url_str}/models",
+                headers=headers,
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                if resp.status in (200, 204):
+                    data = json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
+                    items = data.get("data") or data.get("models") or []
+                    models = []
+                    if isinstance(items, list):
+                        for m in items:
+                            mid = m.get("id") or m.get("name") if isinstance(m, dict) else str(m)
+                            if mid:
+                                models.append(str(mid))
+                    return True, f"Local Server ({url_str})", sorted(models) if models else ["default"], None
+                return False, None, [], f"Сервер вернул HTTP статус {resp.status}"
+        except urllib.error.HTTPError as http_err:
+            raw_err = http_err.read().decode("utf-8", errors="replace")
+            try:
+                err_msg = json.loads(raw_err).get("error", {}).get("message", raw_err)
+            except Exception:
+                err_msg = raw_err
+            return False, None, [], f"HTTP {http_err.code}: {err_msg}"
+        except urllib.error.URLError as url_err:
+            reason = str(url_err.reason)
+            return False, None, [], f"Не удалось подключиться к серверу ({reason})"
+        except Exception as exc:
+            return False, None, [], f"Ошибка подключения: {exc}"
 
     @classmethod
     def get_profile_status(cls, provider: str, profile_id: str) -> Dict[str, Any]:
@@ -743,6 +813,31 @@ class ProfileAuthManager:
                 "account_id_masked": f"opencode-...{key[-4:]}" if len(key) > 8 else "opencode-***",
                 "status": "AUTHENTICATED" if key else "NOT_CONFIGURED",
                 "error": None,
+            }
+
+        elif provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
+            base_url = auth_data.get("base_url")
+            if not base_url:
+                try:
+                    from antigravity_provider.router.router_config import load_router_config
+                    rcfg = load_router_config()
+                    pcfg = rcfg.get_profile(profile_id)
+                    if pcfg and pcfg.custom_base_url:
+                        base_url = pcfg.custom_base_url
+                except Exception:
+                    pass
+            if not base_url:
+                base_url = os.environ.get("LOCAL_LLM_BASE_URL")
+            key = auth_data.get("api_key", "")
+            is_auth = bool(base_url)
+            masked_acc = f"{base_url} [API Key]" if (base_url and key) else (str(base_url) if base_url else "Not configured")
+            return {
+                "authenticated": is_auth,
+                "provider": provider,
+                "profile_id": profile_id,
+                "account_id_masked": masked_acc,
+                "status": "AUTHENTICATED" if is_auth else "NOT_CONFIGURED",
+                "error": None if is_auth else "URL сервера не настроен",
             }
 
         return {

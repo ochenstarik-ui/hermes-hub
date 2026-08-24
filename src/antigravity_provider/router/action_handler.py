@@ -238,9 +238,27 @@ class ActionExecutor:
         """
         pid = data.get('profile_id', '')
         prov = data.get('provider', '')
-        
-        # Purely UI navigation actions return True for Web API (no-op on server side).
-        if action in ['oauth', 'add_account', 'account_details', 'agent_settings', 'edit_route', 'open_routing', 'assign_role']:
+        # UI navigation or account persistence actions
+        if action == 'add_account':
+            target_role = data.get('target_role', 'coder-primary')
+            base_url = data.get('base_url', '')
+            token = data.get('token', '')
+            if prov in ('local', 'local-llm', 'llama.cpp', 'ollama', 'vllm') and base_url:
+                slot = AutoAssigner.find_free_slot(prov) or 'local-1'
+                AutoAssigner.ensure_profile_definition(prov, slot)
+                auth_data = {
+                    "provider": "local",
+                    "profile_id": slot,
+                    "base_url": base_url,
+                    "api_key": token if token else None,
+                    "created_at": time.time(),
+                }
+                ProfileAuthManager.save_profile_auth("local", slot, auth_data)
+                AutoAssigner.assign_profile_to_role(slot, target_role, is_primary=False)
+                return {'ok': True, 'message': f'Локальный сервер {slot} успешно подключен'}
+            return {'ok': True, 'message': 'Навигация'}
+
+        if action in ['oauth', 'account_details', 'agent_settings', 'edit_route', 'open_routing', 'assign_role']:
             return {'ok': True, 'message': 'Навигация'}
             
         if action == 'set_main':

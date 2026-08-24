@@ -372,6 +372,11 @@ function renderAccountsView() {
     'opencode-go': 'OpenCode Go',
     claude: 'Claude (Anthropic)',
     grok: 'Grok (xAI)',
+    local: 'Local LLM',
+    'local-llm': 'Local LLM',
+    'llama.cpp': 'Local LLM (llama.cpp)',
+    ollama: 'Ollama',
+    vllm: 'vLLM',
   };
 
   const profilesByProv = currentSnapshot.profiles_by_provider || {};
@@ -1447,6 +1452,13 @@ function showWizardStep1() {
           <div style="font-size:11px; color:var(--text-muted);">OAuth редирект (требует браузер или перенос профиля)</div>
         </div>
       </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('local')">
+        <span style="font-size:18px; color:var(--status-healthy, #22c55e);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">Локальная модель (Local LLM)</div>
+          <div style="font-size:11px; color:var(--text-muted);">llama.cpp / Ollama / vLLM (OpenAI-совместимый сервер)</div>
+        </div>
+      </button>
     </div>
   `;
   elements.modalFooter.innerHTML = `
@@ -1515,6 +1527,20 @@ function showWizardStep2(providerId) {
         <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="Вставьте токен или нажмите Далее...">
       </div>
     `;
+  } else if (providerId === 'local' || providerId === 'local-llm' || providerId === 'llama.cpp' || providerId === 'ollama' || providerId === 'vllm') {
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Настройка локального сервера (Local LLM)
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">URL сервера (Base URL):</label>
+        <input type="text" class="input-text" style="width:100%;" id="wiz-base-url-input" placeholder="http://127.0.0.1:8081/v1" value="http://127.0.0.1:8081/v1">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">API Key (опционально):</label>
+        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="Оставьте пустым, если ключ не требуется">
+      </div>
+    `;
   } else {
     bodyHtml = `
       <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
@@ -1534,8 +1560,20 @@ function showWizardStep2(providerId) {
 
   elements.modalFooter.innerHTML = `
     <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
-    <button class="btn btn-primary" onclick="showWizardStep3('${providerId}')">Продолжить →</button>
+    <button class="btn btn-primary" onclick="proceedToWizardStep3('${providerId}')">Продолжить →</button>
   `;
+}
+
+function proceedToWizardStep3(providerId) {
+  const baseInput = document.getElementById('wiz-base-url-input');
+  if (baseInput) {
+    window._wiz_base_url = baseInput.value.trim();
+  }
+  const tokenInput = document.getElementById('wiz-token-input');
+  if (tokenInput) {
+    window._wiz_token = tokenInput.value.trim();
+  }
+  showWizardStep3(providerId);
 }
 
 function showWizardStep3(providerId) {
@@ -1573,10 +1611,18 @@ async function finishAddAccount(providerId) {
     feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение учетной записи в роутере...</div>';
   }
 
-  const res = await executeAction('add_account', {
+  const payload = {
     provider: providerId,
     target_role: targetRole,
-  });
+  };
+  if (window._wiz_base_url) {
+    payload.base_url = window._wiz_base_url;
+  }
+  if (window._wiz_token) {
+    payload.token = window._wiz_token;
+  }
+
+  const res = await executeAction('add_account', payload);
 
   if (res.ok) {
     showToast('Аккаунт успешно добавлен в маршрутизацию', 'success');

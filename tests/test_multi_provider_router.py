@@ -48,9 +48,9 @@ from antigravity_provider.router.cli_commands import (
 class TestRouterConfig:
     """Test configuration schema, profile loading, and role definitions."""
 
-    def test_default_config_has_22_profiles(self):
+    def test_default_config_has_24_profiles(self):
         config = get_default_router_config()
-        assert len(config.profiles) == 22
+        assert len(config.profiles) == 24
         # 3 Codex
         assert "codex-orch" in config.profiles
         assert "codex-worker-1" in config.profiles
