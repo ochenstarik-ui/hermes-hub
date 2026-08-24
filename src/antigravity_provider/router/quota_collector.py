@@ -744,64 +744,105 @@ class AccountQuotaService:
         )
 
     def _collect_grok_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
-        """Collect Weekly, GrokChat, GrokBuild, and Task limits for Grok (xAI)."""
+        """Прочитать настоящий баланс аккаунта Grok.
+
+        Раньше здесь строились пустые корзины и запрос никуда не уходил —
+        поэтому квота Grok всегда показывалась как «Н/Д».
+
+        Адрес взят из плагина hermes-grok-usage, который владелец уже
+        использует: тот же OAuth-токен, что и для авторизации, принимается
+        биллинговым эндпоинтом grok.com. Именно оттуда берут данные и
+        Grok Build, и /usage.
+
+        Важно: подписка SuperGrok и кредиты API — РАЗНЫЕ кошельки. Вызовы
+        через Hub списываются со второго, и именно его показывает этот ответ.
+        """
         now = _utc_now()
-        b_weekly = QuotaBucket(
-            id="grok.weekly",
-            display_name="Недельное",
-            model_family="grok",
-            used_percent=None,
-            remaining_percent=None,
-            period="7d",
-            reset_at=None,
-            status="unknown",
+        token = None
+        tokens = auth_data.get("token") or auth_data.get("tokens") or {}
+        if isinstance(tokens, dict):
+            token = tokens.get("access_token")
+        token = token or auth_data.get("access_token") or auth_data.get("api_key")
+        if not token:
+            raise RuntimeError("В профиле Grok отсутствует access token")
+
+        request = urllib.request.Request(
+            "https://cli-chat-proxy.grok.com/v1/billing?format=credits",
+            headers={"Authorization": f"Bearer {token}"},
         )
-        b_chat = QuotaBucket(
-            id="grok.chat",
-            display_name="GrokChat",
-            model_family="grok",
-            used_percent=None,
-            remaining_percent=None,
-            reset_at=None,
-            status="unknown",
+        with urllib.request.urlopen(request, timeout=20) as response:
+            payload = json.loads(response.read().decode("utf-8") or "{}")
+
+        config = payload.get("config") if isinstance(payload, dict) else None
+        if not isinstance(config, dict):
+            raise RuntimeError("Grok вернул биллинг в неожиданном формате")
+
+        def _val(node: Any) -> Optional[float]:
+            if isinstance(node, dict):
+                raw = node.get("val")
+                return float(raw) if isinstance(raw, (int, float)) else None
+            return float(node) if isinstance(node, (int, float)) else None
+
+        prepaid = _val(config.get("prepaidBalance"))
+        cap = _val(config.get("onDemandCap"))
+        used = _val(config.get("onDemandUsed"))
+
+        period_end = _parse_datetime((config.get("currentPeriod") or {}).get("end"))
+
+        buckets: List[QuotaBucket] = []
+
+        # Процент считаем ТОЛЬКО когда есть от чего считать. При нулевом
+        # лимите доля не определена — показываем абсолютные значения, а не
+        # выдуманный ноль процентов.
+        remaining_pct: Optional[float] = None
+        used_pct: Optional[float] = None
+        if cap and cap > 0 and used is not None:
+            used_pct = max(0.0, min(100.0, used / cap * 100.0))
+            remaining_pct = 100.0 - used_pct
+
+        buckets.append(
+            QuotaBucket(
+                id="grok.on_demand",
+                display_name="Кредиты по мере использования",
+                model_family="grok",
+                used_percent=used_pct,
+                remaining_percent=remaining_pct,
+                used_absolute=int(used) if used is not None else None,
+                limit_absolute=int(cap) if cap is not None else None,
+                reset_at=period_end,
+                period="7d",
+                unit="currency",
+                scope="account",
+                status="exhausted" if (cap == 0 or (remaining_pct is not None and remaining_pct <= 0)) else "healthy",
+            )
         )
-        b_build = QuotaBucket(
-            id="grok.build",
-            display_name="GrokBuild",
-            model_family="grok",
-            used_percent=None,
-            remaining_percent=None,
-            reset_at=None,
-            status="unknown",
+        buckets.append(
+            QuotaBucket(
+                id="grok.prepaid",
+                display_name="Предоплаченный баланс",
+                model_family="grok",
+                remaining_absolute=int(prepaid) if prepaid is not None else None,
+                unit="currency",
+                scope="account",
+                status="exhausted" if prepaid == 0 else "healthy",
+            )
         )
-        b_frequent = QuotaBucket(
-            id="grok.frequent_tasks",
-            display_name="Частые задачи",
-            model_family="grok",
-            used_absolute=None,
-            remaining_absolute=None,
-            limit_absolute=10,
-            reset_at=None,
-            status="unknown",
-        )
-        b_normal = QuotaBucket(
-            id="grok.normal_tasks",
-            display_name="Обычные задачи",
-            model_family="grok",
-            used_absolute=None,
-            remaining_absolute=None,
-            limit_absolute=30,
-            reset_at=None,
-            status="unknown",
-        )
+
+        reason = None
+        if not prepaid and not cap:
+            reason = (
+                "Кредиты API исчерпаны: предоплаченный баланс и лимит по мере "
+                "использования равны нулю. Подписка SuperGrok их не пополняет — "
+                "это отдельный кошелёк."
+            )
 
         return QuotaSnapshot(
             account_id=profile_id,
             provider="grok",
-            buckets=[b_weekly, b_chat, b_build, b_frequent, b_normal],
+            buckets=buckets,
             fetched_at=now,
-            source="baseline",
-            unavailable_reason="Grok не предоставляет остаток через публичный API",
+            source="provider_api",
+            unavailable_reason=reason,
         )
 
     def _collect_local_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
