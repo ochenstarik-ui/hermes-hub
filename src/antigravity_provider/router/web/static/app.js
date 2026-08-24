@@ -434,6 +434,23 @@ function renderAccountsView() {
       return matchesSearch && matchesHealth;
     });
 
+    // Подключённые аккаунты идут первыми: владелец жаловался, что рабочие
+    // карточки разбросаны между пустыми слотами и их приходится выискивать.
+    // Пустые слоты ('не подключён') — всегда в конце группы.
+    filtered.sort((a, b) => {
+      const rank = (p) => {
+        if (p.health_state === 'not_configured') return 5;
+        if (p.is_cold_spare || !p.enabled || p.health_state === 'disabled') return 4;
+        if (p.health_state === 'not_tested') return 3;
+        if (p.health_state === 'auth_required' || p.health_state === 'auth_expired') return 2;
+        if (p.health_state === 'healthy') return 0;
+        return 1;
+      };
+      const d = rank(a) - rank(b);
+      if (d !== 0) return d;
+      return (a.display_name || '').localeCompare(b.display_name || '', 'ru');
+    });
+
     if (filtered.length === 0) continue;
     visibleProfiles += filtered.length;
 

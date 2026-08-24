@@ -199,18 +199,32 @@ _STATIC_DIR = Path(__file__).resolve().parent / "static"
 if _STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
+    # Ассеты обязаны перепроверяться при каждой загрузке.
+    # Без Cache-Control браузер применяет эвристическое кэширование и может
+    # неделями отдавать старый app.js: интерфейс выглядит обновлённым (index.html
+    # перепроверяется при навигации), а поведение остаётся от прошлой сборки.
+    _NO_CACHE = {"Cache-Control": "no-cache, must-revalidate"}
+
     @app.get("/")
     @app.get("/index.html")
     def index():
-        return FileResponse(str(_STATIC_DIR / "index.html"))
+        return FileResponse(str(_STATIC_DIR / "index.html"), headers=_NO_CACHE)
 
     @app.get("/app.js")
     def _app_js():
-        return FileResponse(str(_STATIC_DIR / "app.js"), media_type="application/javascript")
+        return FileResponse(
+            str(_STATIC_DIR / "app.js"),
+            media_type="application/javascript",
+            headers=_NO_CACHE,
+        )
 
     @app.get("/style.css")
     def _style_css():
-        return FileResponse(str(_STATIC_DIR / "style.css"), media_type="text/css")
+        return FileResponse(
+            str(_STATIC_DIR / "style.css"),
+            media_type="text/css",
+            headers=_NO_CACHE,
+        )
 
     @app.get("/snapshot.example.json")
     def _fixture():
