@@ -45,7 +45,7 @@ def test_exhausted_account_explains_two_wallets():
         snap = AccountQuotaService()._collect_grok_quota("grok-orch", _auth())
 
     assert snap.source == "provider_api"
-    assert "SuperGrok" in (snap.unavailable_reason or ""), "не объяснено, что это разные кошельки"
+    assert "SuperGrok" in (snap.unavailable_reason or ""), "не объяснено, откуда берётся доступ"
     assert all(b.status == "exhausted" for b in snap.buckets)
 
 
