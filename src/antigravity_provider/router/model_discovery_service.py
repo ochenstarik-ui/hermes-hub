@@ -289,6 +289,39 @@ class ModelDiscoveryService:
                     logger.debug("OpenCode model query failed on %s: %s", pid, exc)
             return None
 
+        elif prov == "grok":
+            # Провайдера здесь не было вовсе, поэтому кэш моделей Grok всегда
+            # оставался пустым, и выбор модели отвергал даже настоящие имена:
+            # «модель grok-4.5 не найдена в списке известных». При этом
+            # api.x.ai/v1/models принимает тот же OAuth-токен, что и вызовы, и
+            # отдаёт полный список.
+            for pid in ("grok-orch", "grok-worker-1", "grok-worker-2"):
+                auth = ProfileAuthManager.load_profile_auth("grok", pid)
+                if not auth:
+                    continue
+                tokens = auth.get("token") or auth.get("tokens") or {}
+                token = tokens.get("access_token") if isinstance(tokens, dict) else None
+                token = token or auth.get("access_token") or auth.get("api_key")
+                if not token:
+                    continue
+                try:
+                    request = urllib.request.Request(
+                        "https://api.x.ai/v1/models",
+                        headers={"Authorization": f"Bearer {token}"},
+                    )
+                    with urllib.request.urlopen(request, timeout=15) as response:
+                        payload = json.loads(response.read().decode("utf-8") or "{}")
+                    models = [
+                        str(item.get("id"))
+                        for item in (payload.get("data") or [])
+                        if isinstance(item, dict) and item.get("id")
+                    ]
+                    if models:
+                        return sorted(set(models))
+                except Exception as exc:
+                    logger.debug("Grok model discovery failed for %s: %s", pid, exc)
+            return None
+
         elif prov in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
             from antigravity_provider.router.router_config import load_router_config
             cfg = load_router_config()

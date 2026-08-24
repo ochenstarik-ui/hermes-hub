@@ -794,51 +794,78 @@ class AccountQuotaService:
 
         buckets: List[QuotaBucket] = []
 
-        # Процент считаем ТОЛЬКО когда есть от чего считать. При нулевом
-        # лимите доля не определена — показываем абсолютные значения, а не
-        # выдуманный ноль процентов.
-        remaining_pct: Optional[float] = None
-        used_pct: Optional[float] = None
-        if cap and cap > 0 and used is not None:
-            used_pct = max(0.0, min(100.0, used / cap * 100.0))
-            remaining_pct = 100.0 - used_pct
+        # Главное — расход подписки. Именно это число владелец видит на
+        # grok.com: «Еженедельный лимит SuperGrok, 14% было в использовании».
+        # Раньше здесь читались только баланс и лимит трат, оба нулевые у
+        # подписчика, и квота показывалась как «Н/Д» при живой подписке.
+        credit_pct = _val(config.get("creditUsagePercent"))
+        if credit_pct is not None:
+            buckets.append(
+                QuotaBucket(
+                    id="grok.subscription.weekly",
+                    display_name="Подписка — неделя",
+                    model_family="grok",
+                    used_percent=credit_pct,
+                    remaining_percent=max(0.0, 100.0 - credit_pct),
+                    reset_at=period_end,
+                    period="7d",
+                    unit="percent",
+                    scope="account",
+                    status="exhausted" if credit_pct >= 100 else ("warning" if credit_pct >= 80 else "healthy"),
+                )
+            )
 
-        buckets.append(
-            QuotaBucket(
-                id="grok.on_demand",
-                display_name="Кредиты по мере использования",
-                model_family="grok",
-                used_percent=used_pct,
-                remaining_percent=remaining_pct,
-                used_absolute=int(used) if used is not None else None,
-                limit_absolute=int(cap) if cap is not None else None,
-                reset_at=period_end,
-                period="7d",
-                unit="currency",
-                scope="account",
-                status="exhausted" if (cap == 0 or (remaining_pct is not None and remaining_pct <= 0)) else "healthy",
+        # Разбивка по продуктам приходит тем же ответом: GrokChat, GrokBuild.
+        for entry in config.get("productUsage") or []:
+            if not isinstance(entry, dict):
+                continue
+            product = str(entry.get("product") or "").strip()
+            pct = _val(entry.get("usagePercent"))
+            if not product or pct is None:
+                continue
+            buckets.append(
+                QuotaBucket(
+                    id=f"grok.product.{product.lower()}",
+                    display_name=product,
+                    model_family="grok",
+                    used_percent=pct,
+                    remaining_percent=max(0.0, 100.0 - pct),
+                    reset_at=period_end,
+                    period="7d",
+                    unit="percent",
+                    scope="account",
+                    status="exhausted" if pct >= 100 else ("warning" if pct >= 80 else "healthy"),
+                )
             )
-        )
-        buckets.append(
-            QuotaBucket(
-                id="grok.prepaid",
-                display_name="Предоплаченный баланс",
-                model_family="grok",
-                remaining_absolute=int(prepaid) if prepaid is not None else None,
-                unit="currency",
-                scope="account",
-                status="exhausted" if prepaid == 0 else "healthy",
+
+        # Кредиты сверх подписки показываем, только если они вообще заведены.
+        # Нули у подписчика — норма, а не повод рисовать пустые корзины.
+        if (cap and cap > 0) or (prepaid and prepaid > 0):
+            used_pct = None
+            remaining_pct = None
+            if cap and cap > 0 and used is not None:
+                used_pct = max(0.0, min(100.0, used / cap * 100.0))
+                remaining_pct = 100.0 - used_pct
+            buckets.append(
+                QuotaBucket(
+                    id="grok.on_demand",
+                    display_name="Дополнительные кредиты",
+                    model_family="grok",
+                    used_percent=used_pct,
+                    remaining_percent=remaining_pct,
+                    used_absolute=int(used) if used is not None else None,
+                    limit_absolute=int(cap) if cap is not None else None,
+                    remaining_absolute=int(prepaid) if prepaid is not None else None,
+                    reset_at=period_end,
+                    unit="currency",
+                    scope="account",
+                    status="healthy",
+                )
             )
-        )
 
         reason = None
-        if not prepaid and not cap:
-            reason = (
-                "У этого аккаунта нет ни предоплаченного баланса, ни лимита по "
-                "мере использования. Доступ даёт либо подписка SuperGrok на ЭТОМ "
-                "же аккаунте, либо купленные кредиты — проверьте, что подключён "
-                "тот аккаунт, на котором оформлена подписка."
-            )
+        if not buckets:
+            reason = "Провайдер не вернул ни расхода подписки, ни кредитов"
 
         return QuotaSnapshot(
             account_id=profile_id,
