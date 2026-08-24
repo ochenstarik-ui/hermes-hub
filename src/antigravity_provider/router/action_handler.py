@@ -240,10 +240,27 @@ class ActionExecutor:
         prov = data.get('provider', '')
         
         # Purely UI navigation actions return True for Web API (no-op on server side).
-        if action in ['oauth', 'add_account', 'account_details', 'agent_settings', 'edit_route', 'open_routing', 'assign_role']:
+        if action in ['oauth', 'add_account', 'account_details', 'agent_settings', 'open_routing']:
             return {'ok': True, 'message': 'Навигация'}
-            
-        if action == 'set_main':
+
+        if action in ['save_chain', 'reorder_chain', 'edit_route']:
+            role_id = data.get('role_id') or data.get('role') or data.get('role_name', '')
+            chain = data.get('chain') or data.get('desired_chain') or data.get('preferred_chain') or data.get('nodes') or []
+            if isinstance(chain, str):
+                chain = [p.strip() for p in chain.split(',') if p.strip()]
+            ok, msg = AutoAssigner.persist_role_chain(role_id, list(chain))
+            return {'ok': ok, 'message': msg}
+
+        elif action == 'assign_role':
+            target_role = data.get('role_id') or data.get('target_role') or data.get('role') or data.get('role_name', '')
+            target_pid = pid or data.get('profile_id') or data.get('profile', '')
+            is_primary = data.get('is_primary', True)
+            ok, msg = AutoAssigner.assign_profile_to_role(target_pid, target_role, is_primary=bool(is_primary))
+            if ok:
+                EventLogService.get().log('routing', f'Профиль {target_pid} назначен на роль {target_role}.', level='info')
+            return {'ok': ok, 'message': msg}
+
+        elif action == 'set_main':
             ok, msg = do_set_main(prov, pid)
             return {'ok': ok, 'message': msg}
 
@@ -252,11 +269,11 @@ class ActionExecutor:
             role_id = data.get('role_id', '')
             ok, msg = do_set_model(pid, model_name, role_id=role_id)
             return {'ok': ok, 'message': msg}
-            
+
         elif action == 'set_orchestrator':
             ok, msg = do_set_orchestrator(pid)
             return {'ok': ok, 'message': msg}
-            
+
         elif action == 'test':
             if async_runner:
                 async_runner(lambda: do_test_profile(prov, pid), 'TestProfile')

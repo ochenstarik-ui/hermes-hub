@@ -9,12 +9,33 @@ const USE_MOCK_FIXTURE = false;
 
 let lastAppliedSeq = -1;
 let currentSnapshot = null;
-let activeView = 'accounts';
+let activeView = 'overview';
 let pollTimer = null;
 let pollIntervalMs = 5000;
 let authToken = localStorage.getItem('hermes_hub_token') || '';
 let cachedEvents = [];
 let currentSettings = {};
+let currentDragState = null;
+
+const CANONICAL_ROLE_DESCRIPTIONS = {
+  orchestrator: 'Главный оркестратор команды и маршрутизатор запросов',
+  'coder-primary': 'Основная разработка кода и реализация задач',
+  'coder-secondary': 'Вспомогательная разработка и параллельные задачи',
+  reviewer: 'Ревью кода, аудит изменений и контроль качества',
+  research: 'Read-only поиск в кодовой базе и сбор фактов',
+  fast: 'Оперативные вызовы, быстрые проверки и тесты',
+};
+
+function getProviderIdFromName(name) {
+  if (!name) return '';
+  const n = name.toLowerCase();
+  if (n.includes('antigravity') || n.includes('google')) return 'antigravity';
+  if (n.includes('codex') || n.includes('openai')) return 'openai-codex';
+  if (n.includes('opencode') || n.includes('go')) return 'opencode-go';
+  if (n.includes('claude') || n.includes('anthropic')) return 'claude';
+  if (n.includes('grok') || n.includes('xai')) return 'grok';
+  return name;
+}
 
 // ── DOM ELEMENTS ──
 const elements = {
@@ -70,11 +91,9 @@ function switchView(viewName) {
   });
 
   const titles = {
-    accounts: 'Аккаунты и квоты',
     overview: 'Обзор системы',
-    routing: 'Маршрутизация запросов',
-    providers: 'Модели и провайдеры',
-    team: 'Команда агентов',
+    accounts: 'Аккаунты и квоты',
+    routing: 'Главный экран управления маршрутизацией',
     analytics: 'Аналитика и телеметрия',
     health: 'Состояние и диагностика',
     logs: 'Журнал событий',
@@ -325,20 +344,14 @@ function updateGlobalHeader() {
 function renderCurrentView() {
   if (!currentSnapshot) return;
   switch (activeView) {
-    case 'accounts':
-      renderAccountsView();
-      break;
     case 'overview':
       renderOverviewView();
       break;
+    case 'accounts':
+      renderAccountsView();
+      break;
     case 'routing':
       renderRoutingView();
-      break;
-    case 'providers':
-      renderProvidersView();
-      break;
-    case 'team':
-      renderTeamView();
       break;
     case 'analytics':
       renderAnalyticsView();
@@ -540,10 +553,64 @@ function renderQuotaCell(bucket, unavailableReason) {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  2. OVERVIEW VIEW
+//  1. OVERVIEW VIEW (P0-3, P0-4 Diagram Model Select & Counters)
 // ═══════════════════════════════════════════════════════════════
 function renderOverviewView() {
   if (!currentSnapshot) return;
+
+  const providers = currentSnapshot.providers || [];
+  const readiness = currentSnapshot.readiness || {};
+  let totalSlots = 0;
+  let connectedSlots = 0;
+  let onlineSlots = 0;
+  let authRequiredSlots = 0;
+
+  providers.forEach((p) => {
+    totalSlots += p.total_slots || 0;
+    connectedSlots += p.connected_count || 0;
+    onlineSlots += p.online_count || 0;
+    authRequiredSlots += p.auth_required_count || 0;
+  });
+
+  const kpiSystem = document.getElementById('kpi-system-readiness');
+  const kpiSystemSub = document.getElementById('kpi-readiness-summary');
+  if (kpiSystem) {
+    kpiSystem.textContent = readiness.title_ru || 'Система готова';
+    kpiSystem.className = `kpi-value ${readiness.state === 'healthy' ? 'text-healthy' : (readiness.state === 'warning' ? 'text-warning' : 'text-error')}`;
+  }
+  if (kpiSystemSub) {
+    kpiSystemSub.textContent = readiness.summary_ru || 'Все ключевые роли обеспечены';
+  }
+
+  const kpiAccounts = document.getElementById('kpi-total-accounts');
+  const kpiAccountsSub = document.getElementById('kpi-accounts-sub');
+  if (kpiAccounts) {
+    kpiAccounts.textContent = `${connectedSlots}/${totalSlots} слотов`;
+  }
+  if (kpiAccountsSub) {
+    kpiAccountsSub.textContent = `Онлайн: ${onlineSlots} • Требуют входа: ${authRequiredSlots}`;
+  }
+
+  const kpiRoles = document.getElementById('kpi-ready-roles');
+  const kpiRolesSub = document.getElementById('kpi-roles-sub');
+  if (kpiRoles) {
+    kpiRoles.textContent = `${readiness.roles_ready_count || 0}/${readiness.total_roles || 6}`;
+  }
+  if (kpiRolesSub) {
+    kpiRolesSub.textContent = (readiness.roles_ready_count >= readiness.total_roles)
+      ? 'Все роли обеспечены'
+      : 'Требуется подключение аккаунтов';
+  }
+
+  const kpiProviders = document.getElementById('kpi-providers-count');
+  const kpiProvidersSub = document.getElementById('kpi-providers-sub');
+  if (kpiProviders) {
+    const connectedProviders = providers.filter((p) => (p.connected_count || 0) > 0).length;
+    kpiProviders.textContent = `${connectedProviders}/${providers.length}`;
+  }
+  if (kpiProvidersSub) {
+    kpiProvidersSub.textContent = 'Подключено провайдеров ИИ';
+  }
 
   const diagramBox = document.getElementById('overview-route-diagram');
   if (diagramBox) {
@@ -556,16 +623,41 @@ function renderOverviewView() {
       diagramHtml += `
         <div class="diagram-column">
           <div class="diagram-column-header">${escapeHtml(pipeline.role_name_ru || roleId)}</div>
-          ${nodes.map((node, idx) => `
-            <div class="diagram-node ${node.is_active ? 'active' : ''}">
-              <div style="display:flex; justify-content:space-between; font-weight:600; font-size:11px;">
-                <span>${idx === 0 ? '★ Основной' : `Резерв ${idx}`}</span>
-                <span class="${node.is_active ? 'text-healthy' : 'text-muted'}">${node.is_active ? '● Активен' : 'Ожидание'}</span>
+          ${nodes.map((node, idx) => {
+            const profile = (currentSnapshot.all_profiles || {})[node.profile_id];
+            const provId = profile?.provider || getProviderIdFromName(node.provider);
+            const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === provId || p.provider_name === node.provider);
+            const discoveredModels = (provSummary && provSummary.discovered_models && provSummary.discovered_models.length > 0) ? provSummary.discovered_models : [];
+            const currentModel = node.model || (profile && profile.preferred_models && profile.preferred_models[0]) || '';
+
+            let modelControlHtml = '';
+            if (discoveredModels.length > 0) {
+              modelControlHtml = `
+                <select class="diagram-model-select" title="Сменить рабочую модель" onchange="handleNodeModelChange('${escapeHtml(roleId)}', '${escapeHtml(node.profile_id)}', this.value)">
+                  ${discoveredModels.map((m) => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+                </select>
+              `;
+            } else {
+              modelControlHtml = `
+                <div style="font-size:10px; color:var(--text-muted); display:flex; align-items:center; justify-content:space-between;">
+                  <span>Список моделей ещё не получен</span>
+                  <button class="btn btn-secondary btn-xs" onclick="handleRefreshProviderModels('${escapeHtml(provId)}')">↻</button>
+                </div>
+              `;
+            }
+
+            return `
+              <div class="diagram-node ${node.is_active ? 'active' : ''}">
+                <div style="display:flex; justify-content:space-between; font-weight:600; font-size:11px;">
+                  <span>${idx === 0 ? '★ Основной' : `Резерв ${idx}`}</span>
+                  <span class="${node.is_active ? 'text-healthy' : 'text-muted'}">${node.is_active ? '● Активен' : 'Ожидание'}</span>
+                </div>
+                <div style="font-size:12px; font-weight:700; margin-top:2px;">${escapeHtml(node.account_identity && node.account_identity !== 'Аккаунт не добавлен' ? node.account_identity : (node.display_name || node.profile_id))}</div>
+                <div style="font-size:10px; color:var(--text-secondary); margin-bottom:4px;">${escapeHtml(node.display_name || node.profile_id)} (${escapeHtml(node.provider)})</div>
+                ${modelControlHtml}
               </div>
-              <div style="font-size:12px; font-weight:700; margin-top:2px;">${escapeHtml(node.display_name || node.profile_id)}</div>
-              <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(node.provider)} • ${escapeHtml(node.model)}</div>
-            </div>
-          `).join('')}
+            `;
+          }).join('') || '<div class="empty-text">Цепочка не задана</div>'}
         </div>
       `;
     }
@@ -574,12 +666,13 @@ function renderOverviewView() {
 
   const provSummaryBox = document.getElementById('overview-providers-summary');
   if (provSummaryBox) {
-    const providers = currentSnapshot.providers || [];
     provSummaryBox.innerHTML = providers.map((prov) => `
       <div class="provider-summary-card">
         <div class="provider-summary-title">${escapeHtml(prov.provider_name || prov.provider_id)}</div>
         <div class="provider-summary-stats">
-          Онлайн: <strong>${prov.online_count}/${prov.connected_count}</strong> •
+          Всего слотов: <strong>${prov.total_slots}</strong> •
+          Подключено: <strong>${prov.connected_count}</strong> •
+          Онлайн: <strong>${prov.online_count}</strong> •
           Требуют входа: <strong>${prov.auth_required_count}</strong> •
           Холодный резерв: <strong>${prov.cold_spare_count}</strong>
         </div>
@@ -592,45 +685,96 @@ function renderOverviewView() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  3. ROUTING VIEW
+//  2. ROUTING VIEW (P0-1, P0-2 Main Routing Control Center)
 // ═══════════════════════════════════════════════════════════════
 function renderRoutingView() {
   const container = document.getElementById('routing-pipelines-container');
   if (!container || !currentSnapshot) return;
 
   const routing = currentSnapshot.routing || {};
+  const agents = currentSnapshot.agents || [];
   let html = '';
 
   for (const [roleId, pipeline] of Object.entries(routing)) {
     const nodes = pipeline.nodes || [];
+    const agentInfo = agents.find((a) => a.role_id === roleId);
+    const roleDesc = agentInfo?.role_description_ru || (CANONICAL_ROLE_DESCRIPTIONS[roleId] || '');
+    const quotaLabel = agentInfo?.active_quota_label || '';
+    const quotaStatus = agentInfo?.active_quota_status || 'healthy';
 
     html += `
-      <div class="pipeline-card">
+      <div class="pipeline-card" data-role-id="${escapeHtml(roleId)}">
         <div class="pipeline-header">
           <div>
-            <div class="pipeline-title">${escapeHtml(pipeline.role_name_ru || roleId)}</div>
-            <div style="font-size:11px; color:var(--text-muted);">
-              Модель по умолчанию: <strong>${escapeHtml(pipeline.default_model || '—')}</strong> •
-              ${pipeline.session_affinity ? 'Session Affinity включена' : 'Без affinity'}
+            <div style="display:flex; align-items:center; gap:8px;">
+              <span class="pipeline-title">${escapeHtml(pipeline.role_name_ru || roleId)}</span>
+              ${quotaLabel ? `<span class="badge badge-quota ${quotaStatus}" title="Оперативная квота активного профиля">Квота: ${escapeHtml(quotaLabel)}</span>` : ''}
+              <span class="badge badge-affinity">${pipeline.session_affinity ? 'Session Affinity' : 'Без affinity'}</span>
             </div>
+            ${roleDesc ? `<div class="pipeline-desc">${escapeHtml(roleDesc)}</div>` : ''}
           </div>
-          <button class="btn btn-secondary btn-sm" onclick="openEditRouteModal('${escapeHtml(roleId)}')">
-            Изменить цепочку →
-          </button>
+          <div class="pipeline-header-actions">
+            <button class="btn btn-secondary btn-sm" onclick="openAddNodeToChainModal('${escapeHtml(roleId)}')">
+              + Добавить профиль
+            </button>
+          </div>
         </div>
 
-        <div class="pipeline-chain-flow">
-          ${nodes.map((node, index) => `
-            <div class="pipeline-node-chip ${node.is_active ? 'active' : ''}">
-              <div style="display:flex; justify-content:space-between; font-size:10px;">
-                <strong style="color:var(--text-accent);">${index === 0 ? 'Основной' : `Резерв ${index}`}</strong>
-                <span class="${node.is_active ? 'text-healthy' : 'text-muted'}">${node.is_active ? '● АКТИВЕН' : ''}</span>
+        <div class="pipeline-chain-flow" data-role-id="${escapeHtml(roleId)}">
+          ${nodes.map((node, index) => {
+            const profile = (currentSnapshot.all_profiles || {})[node.profile_id];
+            const provId = profile?.provider || getProviderIdFromName(node.provider);
+            const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === provId || p.provider_name === node.provider);
+            const discoveredModels = (provSummary && provSummary.discovered_models && provSummary.discovered_models.length > 0) ? provSummary.discovered_models : [];
+            const currentModel = node.model || (profile && profile.preferred_models && profile.preferred_models[0]) || '';
+            const identity = node.account_identity && node.account_identity !== 'Аккаунт не добавлен' ? node.account_identity : (profile?.email || node.display_name || node.profile_id);
+
+            let modelControlHtml = '';
+            if (discoveredModels.length > 0) {
+              modelControlHtml = `
+                <div class="node-model-row">
+                  <label class="node-model-label">Модель:</label>
+                  <select class="node-model-select" onchange="handleNodeModelChange('${escapeHtml(roleId)}', '${escapeHtml(node.profile_id)}', this.value)">
+                    ${discoveredModels.map((m) => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+                  </select>
+                </div>
+              `;
+            } else {
+              modelControlHtml = `
+                <div class="node-model-row node-model-refresh-row">
+                  <span class="node-model-text" title="Список моделей ещё не получен">Список моделей ещё не получен</span>
+                  <button class="btn btn-secondary btn-xs" title="Запросить список моделей у провайдера" onclick="handleRefreshProviderModels('${escapeHtml(provId)}')">↻ Модели</button>
+                </div>
+              `;
+            }
+
+            return `
+              <div class="pipeline-node-chip ${node.is_active ? 'active' : ''}"
+                   draggable="true"
+                   data-role-id="${escapeHtml(roleId)}"
+                   data-profile-id="${escapeHtml(node.profile_id)}"
+                   data-index="${index}"
+                   ondragstart="handleNodeDragStart(event, '${escapeHtml(roleId)}', ${index})"
+                   ondragover="handleNodeDragOver(event, '${escapeHtml(roleId)}', ${index})"
+                   ondragleave="handleNodeDragLeave(event)"
+                   ondrop="handleNodeDrop(event, '${escapeHtml(roleId)}', ${index})"
+                   ondragend="handleNodeDragEnd(event)">
+                <div class="node-top-row">
+                  <span class="node-rank">${index === 0 ? '★ Основной' : `Резерв ${index}`}</span>
+                  <div style="display:flex; align-items:center; gap:4px;">
+                    ${node.is_active ? '<span class="badge badge-status healthy">● АКТИВЕН</span>' : ''}
+                    <button class="btn-node-remove" title="Удалить из цепочки" onclick="handleRemoveNodeFromChain('${escapeHtml(roleId)}', '${escapeHtml(node.profile_id)}')">✕</button>
+                  </div>
+                </div>
+                <div class="node-identity" title="${escapeHtml(identity)}">${escapeHtml(identity)}</div>
+                <div class="node-meta" title="${escapeHtml(node.display_name || node.profile_id)} • ${escapeHtml(node.provider)}">
+                  ${escapeHtml(node.display_name || node.profile_id)} <span class="mono-tag">(${escapeHtml(node.profile_id)})</span> • ${escapeHtml(node.provider)}
+                </div>
+                ${modelControlHtml}
+                ${node.failover_reason ? `<div class="node-failover-warning">⚠ ${escapeHtml(node.failover_reason)}</div>` : ''}
               </div>
-              <div style="font-size:12px; font-weight:700;">${escapeHtml(node.display_name || node.profile_id)}</div>
-              <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(node.provider)} • ${escapeHtml(node.model)}</div>
-              ${node.failover_reason ? `<div style="font-size:9px; color:var(--status-warning); margin-top:2px;">⚠ ${escapeHtml(node.failover_reason)}</div>` : ''}
-            </div>
-          `).join('') || '<div class="empty-text">Цепочка не настроена.</div>'}
+            `;
+          }).join('') || '<div class="empty-text">Цепочка не настроена. Нажмите «+ Добавить профиль».</div>'}
         </div>
       </div>
     `;
@@ -640,84 +784,7 @@ function renderRoutingView() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  4. PROVIDERS & MODELS VIEW
-// ═══════════════════════════════════════════════════════════════
-function renderProvidersView() {
-  const container = document.getElementById('providers-full-container');
-  if (!container || !currentSnapshot) return;
-
-  const providers = currentSnapshot.providers || [];
-  container.innerHTML = providers.map((prov) => `
-    <div class="section-card" style="margin-bottom:16px;">
-      <div class="section-card-header">
-        <div>
-          <div class="section-card-title">${escapeHtml(prov.provider_name || prov.provider_id)}</div>
-          <div class="section-card-subtitle">
-            Всего слотов: <strong>${prov.total_slots}</strong> • Подключено: <strong>${prov.connected_count}</strong> • Онлайн: <strong>${prov.online_count}</strong>
-          </div>
-        </div>
-        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(prov.provider_id)}')">
-          ↻ Запросить модели
-        </button>
-      </div>
-
-      <div style="padding:14px;">
-        <div style="font-weight:600; font-size:12px; margin-bottom:6px; color:var(--text-secondary);">
-          Обнаруженные модели:
-        </div>
-        <div style="display:flex; flex-wrap:wrap; gap:6px;">
-          ${(prov.discovered_models && prov.discovered_models.length > 0)
-            ? prov.discovered_models.map(m => `<span class="account-model-tag" style="font-size:11px; padding:4px 8px;">${escapeHtml(m)}</span>`).join('')
-            : '<span style="color:var(--text-muted); font-size:12px;">Н/Д — список моделей ещё не получен от провайдера</span>'
-          }
-        </div>
-      </div>
-    </div>
-  `).join('') || '<div class="empty-text">Нет данных провайдеров.</div>';
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  5. TEAM VIEW
-// ═══════════════════════════════════════════════════════════════
-function renderTeamView() {
-  const container = document.getElementById('team-cards-container');
-  if (!container || !currentSnapshot) return;
-
-  const agents = currentSnapshot.agents || [];
-  container.innerHTML = agents.map((ag) => `
-    <div class="agent-card ${ag.is_main_orchestrator ? 'is-orchestrator' : ''}">
-      <div class="agent-card-header">
-        <div>
-          <div class="agent-role-title">${escapeHtml(ag.role_name_ru || ag.role_id)}</div>
-          <div class="agent-role-desc">${escapeHtml(ag.role_description_ru || '')}</div>
-        </div>
-        <span class="agent-status-badge ${ag.is_active ? 'active' : 'idle'}">
-          ${ag.is_active ? '● АКТИВЕН' : 'ОЖИДАНИЕ'}
-        </span>
-      </div>
-
-      <div class="agent-assigned-info">
-        <div style="font-size:11px; color:var(--text-muted);">Назначенный аккаунт:</div>
-        <div style="font-weight:700; font-size:13px;">${escapeHtml(ag.assigned_display_name || ag.assigned_profile_id || 'Не назначен')}</div>
-        <div style="font-size:11px; color:var(--text-secondary); margin-top:2px;">
-          Провайдер: <strong>${escapeHtml(ag.provider_display_name || ag.provider)}</strong> • Модель: <strong>${escapeHtml(ag.model || 'default')}</strong>
-        </div>
-      </div>
-
-      <div class="agent-card-footer">
-        <button class="btn btn-secondary btn-sm" onclick="openAgentModelModal('${escapeHtml(ag.role_id)}', '${escapeHtml(ag.assigned_profile_id)}')">
-          Выбрать модель
-        </button>
-        <button class="btn btn-secondary btn-sm" onclick="openEditRouteModal('${escapeHtml(ag.role_id)}')">
-          Маршрут
-        </button>
-      </div>
-    </div>
-  `).join('') || '<div class="empty-text">Список агентов пуст.</div>';
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  6. ANALYTICS VIEW (P0-1 Real Telemetry & Honesty)
+//  3. ANALYTICS VIEW (P0-1, P0-5 Telemetry & Honesty)
 // ═══════════════════════════════════════════════════════════════
 function renderAnalyticsView() {
   if (!currentSnapshot) return;
@@ -725,11 +792,11 @@ function renderAnalyticsView() {
   const telemetry = metrics.telemetry || {};
   const global = telemetry.global || {};
 
-  // KPI 1: Total Calls
+  // KPI 1: Total Calls (24h)
   const totalCallsEl = document.getElementById('analytics-total-calls');
   const callsBreakdownEl = document.getElementById('analytics-calls-breakdown');
   if (totalCallsEl) {
-    totalCallsEl.textContent = global.total_calls !== null && global.total_calls !== undefined ? global.total_calls : 'Н/Д';
+    totalCallsEl.textContent = (global.total_calls !== null && global.total_calls !== undefined) ? global.total_calls : 'Н/Д';
   }
   if (callsBreakdownEl) {
     const succ = global.successful_calls ?? 0;
@@ -737,7 +804,7 @@ function renderAnalyticsView() {
     callsBreakdownEl.textContent = `Успешно: ${succ} • Сбоев: ${fail} (окно: 24ч)`;
   }
 
-  // KPI 2: Error Rate
+  // KPI 2: Error Rate (24h)
   const errorRateEl = document.getElementById('analytics-error-rate');
   const errorRateSubEl = document.getElementById('analytics-error-rate-sub');
   if (errorRateEl) {
@@ -751,10 +818,12 @@ function renderAnalyticsView() {
     }
   }
   if (errorRateSubEl) {
-    errorRateSubEl.textContent = global.failed_calls ? `${global.failed_calls} отказов из ${global.total_calls || 0} вызовов` : 'Отказов не зафиксировано';
+    errorRateSubEl.textContent = (global.failed_calls !== null && global.failed_calls !== undefined && global.failed_calls > 0)
+      ? `${global.failed_calls} отказов из ${global.total_calls || 0} вызовов (24ч)`
+      : 'Отказов за 24ч не зафиксировано';
   }
 
-  // KPI 3: Latency
+  // KPI 3: Latency (24h) with Fast-fail Explanation
   const latencyEl = document.getElementById('analytics-latency-p50');
   const latencySubEl = document.getElementById('analytics-latency-sub');
   if (latencyEl) {
@@ -771,7 +840,13 @@ function renderAnalyticsView() {
     const maxStr = global.latency_max_ms != null
       ? (global.latency_max_ms >= 1000 ? `${(global.latency_max_ms / 1000).toFixed(1)} s` : `${global.latency_max_ms.toFixed(1)} ms`)
       : 'Н/Д';
-    latencySubEl.textContent = `p95: ${p95Str} • max: ${maxStr}`;
+
+    let note = `p95: ${p95Str} • max: ${maxStr} (окно: 24ч)`;
+    // P0-5: Explain discrepancy if p50 is low while error rate is non-zero (fast-fail)
+    if (global.failed_calls > 0 && (global.latency_p50_ms == null || global.latency_p50_ms < 50 || (global.latency_max_ms && global.latency_max_ms > 10 * Math.max(1, global.latency_p50_ms || 0)))) {
+      note += ' • Низкий p50 вызван быстрыми отказами (fast-fail)';
+    }
+    latencySubEl.textContent = note;
   }
 
   // KPI 4: Tokens (Honesty rule: null means N/D, never 0)
@@ -787,23 +862,44 @@ function renderAnalyticsView() {
   }
   if (tokensSubEl) {
     if (hasTokens) {
-      tokensSubEl.textContent = 'Учитывается провайдером';
+      tokensSubEl.textContent = 'Учитывается провайдером (24ч)';
     } else {
       tokensSubEl.textContent = 'Н/Д: провайдеры не отдают данные о токенах';
     }
   }
 
-  // Providers Table
+  // Providers Table (P0-5 Honesty: Unconnected providers labeled "Не подключён")
   const provTableBox = document.getElementById('analytics-providers-table');
   if (provTableBox) {
     const byProv = telemetry.by_provider || {};
-    const provKeys = Object.keys(byProv);
-    if (provKeys.length === 0) {
+    const providersList = currentSnapshot.providers || [];
+    const allKnownProvIds = Array.from(new Set([...providersList.map((p) => p.provider_id), ...Object.keys(byProv)]));
+
+    if (allKnownProvIds.length === 0) {
       provTableBox.innerHTML = '<div class="empty-text">Нет данных телеметрии по провайдерам.</div>';
     } else {
-      const rowsHtml = provKeys.map((pId) => {
+      const rowsHtml = allKnownProvIds.map((pId) => {
         const pData = byProv[pId] || {};
-        const errPct = pData.error_rate != null ? (pData.error_rate * 100).toFixed(1) : 'Н/Д';
+        const provSummary = providersList.find((p) => p.provider_id === pId);
+        const provName = provSummary?.provider_name || pId;
+        const isConnected = provSummary ? ((provSummary.connected_count || 0) > 0) : ((pData.total_calls || 0) > 0);
+
+        if (!isConnected && (!pData.total_calls || pData.total_calls === 0)) {
+          return `
+            <tr>
+              <td><strong>${escapeHtml(provName)}</strong> <span style="font-size:10px; color:var(--text-muted);">(${escapeHtml(pId)})</span></td>
+              <td class="text-muted">Не подключён</td>
+              <td class="text-muted">—</td>
+              <td class="text-muted">—</td>
+              <td><span class="badge badge-muted">Аккаунт не добавлен</span></td>
+              <td class="text-muted">—</td>
+              <td class="text-muted">—</td>
+              <td class="text-muted">Н/Д</td>
+            </tr>
+          `;
+        }
+
+        const errPct = pData.error_rate != null ? (pData.error_rate * 100).toFixed(1) : '0.0';
         const p50 = pData.latency_p50_ms != null ? `${pData.latency_p50_ms.toFixed(1)} ms` : 'Н/Д';
         const p95 = pData.latency_p95_ms != null
           ? (pData.latency_p95_ms >= 1000 ? `${(pData.latency_p95_ms / 1000).toFixed(1)} s` : `${pData.latency_p95_ms.toFixed(1)} ms`)
@@ -813,13 +909,13 @@ function renderAnalyticsView() {
 
         return `
           <tr>
-            <td><strong>${escapeHtml(pId)}</strong></td>
-            <td>${pData.total_calls ?? 'Н/Д'}</td>
+            <td><strong>${escapeHtml(provName)}</strong> <span style="font-size:10px; color:var(--text-muted);">(${escapeHtml(pId)})</span></td>
+            <td>${pData.total_calls ?? 0}</td>
             <td class="text-healthy">${pData.successful_calls ?? 0}</td>
             <td class="${(pData.failed_calls || 0) > 0 ? 'text-error' : 'text-muted'}">${pData.failed_calls ?? 0}</td>
             <td>
               <div class="cell-bar-container">
-                <span>${errPct}${errPct !== 'Н/Д' ? '%' : ''}</span>
+                <span>${errPct}%</span>
                 <div class="cell-bar-track">
                   <div class="cell-bar-fill" style="width:${barW}%; background:${barColor};"></div>
                 </div>
@@ -875,7 +971,7 @@ function renderAnalyticsView() {
         return `
           <tr>
             <td><strong>${escapeHtml(rName)}</strong> <span style="font-size:10px; color:var(--text-muted);">(${escapeHtml(rId)})</span></td>
-            <td>${rData.total_calls ?? 'Н/Д'}</td>
+            <td>${rData.total_calls ?? 0}</td>
             <td class="text-healthy">${(rData.total_calls ?? 0) - (rData.failed_calls ?? 0)}</td>
             <td class="${(rData.failed_calls || 0) > 0 ? 'text-error' : 'text-muted'}">${rData.failed_calls ?? 0}</td>
             <td>${errPct}%</td>
@@ -1589,83 +1685,182 @@ async function finishAddAccount(providerId) {
   }
 }
 
-// ── Routing Pipeline Modal ──
-function openEditRouteModal(roleId) {
+// ── Routing Drag & Drop Reordering (P0-1, P0-2) ──
+function handleNodeDragStart(e, roleId, index) {
+  currentDragState = { roleId, fromIndex: index };
+  e.dataTransfer.effectAllowed = 'move';
+  try {
+    e.dataTransfer.setData('text/plain', JSON.stringify(currentDragState));
+  } catch (err) {
+    // fallback
+  }
+  const chip = e.currentTarget;
+  if (chip) {
+    chip.classList.add('dragging');
+  }
+}
+
+function handleNodeDragOver(e, roleId, index) {
+  if (!currentDragState || currentDragState.roleId !== roleId) return;
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  const chip = e.currentTarget;
+  if (chip && !chip.classList.contains('dragging')) {
+    chip.classList.add('drop-target');
+  }
+}
+
+function handleNodeDragLeave(e) {
+  const chip = e.currentTarget;
+  if (chip) {
+    chip.classList.remove('drop-target');
+  }
+}
+
+function handleNodeDragEnd(e) {
+  document.querySelectorAll('.pipeline-node-chip').forEach((c) => {
+    c.classList.remove('dragging', 'drop-target');
+  });
+  currentDragState = null;
+}
+
+async function handleNodeDrop(e, roleId, targetIndex) {
+  e.preventDefault();
+  document.querySelectorAll('.pipeline-node-chip').forEach((c) => {
+    c.classList.remove('dragging', 'drop-target');
+  });
+
+  if (!currentDragState || currentDragState.roleId !== roleId) {
+    currentDragState = null;
+    return;
+  }
+
+  const sourceIndex = currentDragState.fromIndex;
+  currentDragState = null;
+
+  if (sourceIndex === targetIndex) return;
+
+  const pipeline = (currentSnapshot.routing || {})[roleId];
+  if (!pipeline || !pipeline.nodes) return;
+
+  const chain = pipeline.nodes.map((n) => n.profile_id);
+  if (sourceIndex < 0 || sourceIndex >= chain.length || targetIndex < 0 || targetIndex >= chain.length) return;
+
+  const [moved] = chain.splice(sourceIndex, 1);
+  chain.splice(targetIndex, 0, moved);
+
+  showToast(`Обновление порядка цепочки '${pipeline.role_name_ru || roleId}'...`, 'info');
+  const res = await executeAction('save_chain', { role_id: roleId, chain: chain });
+  if (res.ok) {
+    showToast(`Порядок цепочки '${pipeline.role_name_ru || roleId}' сохранен`, 'success');
+    if (pipeline.nodes) {
+      const movedNode = pipeline.nodes.splice(sourceIndex, 1)[0];
+      pipeline.nodes.splice(targetIndex, 0, movedNode);
+      renderRoutingView();
+    }
+    fetchSnapshot();
+  } else {
+    showToast(res.message || 'Ошибка сохранения цепочки', 'error');
+  }
+}
+
+// ── Routing Node Model & Chain Management ──
+async function handleNodeModelChange(roleId, profileId, newModel) {
+  if (!newModel) return;
+  showToast(`Сохранение модели '${newModel}' для ${profileId}...`, 'info');
+  const res = await executeAction('set_model', { profile_id: profileId, model: newModel, role_id: roleId });
+  if (res.ok) {
+    showToast(`Модель '${newModel}' успешно сохранена`, 'success');
+    if (currentSnapshot) {
+      if (currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
+        currentSnapshot.all_profiles[profileId].preferred_models = [newModel];
+      }
+      if (currentSnapshot.routing && currentSnapshot.routing[roleId]) {
+        currentSnapshot.routing[roleId].default_model = newModel;
+        const node = (currentSnapshot.routing[roleId].nodes || []).find((n) => n.profile_id === profileId);
+        if (node) node.model = newModel;
+      }
+    }
+    renderCurrentView();
+  } else {
+    showToast(res.message || 'Ошибка сохранения модели', 'error');
+  }
+}
+
+async function handleRemoveNodeFromChain(roleId, profileId) {
+  const pipeline = (currentSnapshot.routing || {})[roleId];
+  if (!pipeline || !pipeline.nodes) return;
+
+  const chain = pipeline.nodes.map((n) => n.profile_id).filter((p) => p !== profileId);
+  showToast(`Удаление профиля ${profileId} из цепочки...`, 'info');
+  const res = await executeAction('save_chain', { role_id: roleId, chain: chain });
+  if (res.ok) {
+    showToast(`Профиль удален из цепочки '${pipeline.role_name_ru || roleId}'`, 'success');
+    pipeline.nodes = pipeline.nodes.filter((n) => n.profile_id !== profileId);
+    renderRoutingView();
+    fetchSnapshot();
+  } else {
+    showToast(res.message || 'Ошибка обновления цепочки', 'error');
+  }
+}
+
+function openAddNodeToChainModal(roleId) {
   if (!currentSnapshot) return;
   const pipeline = (currentSnapshot.routing || {})[roleId];
   if (!pipeline) return;
 
-  const nodes = [...(pipeline.nodes || [])];
+  const currentChain = (pipeline.nodes || []).map((n) => n.profile_id);
+  const allProfiles = currentSnapshot.all_profiles || {};
+  const available = Object.values(allProfiles).filter((p) => !currentChain.includes(p.profile_id));
 
-  function renderRows() {
-    return nodes.map((node, index) => `
-      <div style="display:flex; align-items:center; justify-content:space-between; background:var(--surface-muted); padding:8px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:6px;">
-        <div>
-          <span style="font-weight:700; color:var(--text-accent); margin-right:8px;">${index + 1}.</span>
-          <strong style="font-size:13px;">${escapeHtml(node.display_name || node.profile_id)}</strong>
-          <span style="font-size:11px; color:var(--text-muted); margin-left:6px;">(${escapeHtml(node.provider)})</span>
-        </div>
-        <div style="display:flex; gap:4px;">
-          <button class="btn btn-secondary btn-sm" onclick="moveRouteNode('${roleId}', ${index}, -1)" ${index === 0 ? 'disabled' : ''}>↑</button>
-          <button class="btn btn-secondary btn-sm" onclick="moveRouteNode('${roleId}', ${index}, 1)" ${index === nodes.length - 1 ? 'disabled' : ''}>↓</button>
-          <button class="btn btn-ghost btn-sm text-error" onclick="removeRouteNode('${roleId}', ${index})">✕</button>
-        </div>
+  elements.modalTitle.textContent = `Добавить профиль в цепочку: ${pipeline.role_name_ru || roleId}`;
+  if (available.length === 0) {
+    elements.modalBody.innerHTML = `
+      <div class="view-header-note">Все зарегистрированные профили уже включены в эту цепочку.</div>
+    `;
+    elements.modalFooter.innerHTML = `<button class="btn btn-ghost" onclick="closeModal()">Закрыть</button>`;
+  } else {
+    elements.modalBody.innerHTML = `
+      <div id="modal-feedback-area"></div>
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Выберите доступный профиль для включения в цепочку отказоустойчивости:
       </div>
-    `).join('') || '<div class="empty-text">Цепочка пуста.</div>';
+      <div style="margin-bottom:16px;">
+        <select id="add-node-profile-select" class="select-filter" style="width:100%;">
+          ${available.map((p) => `
+            <option value="${escapeHtml(p.profile_id)}">
+              ${escapeHtml(p.display_name || p.profile_id)} (${escapeHtml(p.provider_display_name || p.provider)}) — ${escapeHtml(p.email || p.account_identity || 'без email')}
+            </option>
+          `).join('')}
+        </select>
+      </div>
+    `;
+    elements.modalFooter.innerHTML = `
+      <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+      <button class="btn btn-primary" onclick="handleAddNodeToChain('${escapeHtml(roleId)}')">+ Добавить в цепочку</button>
+    `;
   }
-
-  window.activeRouteNodes = nodes;
-
-  elements.modalTitle.textContent = `Цепочка маршрутизации: ${pipeline.role_name_ru || roleId}`;
-  elements.modalBody.innerHTML = `
-    <div id="modal-feedback-area"></div>
-    <div style="font-size:12px; color:var(--text-muted); margin-bottom:12px;">
-      Первый профиль — основной (Primary). Нижестоящие профили используются как резервы в порядке переключения.
-    </div>
-    <div id="route-nodes-list-container">
-      ${renderRows()}
-    </div>
-  `;
-
-  elements.modalFooter.innerHTML = `
-    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
-    <button class="btn btn-primary" onclick="saveRouteChain('${escapeHtml(roleId)}')">Сохранить цепочку</button>
-  `;
-
   showModal();
 }
 
-window.moveRouteNode = function(roleId, index, delta) {
-  const nodes = window.activeRouteNodes;
-  const target = index + delta;
-  if (target >= 0 && target < nodes.length) {
-    const temp = nodes[index];
-    nodes[index] = nodes[target];
-    nodes[target] = temp;
-    openEditRouteModal(roleId);
-  }
-};
+async function handleAddNodeToChain(roleId) {
+  const sel = document.getElementById('add-node-profile-select');
+  if (!sel) return;
+  const newProfileId = sel.value;
+  if (!newProfileId) return;
 
-window.removeRouteNode = function(roleId, index) {
-  const nodes = window.activeRouteNodes;
-  nodes.splice(index, 1);
-  openEditRouteModal(roleId);
-};
+  const pipeline = (currentSnapshot.routing || {})[roleId];
+  const currentChain = (pipeline?.nodes || []).map((n) => n.profile_id);
+  const newChain = [...currentChain, newProfileId];
 
-async function saveRouteChain(roleId) {
-  const chain = (window.activeRouteNodes || []).map((n) => n.profile_id);
   const feedbackArea = document.getElementById('modal-feedback-area');
   if (feedbackArea) {
-    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение конфигурации...</div>';
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Добавление профиля в цепочку...</div>';
   }
 
-  const res = await executeAction('edit_route', {
-    role_id: roleId,
-    chain: chain,
-  });
-
+  const res = await executeAction('save_chain', { role_id: roleId, chain: newChain });
   if (res.ok) {
-    showToast(`Цепочка '${roleId}' сохранена`, 'success');
+    showToast(`Профиль добавлен в цепочку '${pipeline?.role_name_ru || roleId}'`, 'success');
     closeModal();
     fetchSnapshot();
   } else {

@@ -99,14 +99,14 @@ def test_api_settings_endpoint_no_raw_tokens(client, tmp_path, monkeypatch):
             settings_file.unlink()
 
 
-def test_web_client_html_and_js_9_views_parity():
-    """Verify index.html and app.js implement all 9 views required for desktop parity."""
+def test_web_client_html_and_js_7_views_parity():
+    """Verify index.html and app.js implement the 7 primary views and remove redundant views."""
     index_html = (STATIC_DIR / "index.html").read_text(encoding="utf-8")
     app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
 
     expected_views = [
-        "accounts", "overview", "routing", "providers",
-        "team", "analytics", "health", "logs", "settings"
+        "overview", "accounts", "routing", "analytics",
+        "health", "logs", "settings"
     ]
 
     for v in expected_views:
@@ -114,6 +114,23 @@ def test_web_client_html_and_js_9_views_parity():
         assert f'data-view="{v}"' in index_html, f"Missing nav button for view: {v}"
         # Section container exists
         assert f'id="view-{v}"' in index_html, f"Missing section #view-{v} in index.html"
+
+    # Redundant views must NOT exist in nav menu
+    assert 'data-view="providers"' not in index_html, "View 'providers' must be removed from web navigation"
+    assert 'data-view="team"' not in index_html, "View 'team' must be removed from web navigation"
+    assert "renderProvidersView" not in app_js, "renderProvidersView must be removed from app.js"
+    assert "renderTeamView" not in app_js, "renderTeamView must be removed from app.js"
+
+    # Routing view elements
+    assert "renderRoutingView" in app_js
+    assert "routing-pipelines-container" in index_html
+    assert "handleNodeDragStart" in app_js
+    assert "handleNodeDrop" in app_js
+    assert "handleNodeModelChange" in app_js
+
+    # Overview view elements
+    assert "renderOverviewView" in app_js
+    assert "overview-route-diagram" in index_html
 
     # Analytics view elements
     assert "analytics-total-calls" in index_html
@@ -140,3 +157,4 @@ def test_web_client_html_and_js_9_views_parity():
     assert "setting-theme" in index_html
     assert "renderSettingsView" in app_js
     assert "saveHubServerSettings" in app_js
+

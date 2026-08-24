@@ -20,26 +20,18 @@
       </div>
 
       <nav class="nav-menu">
-        <button class="nav-item active" data-view="accounts">
+        <button class="nav-item active" data-view="overview">
+          <span class="nav-icon">📊</span>
+          <span class="nav-label">Обзор</span>
+        </button>
+        <button class="nav-item" data-view="accounts">
           <span class="nav-icon">👥</span>
           <span class="nav-label">Аккаунты</span>
           <span class="nav-badge" id="nav-accounts-count">0</span>
         </button>
-        <button class="nav-item" data-view="overview">
-          <span class="nav-icon">📊</span>
-          <span class="nav-label">Обзор</span>
-        </button>
         <button class="nav-item" data-view="routing">
           <span class="nav-icon">🔀</span>
           <span class="nav-label">Маршрутизация</span>
-        </button>
-        <button class="nav-item" data-view="providers">
-          <span class="nav-icon">🧩</span>
-          <span class="nav-label">Модели и провайдеры</span>
-        </button>
-        <button class="nav-item" data-view="team">
-          <span class="nav-icon">👑</span>
-          <span class="nav-label">Команда агентов</span>
         </button>
         <button class="nav-item" data-view="analytics">
           <span class="nav-icon">📈</span>
@@ -73,7 +65,7 @@
       <!-- Top Header -->
       <header class="top-header">
         <div class="header-left">
-          <h1 class="header-title" id="page-title">Аккаунты и квоты</h1>
+          <h1 class="header-title" id="page-title">Обзор системы</h1>
           <span class="header-readiness-badge" id="header-readiness-badge">
             <span class="status-dot"></span>
             <span id="header-readiness-text">Инициализация...</span>
@@ -91,45 +83,10 @@
         </div>
       </header>
 
-      <!-- Dynamic Views -->
+      <!-- Dynamic Views (7 Control Sections) -->
       <div class="content-scroll">
-        <!-- 1. ACCOUNTS VIEW -->
-        <section id="view-accounts" class="view-pane active">
-          <div class="toolbar">
-            <div class="search-box">
-              <span class="search-icon">🔍</span>
-              <input type="text" id="accounts-search" placeholder="Поиск по аккаунту, почте, роли или модели...">
-            </div>
-            <div class="filters-row">
-              <select id="filter-provider" class="select-filter">
-                <option value="all">Все провайдеры</option>
-                <option value="antigravity">Google Antigravity</option>
-                <option value="openai-codex">OpenAI Codex</option>
-                <option value="opencode-go">OpenCode Go</option>
-                <option value="claude">Claude (Anthropic)</option>
-                <option value="grok">Grok (xAI)</option>
-              </select>
-              <select id="filter-health" class="select-filter">
-                <option value="all">Все состояния</option>
-                <option value="healthy">Работает</option>
-                <option value="warning">Предупреждение</option>
-                <option value="quota_exhausted">Квота исчерпана</option>
-                <option value="auth_required">Требуется вход</option>
-                <option value="disabled">Отключён / Резерв</option>
-              </select>
-              <div class="toolbar-stats" id="accounts-stats-summary">
-                Показано: <strong>0</strong> из <strong>0</strong> аккаунтов
-              </div>
-            </div>
-          </div>
-
-          <div id="accounts-container" class="accounts-groups-container">
-            <!-- Rendered by app.js -->
-          </div>
-        </section>
-
-        <!-- 2. OVERVIEW VIEW -->
-        <section id="view-overview" class="view-pane">
+        <!-- 1. OVERVIEW VIEW -->
+        <section id="view-overview" class="view-pane active">
           <div class="overview-grid">
             <div class="kpi-card">
               <div class="kpi-label">Состояние системы</div>
@@ -174,38 +131,56 @@
           </div>
         </section>
 
-        <!-- 3. ROUTING VIEW -->
+        <!-- 2. ACCOUNTS VIEW -->
+        <section id="view-accounts" class="view-pane">
+          <div class="toolbar">
+            <div class="search-box">
+              <span class="search-icon">🔍</span>
+              <input type="text" id="accounts-search" placeholder="Поиск по аккаунту, почте, роли или модели...">
+            </div>
+            <div class="filters-row">
+              <select id="filter-provider" class="select-filter">
+                <option value="all">Все провайдеры</option>
+                <option value="antigravity">Google Antigravity</option>
+                <option value="openai-codex">OpenAI Codex</option>
+                <option value="opencode-go">OpenCode Go</option>
+                <option value="claude">Claude (Anthropic)</option>
+                <option value="grok">Grok (xAI)</option>
+              </select>
+              <select id="filter-health" class="select-filter">
+                <option value="all">Все состояния</option>
+                <option value="healthy">Работает</option>
+                <option value="warning">Предупреждение</option>
+                <option value="quota_exhausted">Квота исчерпана</option>
+                <option value="auth_required">Требуется вход</option>
+                <option value="disabled">Отключён / Резерв</option>
+              </select>
+              <div class="toolbar-stats" id="accounts-stats-summary">
+                Показано: <strong>0</strong> из <strong>0</strong> аккаунтов
+              </div>
+            </div>
+          </div>
+
+          <div id="accounts-container" class="accounts-groups-container">
+            <!-- Rendered by app.js -->
+          </div>
+        </section>
+
+        <!-- 3. ROUTING VIEW (Main Control Center) -->
         <section id="view-routing" class="view-pane">
           <div class="view-header-note">
-            Цепочки маршрутизации: <strong>Основной → Резерв 1 → Резерв 2 → Резерв 3</strong>. Переключения выполняются автоматически при исчерпании квоты или ошибке провайдера.
+            Главный центр управления маршрутизацией: перетаскивайте узлы для смены приоритета (Основной → Резерв 1 → Резерв 2), настраивайте рабочие модели и управляйте составом цепочек.
           </div>
           <div class="routing-pipelines-list" id="routing-pipelines-container">
             <!-- Rendered by app.js -->
           </div>
         </section>
 
-        <!-- 4. PROVIDERS & MODELS VIEW -->
-        <section id="view-providers" class="view-pane">
-          <div class="view-header-note">
-            Реально обнаруженные модели провайдеров и локальные адаптеры.
-          </div>
-          <div class="providers-full-list" id="providers-full-container">
-            <!-- Rendered by app.js -->
-          </div>
-        </section>
-
-        <!-- 5. TEAM VIEW -->
-        <section id="view-team" class="view-pane">
-          <div class="view-header-note">
-            Команда агентов Hermes Hub: роли, привязанные профили и оперативные квоты.
-          </div>
-          <div class="team-cards-grid" id="team-cards-container">
-            <!-- Rendered by app.js -->
-          </div>
-        </section>
-
-        <!-- 6. ANALYTICS VIEW (P0-1) -->
+        <!-- 4. ANALYTICS VIEW (P0-1 & P0-5) -->
         <section id="view-analytics" class="view-pane">
+          <div class="view-header-note">
+            Телеметрия вызовов и отказоустойчивости за 24 часа. Метрики отражают реальные замеры задержки и частоты ошибок при маршрутизации.
+          </div>
           <div class="overview-grid">
             <div class="kpi-card">
               <div class="kpi-label">Всего вызовов (24ч)</div>

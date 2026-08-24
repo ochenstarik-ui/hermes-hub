@@ -397,3 +397,44 @@ class AutoAssigner:
     def set_primary_orchestrator(profile_id: str) -> Tuple[bool, str]:
         """Designate a profile as the primary orchestrator and adjust fallback chains."""
         return AutoAssigner.assign_profile_to_role(profile_id, "orchestrator", is_primary=True)
+
+    @staticmethod
+    def persist_role_chain(role_id: str, desired_chain: List[str]) -> Tuple[bool, str]:
+        """Persist a custom role chain order into router configuration."""
+        if not role_id or not isinstance(role_id, str):
+            return False, "Не указана роль для обновления цепочки"
+
+        config = load_router_config()
+        clean_role = role_id.strip().lower()
+        canonical_role = role_id.strip() if role_id in config.roles else CANONICAL_ROLE_MAP.get(clean_role, role_id.strip())
+
+        if canonical_role not in config.roles:
+            return False, f"Неизвестная роль маршрутизатора: '{role_id}'"
+
+        if len(desired_chain) != len(set(desired_chain)):
+            return False, "Профиль не может повторяться в одной цепочке"
+
+        missing = [pid for pid in desired_chain if pid not in config.profiles]
+        if missing:
+            return False, f"Профиль '{missing[0]}' не найден в конфигурации"
+
+        policy = config.roles[canonical_role]
+        policy.preferred_chain = list(desired_chain)
+        config.roles[canonical_role] = policy
+
+        if not save_router_config(config):
+            return False, f"Не удалось сохранить цепочку роли '{canonical_role}' в конфигурации"
+
+        try:
+            from antigravity_provider.router.state_store import HubStateStore
+            HubStateStore.get().refresh(force_scan=True)
+        except Exception:
+            pass
+
+        from antigravity_provider.router.unified_health import EventLogService
+        EventLogService.get().log(
+            "routing",
+            f"Для роли '{canonical_role}' сохранена новая цепочка: {list(desired_chain)}.",
+            level="info",
+        )
+        return True, f"Цепочка роли '{canonical_role}' успешно сохранена: {', '.join(desired_chain)}"
