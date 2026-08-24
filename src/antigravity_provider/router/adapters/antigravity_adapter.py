@@ -195,7 +195,12 @@ class AntigravityAdapter(BaseProviderAdapter):
                 message=err_msg,
             )
 
+        # ErrorCategory.UNKNOWN не существует — обращение к нему роняло сам
+        # классификатор, то есть отказ происходил ровно там, где обрабатывался
+        # другой отказ, и маршрутизация обрывалась вместо перехода к резерву.
+        # FATAL выбран по образцу codex и opencode: неразобранная ошибка не
+        # должна вызывать повторов на том же профиле.
         return ErrorClassification(
-            category=ErrorCategory.UNKNOWN,
+            category=ErrorCategory.FATAL,
             message=err_msg,
         )

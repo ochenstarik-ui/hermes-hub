@@ -349,7 +349,31 @@ def _model_supported_efforts(agy_model: str, profile_id: str | None = None) -> s
     сама модель совершенно настоящая.
     """
     discover_models(profile_id=profile_id)
-    return _AGY_EFFORT_MAP.get(agy_model, set())
+    efforts = _AGY_EFFORT_MAP.get(agy_model, set())
+    if efforts:
+        return efforts
+
+    # Запасной источник: сохранённый на диске список моделей. Обнаружение
+    # ходит через КОНКРЕТНЫЙ профиль, и если именно у него вход не сделан,
+    # карта усилий остаётся пустой — тогда уровень не подставляется и agy
+    # отвергает вызов, хотя модель настоящая. Уровни усилия — свойство
+    # модели, а не аккаунта, поэтому их можно взять из склеенных
+    # идентификаторов вида "gemini-3.7-flash-high", уже лежащих в кэше.
+    try:
+        from antigravity_provider.router.model_discovery import ModelDiscoveryService
+
+        cached = ModelDiscoveryService.get().get_models("antigravity") or []
+    except Exception:
+        return efforts
+
+    known = {"low", "medium", "high"}
+    derived = {
+        suffix
+        for model_id in cached
+        for base, _, suffix in [model_id.rpartition("-")]
+        if base == agy_model and suffix in known
+    }
+    return derived
 
 
 # Effort values understood by both hermes and agy
