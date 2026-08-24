@@ -29,6 +29,16 @@ if (Test-Path $HubWebCs) {
 # Собираем полезную нагрузку: всё, что нужно PerformInstall на целевой машине.
 # Она вшивается в exe ресурсом, чтобы установщик был одним файлом и не требовал
 # копировать репозиторий.
+# Проставляем фактический коммит в исходник установщика, чтобы манифест
+# развёртывания не сообщал неправду о происхождении сборки.
+$GitSha = (git -C $RepoRoot rev-parse --short HEAD 2>$null)
+if ($GitSha) {
+    $csText = Get-Content $SourceFile -Raw -Encoding UTF8
+    $csText = [regex]::Replace($csText, 'public const string BuildCommit = "[^"]*";', "public const string BuildCommit = `"$GitSha`";")
+    Set-Content $SourceFile -Value $csText -Encoding UTF8 -NoNewline
+    Write-Host "Build commit: $GitSha" -ForegroundColor Gray
+}
+
 Write-Host "Packing payload..." -ForegroundColor Cyan
 $PayloadDir = Join-Path $env:TEMP ("hubpayload_" + [guid]::NewGuid().ToString("N").Substring(0,8))
 New-Item -ItemType Directory -Force $PayloadDir | Out-Null

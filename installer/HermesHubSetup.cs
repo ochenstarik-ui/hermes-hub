@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -15,6 +15,10 @@ namespace HermesHubSetup
     public class SetupEngine
     {
         public const string HUB_VERSION = "0.1.1";
+        // Подставляется сборщиком из фактического git-коммита. Раньше здесь
+        // жил зашитый "8cddc9f", то есть манифест сообщал неправду о том, из
+        // какого кода собран установщик.
+        public const string BuildCommit = "36b449b";
         public const string MIN_HERMES_VERSION = "0.20.0";
         public const string MAX_TESTED_HERMES = "0.20.4";
 
@@ -89,8 +93,12 @@ namespace HermesHubSetup
             string installedExe = Path.Combine(TargetInstallDir, "HermesHub.exe");
             string pluginManifest = Path.Combine(HermesHome, @"plugins\antigravity-provider\deployment_manifest.json");
             IsInstalled = File.Exists(installedExe) || File.Exists(pluginManifest);
-            InstalledVersion = "0.1.0";
-            InstalledDate = "19.08.2026";
+            // Пока манифест не прочитан, версия НЕ известна. Раньше здесь стояли
+            // зашитые "0.1.0" и "19.08.2026", и при нечитаемом манифесте мастер
+            // показывал их как установленную версию — владелец видел «старую
+            // версию» на свежей установке.
+            InstalledVersion = "не определена";
+            InstalledDate = "дата неизвестна";
 
             if (File.Exists(pluginManifest))
             {
@@ -336,9 +344,14 @@ namespace HermesHubSetup
                         "{{\n  \"version\": \"{0}\",\n  \"deployed_at\": \"{1}\",\n  \"git_commit\": \"{2}\"\n}}",
                         HUB_VERSION,
                         DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
-                        "8cddc9f"
+                        BuildCommit
                     );
-                    File.WriteAllText(manifestFile, manifestJson, Encoding.UTF8);
+                    // Запись через временный файл: прерванная запись оставляла
+                    // пустой манифест, и разбор версии падал на первом символе.
+                    string manifestTmp = manifestFile + ".tmp";
+                    File.WriteAllText(manifestTmp, manifestJson, Encoding.UTF8);
+                    if (File.Exists(manifestFile)) File.Delete(manifestFile);
+                    File.Move(manifestTmp, manifestFile);
                 }
                 catch { }
 

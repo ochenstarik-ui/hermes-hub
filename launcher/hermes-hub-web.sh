@@ -48,14 +48,19 @@ HEALTH_URL="http://$HOST:$PORT/api/health"
 
 # Function to check server health
 check_health() {
+    # sys импортируется здесь, а не внутри except: раньше на УСПЕШНОМ ответе
+    # возникал NameError, его ловил тот же except, и проверка всегда сообщала
+    # об отказе — сервер работал, а лаунчер писал «failed to respond».
     "$PYTHON_BIN" -c "
-import urllib.request, json
+import json
+import sys
+import urllib.request
+
 try:
-    req = urllib.request.urlopen('$HEALTH_URL', timeout=0.8)
-    data = json.loads(req.read().decode('utf-8'))
+    with urllib.request.urlopen('$HEALTH_URL', timeout=0.8) as resp:
+        data = json.loads(resp.read().decode('utf-8'))
     sys.exit(0 if data.get('ok') is True else 1)
 except Exception:
-    import sys
     sys.exit(1)
 " >/dev/null 2>&1
 }
