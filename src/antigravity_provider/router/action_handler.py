@@ -238,9 +238,32 @@ class ActionExecutor:
         """
         pid = data.get('profile_id', '')
         prov = data.get('provider', '')
-        
-        # Purely UI navigation actions return True for Web API (no-op on server side).
-        if action in ['oauth', 'add_account', 'account_details', 'agent_settings', 'open_routing']:
+        # Подключение аккаунта: для локального сервера это не навигация, а
+        # настоящее сохранение профиля с адресом.
+        if action == 'add_account':
+            target_role = data.get('target_role', 'coder-primary')
+            base_url = data.get('base_url', '')
+            token = data.get('token', '')
+            if prov in ('local', 'local-llm', 'llama.cpp', 'ollama', 'vllm') and base_url:
+                slot = AutoAssigner.find_free_slot(prov) or 'local-1'
+                AutoAssigner.ensure_profile_definition(prov, slot)
+                auth_data = {
+                    "provider": "local",
+                    "profile_id": slot,
+                    "base_url": base_url,
+                    "api_key": token if token else None,
+                    "created_at": time.time(),
+                }
+                ProfileAuthManager.save_profile_auth("local", slot, auth_data)
+                AutoAssigner.assign_profile_to_role(slot, target_role, is_primary=False)
+                return {'ok': True, 'message': f'Локальный сервер {slot} успешно подключен'}
+            return {'ok': True, 'message': 'Навигация'}
+
+        # Чисто навигационные действия. edit_route и assign_role сюда НЕ входят:
+        # A25 внёс их в этот список, но в A24 они выполняют настоящую работу —
+        # сохранение цепочки и назначение роли — обработчики ниже. Проглотив их
+        # здесь, мы бы молча сломали перестановку блоков в маршрутизации.
+        if action in ['oauth', 'account_details', 'agent_settings', 'open_routing']:
             return {'ok': True, 'message': 'Навигация'}
 
         if action in ['save_chain', 'reorder_chain', 'edit_route']:

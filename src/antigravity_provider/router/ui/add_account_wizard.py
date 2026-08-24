@@ -152,6 +152,7 @@ class AddAccountWizard(HubModal):
             ("claude", "Claude (Anthropic)", "OAuth (Claude Pro/Max) или API Key", Theme.PROVIDER_CLAUDE),
             ("grok", "Grok (xAI)", "OAuth (SuperGrok) или API Key", Theme.PROVIDER_GROK),
             ("opencode-go", "OpenCode Go", "API Key / Subscription", Theme.PROVIDER_GENERIC),
+            ("local", "Локальная модель (Local LLM / llama.cpp)", "Локальный сервер / Ollama / vLLM / llama.cpp", Theme.STATUS_HEALTHY),
         ]
 
         self.provider_var = ctk.StringVar(value=self.selected_provider)
@@ -234,6 +235,8 @@ class AddAccountWizard(HubModal):
                 self._build_grok_oauth_flow()
             else:
                 self._build_api_key_flow()
+        elif self.selected_provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
+            self._build_local_llm_flow()
         else:
             self._build_api_key_flow()
 
@@ -245,6 +248,7 @@ class AddAccountWizard(HubModal):
             "opencode-go": "OpenCode Go",
             "claude": "Claude",
             "grok": "Grok",
+            "local": "Local LLM",
         }
         card = HubCard(self.body, border_color=Theme.STATUS_WARNING, fg_color=Theme.SURFACE_MUTED)
         card.pack(fill="x", pady=20)
@@ -1311,6 +1315,187 @@ class AddAccountWizard(HubModal):
         except Exception as exc:
             if hasattr(self, "key_status_lbl"):
                 self.key_status_lbl.configure(text=f"Не удалось вставить: {exc}")
+
+    # ─────────────────────────────────────────────────────────────
+    #  LOCAL LLM FLOW (llama.cpp / vLLM / Ollama / Local Server)
+    # ─────────────────────────────────────────────────────────────
+
+    def _build_local_llm_flow(self):
+        disp_name, role_code, tier = AutoAssigner.get_display_name_and_role(self.target_slot)
+
+        ctk.CTkLabel(
+            self.body,
+            text=f"Подключение локального сервера к слоту: {self.target_slot} ({disp_name})",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+            anchor="w",
+        ).pack(fill="x", pady=(0, 4))
+
+        info_card = HubCard(self.body, fg_color=Theme.SURFACE_MUTED)
+        info_card.pack(fill="x", pady=(0, 8))
+
+        ctk.CTkLabel(
+            info_card,
+            text="Подключение к локальному серверу (llama.cpp / vLLM / Ollama / Local LLM):",
+            font=Theme.font_body_bold(),
+            text_color=Theme.TEXT_PRIMARY,
+            anchor="w",
+        ).pack(fill="x", padx=12, pady=(10, 4))
+
+        ctk.CTkLabel(
+            info_card,
+            text=(
+                "Укажите базовый URL OpenAI-совместимого эндпоинта (например, http://127.0.0.1:8081/v1 или http://localhost:8080/v1).\n"
+                "Если сервер защищен токеном, введите его в поле API Key."
+            ),
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_SECONDARY,
+            justify="left",
+            anchor="w",
+        ).pack(fill="x", padx=12, pady=(0, 10))
+
+        # URL Input
+        ctk.CTkLabel(
+            self.body,
+            text="URL сервера (Base URL):",
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_SECONDARY,
+        ).pack(anchor="w", pady=(0, 4))
+
+        url_row = ctk.CTkFrame(self.body, fg_color="transparent")
+        url_row.pack(fill="x", pady=(0, 8))
+
+        self.local_url_entry = HubEntry(
+            url_row,
+            placeholder_text="http://127.0.0.1:8081/v1",
+            font=Theme.font_mono(),
+            height=36,
+            fg_color=Theme.PRIMARY,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.local_url_entry.insert(0, "http://127.0.0.1:8081/v1")
+        self.local_url_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        HubButton(
+            url_row,
+            text="📋 Вставить",
+            variant="secondary",
+            width=90,
+            height=36,
+            command=lambda: self._paste_into_entry(self.local_url_entry),
+        ).pack(side="right")
+
+        # Optional API Key Input
+        ctk.CTkLabel(
+            self.body,
+            text="API Key (опционально):",
+            font=Theme.font_body(),
+            text_color=Theme.TEXT_SECONDARY,
+        ).pack(anchor="w", pady=(0, 4))
+
+        key_row = ctk.CTkFrame(self.body, fg_color="transparent")
+        key_row.pack(fill="x", pady=(0, 8))
+
+        self.local_key_entry = HubEntry(
+            key_row,
+            placeholder_text="Оставьте пустым, если ключ не требуется",
+            font=Theme.font_mono(),
+            show="*",
+            height=36,
+            fg_color=Theme.PRIMARY,
+            border_color=Theme.BORDER,
+            text_color=Theme.TEXT_PRIMARY,
+        )
+        self.local_key_entry.pack(side="left", fill="x", expand=True, padx=(0, 8))
+
+        HubButton(
+            key_row,
+            text="📋 Вставить",
+            variant="secondary",
+            width=90,
+            height=36,
+            command=lambda: self._paste_into_entry(self.local_key_entry),
+        ).pack(side="right")
+
+        # Test button and Status label
+        test_row = ctk.CTkFrame(self.body, fg_color="transparent")
+        test_row.pack(fill="x", pady=(0, 6))
+
+        self.local_test_btn = HubButton(
+            test_row,
+            text="🔍 Проверить подключение",
+            variant="secondary",
+            height=32,
+            command=self._test_local_connection,
+        )
+        self.local_test_btn.pack(side="left")
+
+        self.local_status_lbl = ctk.CTkLabel(
+            self.body,
+            text="",
+            font=Theme.font_caption(),
+            text_color=Theme.TEXT_SECONDARY,
+            anchor="w",
+        )
+        self.local_status_lbl.pack(fill="x", pady=4)
+
+        def _save_local():
+            url = self.local_url_entry.get().strip()
+            key = self.local_key_entry.get().strip()
+            if not url:
+                self.local_status_lbl.configure(text="Пожалуйста, введите URL сервера.", text_color=Theme.STATUS_ERROR)
+                return
+
+            ok, dname, models, err = ProfileAuthManager.verify_local_endpoint(url, key if key else None)
+            auth_data = {
+                "provider": "local",
+                "profile_id": self.target_slot,
+                "base_url": url,
+                "api_key": key if key else None,
+                "models": models if ok else [],
+                "created_at": time.time(),
+            }
+            ProfileAuthManager.save_profile_auth("local", self.target_slot, auth_data)
+
+            self.is_verified = ok
+            self.discovered_identity = url
+            self.discovered_plan = "Локальная модель (без квот)"
+            self.discovered_models = models if ok else []
+            self._show_step_3_validation()
+
+        self._build_step_2_footer(next_cmd=_save_local)
+
+    def _test_local_connection(self):
+        url = self.local_url_entry.get().strip()
+        key = self.local_key_entry.get().strip()
+        if not url:
+            self.local_status_lbl.configure(text="Пожалуйста, введите URL сервера.", text_color=Theme.STATUS_ERROR)
+            return
+
+        self.local_status_lbl.configure(text="⏳ Проверка подключения к серверу...", text_color=Theme.TEXT_SECONDARY)
+
+        def _worker():
+            ok, dname, models, err = ProfileAuthManager.verify_local_endpoint(url, key if key else None)
+            if ok:
+                m_str = ", ".join(models[:3]) + (f" (+{len(models)-3})" if len(models) > 3 else "")
+                self.after(
+                    0,
+                    lambda: self.local_status_lbl.configure(
+                        text=f"✓ Подключение успешно! Доступные модели: {m_str}",
+                        text_color=Theme.STATUS_HEALTHY,
+                    ),
+                )
+            else:
+                self.after(
+                    0,
+                    lambda: self.local_status_lbl.configure(
+                        text=f"❌ Ошибка подключения: {err}",
+                        text_color=Theme.STATUS_ERROR,
+                    ),
+                )
+
+        threading.Thread(target=_worker, daemon=True).start()
 
     # ═══════════════════════════════════════════════════════════════
     #  STEP 3: Validation & Identity

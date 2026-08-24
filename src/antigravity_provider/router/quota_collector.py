@@ -123,6 +123,11 @@ class AccountQuotaService:
 
         auth_data = ProfileAuthManager.load_profile_auth(provider, profile_id)
         if not auth_data:
+            if provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
+                snap = self._collect_local_quota(profile_id, {})
+                with self._cache_lock:
+                    self._snapshots[key] = snap
+                return snap
             snap = QuotaSnapshot(
                 account_id=profile_id,
                 provider=provider,
@@ -135,7 +140,9 @@ class AccountQuotaService:
             return snap
 
         try:
-            if provider == "antigravity":
+            if provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
+                snap = self._collect_local_quota(profile_id, auth_data)
+            elif provider == "antigravity":
                 snap = self._collect_antigravity_quota(profile_id, auth_data)
             elif provider in ("openai-codex", "codex"):
                 snap = self._collect_codex_quota(profile_id, auth_data)
@@ -309,6 +316,8 @@ class AccountQuotaService:
             plan_code = auth_data.get("plan_type", "MAX" if "token" in auth_data else "API Key")
         elif provider == "grok":
             plan_code = auth_data.get("plan_type", "Grok Pro" if "token" in auth_data else "API Key")
+        elif provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
+            plan_code = auth_data.get("plan_type", "LOCAL")
 
         plan = SubscriptionPlan.create(plan_code, source="provider_auth")
 
@@ -795,9 +804,48 @@ class AccountQuotaService:
             unavailable_reason="Grok не предоставляет остаток через публичный API",
         )
 
+    def _collect_local_quota(self, profile_id: str, auth_data: dict) -> QuotaSnapshot:
+        """Create unlimited quota snapshot for Local LLM servers."""
+        now = _utc_now()
+        b_unlimited = QuotaBucket(
+            id="local.unlimited",
+            display_name="Локальный сервер",
+            status="unlimited",
+            period="unlimited",
+            used_percent=0.0,
+            remaining_percent=100.0,
+        )
+        return QuotaSnapshot(
+            account_id=profile_id,
+            provider="local",
+            buckets=[b_unlimited],
+            fetched_at=now,
+            source="local_provider",
+            unavailable_reason="Без ограничений (локальная модель, квоты отсутствуют)",
+            is_loading=False,
+        )
+
     def _generate_baseline_snapshot(self, provider: str, profile_id: str) -> QuotaSnapshot:
         """Truthful offline baseline with provider-specific independent limit pools."""
         now = _utc_now()
+        if provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
+            b_unlimited = QuotaBucket(
+                id="local.unlimited",
+                display_name="Локальный сервер",
+                status="unlimited",
+                period="unlimited",
+                used_percent=0.0,
+                remaining_percent=100.0,
+            )
+            return QuotaSnapshot(
+                account_id=profile_id,
+                provider=provider,
+                buckets=[b_unlimited],
+                fetched_at=now,
+                source="local_provider",
+                unavailable_reason="Без ограничений (локальная модель, квоты отсутствуют)",
+                is_loading=False,
+            )
         bucket_specs = {
             "antigravity": [
                 ("antigravity.claude.5h", "Claude 5h", "claude", "5h"),

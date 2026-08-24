@@ -86,7 +86,7 @@ class TestA9ConfigMigration(unittest.TestCase):
         self.assertIn("claude-orch", migrated_cfg.profiles)
         self.assertIn("claude-worker-1", migrated_cfg.profiles)
         self.assertIn("claude-worker-2", migrated_cfg.profiles)
-        self.assertEqual(len(migrated_cfg.profiles), 22)
+        self.assertEqual(len(migrated_cfg.profiles), 24)
 
         # 5. Verify existing 10 antigravity profiles are 100% untouched
         for pid in ["ag-orch-fallback", "ag-w1", "ag-w2", "ag-w3", "ag-w4", "ag-spare-1", "ag-spare-2", "ag-cold-1", "ag-cold-2", "ag-cold-3"]:
@@ -106,7 +106,7 @@ class TestA9ConfigMigration(unittest.TestCase):
         # 7. Verify Idempotence: subsequent loads do not create extra backups
         backup_count_before = len(backups)
         reload_cfg = load_router_config(self.config_path)
-        self.assertEqual(len(reload_cfg.profiles), 22)
+        self.assertEqual(len(reload_cfg.profiles), 24)
         backup_count_after = len(list(Path(self.tmp_dir).glob("router_profiles.yaml.bak_*")))
         self.assertEqual(backup_count_before, backup_count_after)
 

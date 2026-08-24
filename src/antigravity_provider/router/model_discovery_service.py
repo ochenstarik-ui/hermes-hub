@@ -146,7 +146,7 @@ class ModelDiscoveryService:
     ) -> None:
         """Discover models for all 5 providers concurrently in background."""
         def _worker():
-            providers = ["antigravity", "openai-codex", "opencode-go", "claude", "grok"]
+            providers = ["antigravity", "openai-codex", "opencode-go", "claude", "grok", "local"]
             results: Dict[str, Optional[List[str]]] = {}
             threads = []
 
@@ -287,6 +287,51 @@ class ModelDiscoveryService:
                             return sorted(models)
                 except Exception as exc:
                     logger.debug("OpenCode model query failed on %s: %s", pid, exc)
+            return None
+
+        elif prov in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
+            from antigravity_provider.router.router_config import load_router_config
+            cfg = load_router_config()
+            for pid in ["local-1", "local-2"]:
+                pcfg = cfg.get_profile(pid)
+                auth = ProfileAuthManager.load_profile_auth("local", pid) or {}
+                base_url = (
+                    (pcfg.custom_base_url if pcfg else None)
+                    or auth.get("base_url")
+                    or os.environ.get("LOCAL_LLM_BASE_URL")
+                    or "http://127.0.0.1:8081/v1"
+                )
+                if not base_url:
+                    continue
+                base_url = str(base_url).strip().rstrip("/")
+                if not base_url.startswith(("http://", "https://")):
+                    base_url = f"http://{base_url}"
+
+                api_key = auth.get("api_key") or os.environ.get("LOCAL_LLM_API_KEY")
+                headers = {
+                    "Accept": "application/json",
+                    "User-Agent": "hermes-hub/1.0",
+                }
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                try:
+                    req = urllib.request.Request(
+                        f"{base_url}/models",
+                        headers=headers,
+                    )
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
+                        items = data.get("data") or data.get("models") or []
+                        if isinstance(items, list):
+                            models = [
+                                str(m.get("id") or m.get("name") if isinstance(m, dict) else m)
+                                for m in items
+                                if m
+                            ]
+                            if models:
+                                return sorted(models)
+                except Exception as exc:
+                    logger.debug("Local LLM model query failed on %s (%s): %s", pid, base_url, exc)
             return None
 
         return None

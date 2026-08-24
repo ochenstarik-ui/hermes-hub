@@ -57,6 +57,8 @@ DEFAULT_SLOT_ROLES = {
     "opengo-1": ("Кодер (OpenCode)", "coder", "fallback_2"),
     "opengo-2": ("Исследователь (OpenCode)", "researcher", "fallback"),
     "opengo-3": ("Резервный роутер (OpenCode)", "orchestrator", "fallback_2"),
+    "local-1": ("Локальный сервер 1", "coder", "primary"),
+    "local-2": ("Локальный сервер 2", "fast", "primary"),
     "ag-spare-1": ("Резерв 1", "spare", "spare"),
     "ag-spare-2": ("Резерв 2", "spare", "spare"),
     "ag-cold-1": ("Холодный резерв 1", "spare", "cold"),
@@ -148,6 +150,11 @@ class AutoAssigner:
             "opencode-go": ["opengo-1", "opengo-2", "opengo-3"],
             "claude": ["claude-orch", "claude-worker-1", "claude-worker-2"],
             "grok": ["grok-orch", "grok-worker-1", "grok-worker-2"],
+            "local": ["local-1", "local-2"],
+            "local-llm": ["local-1", "local-2"],
+            "llama.cpp": ["local-1", "local-2"],
+            "ollama": ["local-1", "local-2"],
+            "vllm": ["local-1", "local-2"],
         }
 
         candidates = list(provider_slots.get(provider, []))
@@ -193,6 +200,11 @@ class AutoAssigner:
             "opencode-go": ["coding", "research", "fast"],
             "openai-codex": ["coding", "reasoning"],
             "antigravity": ["coding", "reasoning", "research", "fast"],
+            "local": ["reviewer", "coding", "reasoning", "fast", "research"],
+            "local-llm": ["reviewer", "coding", "reasoning", "fast", "research"],
+            "llama.cpp": ["reviewer", "coding", "reasoning", "fast", "research"],
+            "ollama": ["reviewer", "coding", "reasoning", "fast", "research"],
+            "vllm": ["reviewer", "coding", "reasoning", "fast", "research"],
         }
         capabilities = capabilities_map.get(provider, [])
 
@@ -354,6 +366,11 @@ class AutoAssigner:
                 "anthropic": "Claude",
                 "grok": "Grok",
                 "xai": "Grok",
+                "local": "Local LLM",
+                "local-llm": "Local LLM",
+                "llama.cpp": "Local LLM (llama.cpp)",
+                "ollama": "Ollama",
+                "vllm": "vLLM",
             }
             provider_label = prov_labels.get(pcfg.provider.lower(), pcfg.provider)
 
