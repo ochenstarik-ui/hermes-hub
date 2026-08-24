@@ -8,6 +8,9 @@
 const USE_MOCK_FIXTURE = false;
 
 let lastAppliedSeq = -1;
+// Какой профиль сейчас открыт в окне аккаунта: нужно, чтобы перерисовывать
+// его по свежему снапшоту, а не оставлять с заглушкой.
+let _openAccountModalProfile = null;
 let currentSnapshot = null;
 let activeView = 'overview';
 let pollTimer = null;
@@ -225,6 +228,18 @@ function applySnapshot(snapshot) {
   const isFirstLoad = !currentSnapshot;
   currentSnapshot = snapshot;
   updateGlobalHeader();
+
+  // Открытое окно аккаунта рисовалось один раз и на опрос не реагировало.
+  // Если его открыть до того, как придут живые квоты, оно навсегда
+  // оставалось с заглушкой («Grok 2h — Н/Д») и со статусом «Не проверялся»
+  // даже после успешной проверки. Перерисовываем по свежему снапшоту.
+  if (_openAccountModalProfile) {
+    try {
+      openAccountDetailsModal(_openAccountModalProfile, true);
+    } catch (e) {
+      console.warn('[Hub] Не удалось обновить окно аккаунта:', e);
+    }
+  }
 
   if (isFirstLoad) {
     const params = new URLSearchParams(window.location.search);
@@ -1296,6 +1311,7 @@ async function saveHubServerSettings() {
 
 // ── MODALS (Account Details, Model Choice, Routing, Wizard) ──
 function openAccountDetailsModal(profileId) {
+  _openAccountModalProfile = profileId;
   if (!currentSnapshot) return;
   const profile = (currentSnapshot.all_profiles || {})[profileId];
   if (!profile) return;
@@ -1939,6 +1955,8 @@ function showModal() {
 }
 
 function closeModal() {
+  _openAccountModalProfile = null;
+  stopDeviceAuthPolling();
   if (elements.modalBackdrop) elements.modalBackdrop.classList.add('hidden');
 }
 
