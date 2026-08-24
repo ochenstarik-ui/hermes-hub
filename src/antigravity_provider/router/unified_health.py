@@ -170,6 +170,17 @@ class ProviderSummary:
     last_refresh_at: str
 
 
+def _plural_roles(n: int) -> str:
+    """Согласовать число со словом «роль»: 1 роль, 2 роли, 5 ролей."""
+    tail = n % 100
+    if 11 <= tail <= 14:
+        word = "ролей"
+    else:
+        last = n % 10
+        word = "роль" if last == 1 else "роли" if 2 <= last <= 4 else "ролей"
+    return f"{n} {word}"
+
+
 @dataclass
 class SystemReadiness:
     state: str  # HEALTHY | LIMITED | DEGRADED | CRITICAL
@@ -567,6 +578,12 @@ class UnifiedHealthService:
                         break
 
                 if has_working_fallback:
+                    # Роль, обслуживаемая резервом, РАБОТАЕТ — она просто
+                    # деградировала. Раньше она не попадала в roles_ready, и
+                    # интерфейс писал «Ролей в строю: 0/6», пока пять ролей
+                    # исправно отвечали. Это вводит в заблуждение в худшую
+                    # сторону: пользователь видит отказ там, где всё работает.
+                    roles_ready += 1
                     degraded_roles += 1
                     warnings.append(f"Роль '{rname}' работает через резервный аккаунт (Primary недоступен).")
                 else:
@@ -577,11 +594,11 @@ class UnifiedHealthService:
         if dead_roles > 0:
             state = READINESS_CRITICAL
             title_ru = "Критическое состояние"
-            summary_ru = f"Есть {dead_roles} ролей без рабочего маршрута!"
+            summary_ru = f"Без рабочего маршрута: {_plural_roles(dead_roles)}."
         elif degraded_roles > 0:
             state = READINESS_DEGRADED
             title_ru = "Деградация маршрутов"
-            summary_ru = f"{degraded_roles} ролей работают через резерв."
+            summary_ru = f"Через резерв работают: {_plural_roles(degraded_roles)}."
         elif connected_accounts < total_accounts:
             state = READINESS_LIMITED
             title_ru = "Ограниченная готовность"
