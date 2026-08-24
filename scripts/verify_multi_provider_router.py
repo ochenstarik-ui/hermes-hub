@@ -43,24 +43,36 @@ def run_checks() -> int:
     # 1. Config inventory
     print("1. Checking profile inventory and provider counts...")
     config = get_default_router_config()
-    assert len(config.profiles) == 16, f"Expected 16 profiles, got {len(config.profiles)}"
-    codex_count = sum(1 for p in config.profiles.values() if p.provider == "openai-codex")
-    ag_count = sum(1 for p in config.profiles.values() if p.provider == "antigravity")
-    opengo_count = sum(1 for p in config.profiles.values() if p.provider == "opencode-go")
-    assert codex_count == 3, f"Expected 3 Codex profiles, got {codex_count}"
-    assert ag_count == 10, f"Expected 10 Antigravity profiles, got {ag_count}"
-    assert opengo_count == 3, f"Expected 3 OpenCode Go profiles, got {opengo_count}"
-    print(f"   [PASS] 16 profiles registered ({codex_count} Codex, {ag_count} Antigravity [7 active, 3 cold], {opengo_count} OpenCode Go)")
+    # Проверка структурная, а не пересчёт. Раньше здесь стояло «ровно 16
+    # профилей» и дословные цепочки от 20 августа. Миграция законно довела
+    # конфигурацию до 22 профилей, добавив claude и grok, — и установка стала
+    # падать с кодом 12 на любой машине, где миграция отработала. Смысл этой
+    # проверки в том, работоспособна ли маршрутизация, а не совпадает ли
+    # конфигурация с зафиксированной когда-то.
+    counts = {}
+    for prof in config.profiles.values():
+        counts[prof.provider] = counts.get(prof.provider, 0) + 1
+    assert config.profiles, "В конфигурации нет ни одного профиля"
+    for required in ("openai-codex", "antigravity", "opencode-go"):
+        assert counts.get(required), f"Нет ни одного профиля провайдера {required}"
+    summary = ", ".join(f"{prov}: {n}" for prov, n in sorted(counts.items()))
+    print(f"   [PASS] Профилей: {len(config.profiles)} ({summary})")
     passed += 1
 
     # 2. Role Fallback Chains
     print("2. Checking role fallback policies...")
-    assert "orchestrator" in config.roles
-    assert config.roles["orchestrator"].preferred_chain == ["codex-orch", "ag-orch-fallback", "opengo-3"]
-    assert config.roles["coder-primary"].preferred_chain == ["codex-worker-1", "ag-w1", "opengo-3"]
-    assert config.roles["reviewer"].preferred_chain == ["codex-worker-2", "opengo-2", "ag-w2"]
-    assert config.roles["research"].preferred_chain == ["opengo-1", "ag-w3", "ag-w4"]
-    print("   [PASS] All 6 logical role fallback chains validated")
+    assert "orchestrator" in config.roles, "Роль orchestrator отсутствует"
+    # Цепочки настраиваются владельцем и меняются — дословно их сверять нельзя.
+    # Проверяем то, что действительно ломает маршрутизацию: цепочка непуста и
+    # каждый профиль в ней существует.
+    for role_name, policy in config.roles.items():
+        chain = policy.preferred_chain or []
+        assert chain, f"У роли {role_name} пустая цепочка отказоустойчивости"
+        for pid in chain:
+            assert pid in config.profiles, (
+                f"Роль {role_name} ссылается на несуществующий профиль {pid}"
+            )
+    print(f"   [PASS] Цепочки {len(config.roles)} ролей ссылаются только на существующие профили")
     passed += 1
 
     # 3. Model family extraction

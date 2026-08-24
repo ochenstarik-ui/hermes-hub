@@ -396,6 +396,12 @@ namespace HermesHubSetup
                         p.WaitForExit(10000);
                         if (p.ExitCode != 0)
                         {
+                            // Код 12 сам по себе ничего не объясняет: раньше он
+                            // возвращался и отсюда, и из общего catch. Владелец
+                            // видел «Ошибка установки (Код: 12)» без причины.
+                            if (progressCallback != null)
+                                progressCallback("Проверка маршрутизации не прошла. Подробности: "
+                                    + verifyScript, 0);
                             return 12; // Router Verification failed
                         }
                     }
@@ -406,8 +412,11 @@ namespace HermesHubSetup
             }
             catch (Exception ex)
             {
-                if (progressCallback != null) progressCallback("Error: " + ex.Message, 0);
-                return 12;
+                // Отдельный код для непредвиденного сбоя: смешивать его с
+                // отказом проверки маршрутизации значит лишать владельца
+                // возможности отличить одно от другого.
+                if (progressCallback != null) progressCallback("Ошибка установки: " + ex.Message, 0);
+                return 15;
             }
         }
 
