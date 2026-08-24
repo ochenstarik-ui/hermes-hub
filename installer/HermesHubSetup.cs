@@ -18,7 +18,7 @@ namespace HermesHubSetup
         // Подставляется сборщиком из фактического git-коммита. Раньше здесь
         // жил зашитый "8cddc9f", то есть манифест сообщал неправду о том, из
         // какого кода собран установщик.
-        public const string BuildCommit = "36b449b";
+        public const string BuildCommit = "57e7ca2";
         public const string MIN_HERMES_VERSION = "0.20.0";
         public const string MAX_TESTED_HERMES = "0.20.4";
 
@@ -137,7 +137,7 @@ namespace HermesHubSetup
             {
                 ProcessStartInfo checkPsi = new ProcessStartInfo();
                 checkPsi.FileName = pythonExe;
-                checkPsi.Arguments = "-c \"import customtkinter, PIL, yaml, psutil; print('DEPS_OK')\"";
+                checkPsi.Arguments = "-c \"import customtkinter, PIL, yaml, psutil, fastapi, uvicorn; print('DEPS_OK')\"";
                 checkPsi.UseShellExecute = false;
                 checkPsi.RedirectStandardOutput = true;
                 checkPsi.RedirectStandardError = true;
@@ -159,7 +159,7 @@ namespace HermesHubSetup
 
             if (needsInstall)
             {
-                if (progressCallback != null) progressCallback("Installing dependencies into Hermes venv (customtkinter, Pillow, PyYAML, psutil)...", 40);
+                if (progressCallback != null) progressCallback("Installing dependencies into Hermes venv (customtkinter, Pillow, PyYAML, psutil, FastAPI, uvicorn)...", 40);
                 
                 // 1. Ensure pip is installed/bootstrapped if needed
                 try
@@ -185,7 +185,7 @@ namespace HermesHubSetup
                 {
                     ProcessStartInfo pipPsi = new ProcessStartInfo();
                     pipPsi.FileName = pythonExe;
-                    pipPsi.Arguments = "-m pip install --no-warn-script-location customtkinter pillow pyyaml psutil";
+                    pipPsi.Arguments = "-m pip install --no-warn-script-location customtkinter pillow pyyaml psutil fastapi uvicorn";
                     pipPsi.UseShellExecute = false;
                     pipPsi.RedirectStandardOutput = true;
                     pipPsi.RedirectStandardError = true;
@@ -209,7 +209,7 @@ namespace HermesHubSetup
                     {
                         ProcessStartInfo uvPsi = new ProcessStartInfo();
                         uvPsi.FileName = "uv";
-                        uvPsi.Arguments = string.Format("pip install --python \"{0}\" customtkinter pillow pyyaml psutil", pythonExe);
+                        uvPsi.Arguments = string.Format("pip install --python \"{0}\" customtkinter pillow pyyaml psutil fastapi uvicorn", pythonExe);
                         uvPsi.UseShellExecute = false;
                         uvPsi.RedirectStandardOutput = true;
                         uvPsi.RedirectStandardError = true;
@@ -237,7 +237,7 @@ namespace HermesHubSetup
                 {
                     ProcessStartInfo recheckPsi = new ProcessStartInfo();
                     recheckPsi.FileName = pythonExe;
-                    recheckPsi.Arguments = "-c \"import customtkinter, PIL, yaml, psutil; print('DEPS_VERIFIED')\"";
+                    recheckPsi.Arguments = "-c \"import customtkinter, PIL, yaml, psutil, fastapi, uvicorn; print('DEPS_VERIFIED')\"";
                     recheckPsi.UseShellExecute = false;
                     recheckPsi.RedirectStandardOutput = true;
                     recheckPsi.RedirectStandardError = true;
@@ -309,7 +309,7 @@ namespace HermesHubSetup
                 }
 
                 // 2. Install UI & System Dependencies into Hermes Python Environment
-                if (progressCallback != null) progressCallback("Checking Python UI dependencies (customtkinter, Pillow)...", 35);
+                if (progressCallback != null) progressCallback("Checking Python dependencies (customtkinter, Pillow, FastAPI, uvicorn)...", 35);
                 if (!EnsurePythonDependencies(HermesPython, progressCallback))
                 {
                     return 13; // Dependency install failed

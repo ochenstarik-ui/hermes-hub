@@ -220,7 +220,32 @@ class _RouteDiagram(ctk.CTkFrame):
         self.context_status.pack()
         self._left_labels: list[str] = []
         self._right_labels: list[str] = []
-        self.bind("<Configure>", self._redraw)
+        self._redraw_timer_id: Any = None
+        self.bind("<Configure>", self._schedule_redraw)
+
+    def _schedule_redraw(self, event: Any = None) -> None:
+        """Свести поток <Configure> к одной перерисовке.
+
+        При перетаскивании окна Tk шлёт <Configure> непрерывно, и раньше каждое
+        событие вызывало полную перерисовку канвы: удаление и построение всех
+        связей, подписей и узлов. Очередь не успевала разгребаться, и окно
+        продолжало ползти ещё несколько секунд после того, как мышь отпущена.
+
+        Перерисовываем один раз, когда поток событий утих.
+        """
+        if self._redraw_timer_id is not None:
+            try:
+                self.after_cancel(self._redraw_timer_id)
+            except Exception:
+                pass
+        self._redraw_timer_id = self.after(80, self._redraw_now)
+
+    def _redraw_now(self) -> None:
+        self._redraw_timer_id = None
+        try:
+            self._redraw()
+        except Exception:
+            pass
 
     def sync_slots(self, provider_count: int, agent_count: int) -> None:
         """Grow/shrink endpoint slots to match the snapshot without hard caps."""

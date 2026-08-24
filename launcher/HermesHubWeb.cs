@@ -122,6 +122,11 @@ namespace HermesHub
                 serverPsi.UseShellExecute = false;
                 serverPsi.CreateNoWindow = true;
                 serverPsi.WindowStyle = ProcessWindowStyle.Hidden;
+                // Вывод перехватываем, чтобы при падении показать причину, а не
+                // голое «terminated unexpectedly». Без этого владелец видит факт
+                // отказа и ни слова о том, чего не хватает.
+                serverPsi.RedirectStandardError = true;
+                serverPsi.RedirectStandardOutput = true;
 
                 try
                 {
@@ -144,7 +149,16 @@ namespace HermesHub
                     }
                     if (serverProcess.HasExited)
                     {
-                        MessageBox.Show("Hermes Hub web server process terminated unexpectedly.", "Hermes Hub", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                        string why = "";
+                        try { why = serverProcess.StandardError.ReadToEnd(); } catch { }
+                        if (string.IsNullOrEmpty(why))
+                        {
+                            try { why = serverProcess.StandardOutput.ReadToEnd(); } catch { }
+                        }
+                        if (why.Length > 1500) why = why.Substring(why.Length - 1500);
+                        string msg = "Веб-сервер Hermes Hub завершился с ошибкой.";
+                        if (!string.IsNullOrEmpty(why)) msg += Environment.NewLine + Environment.NewLine + why.Trim();
+                        MessageBox.Show(msg, "Hermes Hub", MessageBoxButtons.OK, MessageBoxIcon.Error);
                         return;
                     }
                     Thread.Sleep(200);
