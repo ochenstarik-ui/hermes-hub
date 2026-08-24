@@ -103,7 +103,15 @@ def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
         return {'success': False, 'model': model, 'duration_sec': round(time.time() - t0, 2), 'error': str(e)}
 
 def do_delete_credentials(provider: str, profile_id: str) -> Tuple[bool, str]:
-    auth_p = ProfileAuthManager.get_profile_dir(provider, profile_id) / 'auth.json'
+    # Сигнатура get_profile_dir — (profile_id, provider), а здесь её звали
+    # наоборот. Внутри есть костыль, молча исправляющий перестановку, но только
+    # для antigravity, openai-codex и opencode-go. Для grok, claude и local путь
+    # получался неверным, файл «не находился», и кнопка удаления РАПОРТОВАЛА
+    # УСПЕХ, ничего не удалив. Используем готовый помощник, который берёт
+    # аргументы в правильном порядке.
+    from antigravity_provider.router.profile_manager import get_profile_auth_path
+
+    auth_p = get_profile_auth_path(provider, profile_id)
     if auth_p.is_file():
         try:
             auth_p.unlink()
@@ -111,7 +119,9 @@ def do_delete_credentials(provider: str, profile_id: str) -> Tuple[bool, str]:
             return True, f"Учетные данные для '{profile_id}' удалены"
         except Exception as e:
             return False, f'Ошибка удаления: {e}'
-    return True, 'Учетные данные отсутствовали'
+    # Отсутствие файла — это не успех удаления. Раньше такой ответ выглядел
+    # для пользователя как «сработало», хотя аккаунт оставался подключённым.
+    return False, f"Учетных данных для '{profile_id}' не найдено — удалять нечего"
 
 def do_save_settings(settings: Dict[str, Any]) -> Tuple[bool, str]:
     settings_file = paths.get_hermes_home() / "hub_settings.json"
