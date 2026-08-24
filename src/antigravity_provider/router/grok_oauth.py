@@ -151,10 +151,39 @@ class GrokOAuthSession:
                     self._finalize_with_tokens(access_token, refresh_token, poll_resp.get("id_token", ""))
                     break
             except urllib.error.HTTPError as http_err:
-                if http_err.code in (400, 403, 404):
-                    # Authorization pending
+                # В device-flow сервер сообщает РАЗНЫЕ вещи одним кодом 400,
+                # различая их полем error в теле. Раньше 400/403/404 скопом
+                # считались «ещё не подтверждено», поэтому отказ пользователя и
+                # просроченный код выглядели как ожидание: мастер крутил
+                # «Ожидание подтверждения...» до таймаута и не говорил правду.
+                reason = ""
+                try:
+                    body = http_err.read().decode("utf-8", errors="replace")
+                    parsed = json.loads(body) if body else {}
+                    if isinstance(parsed, dict):
+                        reason = str(parsed.get("error") or "")
+                except Exception:
+                    reason = ""
+
+                if reason == "authorization_pending" or (not reason and http_err.code in (400, 403, 404)):
                     continue
-                logger.warning("xAI device poll HTTP error: %d", http_err.code)
+                if reason == "slow_down":
+                    self.interval = min(self.interval * 2, 30)
+                    continue
+                if reason == "access_denied":
+                    self.status = "failed"
+                    self.error_msg = "Доступ отклонён: подтверждение в браузере не выдано"
+                    break
+                if reason == "expired_token":
+                    self.status = "failed"
+                    self.error_msg = "Код устройства истёк, начните подключение заново"
+                    break
+
+                logger.warning("xAI device poll HTTP error: %d (%s)", http_err.code, reason or "без пояснения")
+                if reason:
+                    self.status = "failed"
+                    self.error_msg = f"xAI отклонил запрос: {reason}"
+                    break
             except Exception as ex:
                 logger.debug("xAI device poll error: %s", ex)
 
