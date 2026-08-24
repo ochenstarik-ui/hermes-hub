@@ -10,7 +10,7 @@ import urllib.error
 from typing import Any, Dict, List, Optional
 
 from ..router_config import RouterProfileConfig
-from .base_adapter import BaseProviderAdapter, ErrorCategory, ErrorClassification
+from .base_adapter import BaseProviderAdapter, ErrorCategory, ErrorClassification, extract_api_error_message
 
 logger = logging.getLogger(__name__)
 
@@ -112,7 +112,7 @@ class CodexAdapter(BaseProviderAdapter):
                 err_json = json.loads(raw_err)
             except Exception:
                 err_json = {"error": {"message": raw_err}}
-            err_msg = err_json.get("error", {}).get("message", raw_err)
+            err_msg = extract_api_error_message(raw_err)
             raise RuntimeError(f"Codex API Error ({http_err.code}): {err_msg}") from http_err
         except Exception as e:
             raise RuntimeError(f"Codex Transport Error: {e}") from e

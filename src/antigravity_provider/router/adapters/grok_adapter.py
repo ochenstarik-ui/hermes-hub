@@ -100,7 +100,15 @@ class GrokAdapter(BaseProviderAdapter):
                 err_json = json.loads(raw_err)
             except Exception:
                 err_json = {"error": {"message": raw_err}}
-            err_msg = err_json.get("error", {}).get("message", raw_err)
+            # Поле error бывает и строкой, и объектом. Раньше здесь безусловно
+            # звался .get у результата, и на строковой форме обработчик ошибок
+            # падал сам с AttributeError — настоящая причина отказа терялась,
+            # а маршрутизация обрывалась вместо перехода к резерву.
+            err_field = err_json.get("error", raw_err) if isinstance(err_json, dict) else raw_err
+            if isinstance(err_field, dict):
+                err_msg = err_field.get("message", raw_err)
+            else:
+                err_msg = str(err_field) or raw_err
             raise RuntimeError(f"Grok API Error ({http_err.code}): {err_msg}") from http_err
         except Exception as e:
             raise RuntimeError(f"Grok Transport Error: {e}") from e

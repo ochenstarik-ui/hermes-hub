@@ -10,7 +10,7 @@ import urllib.request
 from typing import Any
 
 from ..router_config import RouterProfileConfig
-from .base_adapter import BaseProviderAdapter, ErrorCategory, ErrorClassification
+from .base_adapter import BaseProviderAdapter, ErrorCategory, ErrorClassification, extract_api_error_message
 
 logger = logging.getLogger("hermes.router.adapter.deepseek")
 
@@ -76,7 +76,7 @@ class DeepSeekResponsesAdapter(BaseProviderAdapter):
         except urllib.error.HTTPError as http_err:
             raw_err = http_err.read().decode("utf-8", errors="replace")
             try:
-                err_msg = json.loads(raw_err).get("error", {}).get("message", raw_err)
+                err_msg = extract_api_error_message(raw_err)
             except Exception:
                 err_msg = raw_err
             raise RuntimeError(f"DeepSeek API Error ({http_err.code}): {err_msg}") from http_err

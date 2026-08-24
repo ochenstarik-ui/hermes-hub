@@ -1,6 +1,8 @@
 """Base provider adapter interface for multi-provider router."""
 from __future__ import annotations
 
+import json
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional
@@ -49,3 +51,27 @@ class BaseProviderAdapter(ABC):
     def release(self, profile: RouterProfileConfig) -> None:
         """Clean up any ephemeral resources for this profile."""
         pass
+
+
+def extract_api_error_message(raw_err: str) -> str:
+    """Достать текст ошибки из ответа провайдера любой формы.
+
+    Провайдеры отдают поле ``error`` то объектом ``{"message": ...}``, то
+    просто строкой. Прежний код безусловно звал ``.get`` у результата, и на
+    строковой форме ОБРАБОТЧИК ОШИБОК ПАДАЛ САМ с AttributeError. Настоящая
+    причина отказа терялась, а маршрутизация обрывалась вместо перехода к
+    резервному профилю — то есть сбой случался ровно там, где обрабатывался
+    другой сбой. Найдено на живом Grok владельца.
+    """
+    try:
+        parsed = json.loads(raw_err)
+    except Exception:
+        return raw_err
+
+    if not isinstance(parsed, dict):
+        return raw_err
+
+    field = parsed.get("error", raw_err)
+    if isinstance(field, dict):
+        return str(field.get("message") or raw_err)
+    return str(field) or raw_err
