@@ -1458,27 +1458,25 @@ function showWizardStep2(providerId) {
   let bodyHtml = '';
 
   if (providerId === 'grok' || providerId === 'openai-codex') {
+    // Здесь стояли ВЫДУМАННЫЕ код устройства (GRK-7842 / CDX-9104) и жёстко
+    // вписанный адрес x.ai/device, который отдаёт 404. Мастер не был подключён
+    // к серверу вовсе: пользователь вводил бы несуществующий код бесконечно.
+    // Пока поток не проведён через API, честнее сказать правду и указать
+    // рабочий путь, чем показывать правдоподобную пустышку.
+    const providerName = providerId === 'grok' ? 'Grok (xAI)' : 'OpenAI Codex';
     bodyHtml = `
       <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
-        Шаг 2 из 3: Авторизация ${providerId === 'grok' ? 'Grok (xAI)' : 'OpenAI Codex'} (Device Code OAuth)
+        Шаг 2 из 3: Авторизация ${providerName}
       </div>
-      <div style="background:var(--surface-muted); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
-        <div style="font-weight:700; margin-bottom:6px;">1. Откройте ссылку на любом устройстве:</div>
-        <div style="display:flex; gap:8px; margin-bottom:12px;">
-          <input type="text" class="input-text" style="flex:1;" id="wiz-auth-url" value="${providerId === 'grok' ? 'https://x.ai/device' : 'https://auth.openai.com/device'}" readonly>
-          <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('wiz-auth-url').value); showToast('Ссылка скопирована', 'success');">📋 Копировать</button>
-        </div>
-
-        <div style="font-weight:700; margin-bottom:6px;">2. Введите код подтверждения:</div>
-        <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
-          <div style="font-family:var(--font-mono); font-size:22px; font-weight:700; color:var(--text-accent); letter-spacing:2px;" id="wiz-auth-code">
-            ${providerId === 'grok' ? 'GRK-7842' : 'CDX-9104'}
-          </div>
-          <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('wiz-auth-code').innerText); showToast('Код скопирован', 'success');">📋 Копировать код</button>
-        </div>
-
-        <div style="font-size:11px; color:var(--text-muted);">
-          3. Подтвердите доступ в браузере. Hub автоматически зафиксирует авторизацию.
+      <div class="modal-feedback warning" style="margin-bottom:14px;">
+        <strong>Подключение через веб-интерфейс пока не реализовано.</strong><br>
+        Вход по коду устройства выполняется на стороне сервера, и этот поток
+        ещё не выведен в веб-API. Показывать здесь код было бы обманом:
+        настоящий код выдаёт провайдер, а не интерфейс.
+        <div style="margin-top:8px;">
+          <strong>Рабочий путь:</strong> подключите аккаунт в десктопном
+          приложении Hermes Hub — там поток проведён полностью и получает
+          настоящий адрес и код от провайдера.
         </div>
       </div>
     `;

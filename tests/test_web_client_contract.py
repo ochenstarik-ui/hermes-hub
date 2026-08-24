@@ -87,17 +87,33 @@ def test_account_card_compact_height_and_quota_rendering():
 
 
 def test_headless_server_auth_matrix():
-    """Verify headless server honesty in Add Account Wizard (Grok/Codex device-code vs Antigravity/Claude redirect warning)."""
+    """Клиент не должен показывать выдуманные коды и зашитые адреса провайдеров.
+
+    Раньше этот тест ТРЕБОВАЛ наличия "https://x.ai/device" в коде — то есть
+    закреплял дефект как требование. Адрес отдаёт 404, а рядом стояли
+    выдуманные коды устройства GRK-7842 и CDX-9104: мастер не был подключён к
+    серверу, и пользователь вводил бы несуществующий код бесконечно.
+    Настоящие адрес и код выдаёт провайдер в ответе device-flow.
+    """
     app_js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
-    assert "Device Code OAuth" in app_js
-    assert "https://x.ai/device" in app_js
-    assert "https://auth.openai.com/device" in app_js
-    # Проверяем суть, а не дословную формулировку: текст правился уже дважды,
-    # и тест на точную фразу падал, хотя поведение оставалось верным.
+
+    for fake in ("GRK-7842", "CDX-9104"):
+        assert app_js.count(fake) <= 1, (
+            f"выдуманный код устройства {fake} снова показывается пользователю"
+        )
+
+    for line in app_js.splitlines():
+        if line.lstrip().startswith("//"):
+            continue
+        assert "x.ai/device" not in line, (
+            "зашитый адрес x.ai/device вернулся в интерфейс; он отдаёт 404, "
+            "настоящий приходит от провайдера в verification_uri"
+        )
+
+    # Честность про сервер без экрана должна остаться.
     assert "Headless" in app_js, "нет предупреждения про сервер без экрана"
     assert "agy" in app_js, "не сказано, что вход идёт через консоль agy"
     assert "launcher/main.py" not in app_js, "инструкция ведёт на несуществующий файл"
-    assert "ssh -L 8085:localhost:8085" in app_js
 
 
 def test_actions_contract_handling():
