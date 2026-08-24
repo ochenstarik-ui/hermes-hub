@@ -248,6 +248,17 @@ class ActionExecutor:
         """
         pid = data.get('profile_id', '')
         prov = data.get('provider', '')
+        # Провайдер часто не передают: веб-клиент шлёт только profile_id, и
+        # раньше удаление из-за этого искало файл не в том каталоге и отвечало
+        # «удалять нечего». Идентификатор профиля однозначен — берём провайдера
+        # из конфигурации, чтобы работал любой вызывающий.
+        if not prov and pid:
+            try:
+                _pcfg = load_router_config().get_profile(pid)
+                if _pcfg:
+                    prov = _pcfg.provider
+            except Exception:
+                pass
 
         # Device-flow для Grok и Codex через веб. Backend был готов давно, но
         # наружу не выведен: веб-мастер показывал заглушку «не реализовано», и

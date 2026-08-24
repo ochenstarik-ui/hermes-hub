@@ -1371,7 +1371,7 @@ function openAccountDetailsModal(profileId) {
   elements.modalFooter.innerHTML = `
     <button class="btn btn-secondary" onclick="handleTestProfile('${escapeHtml(profileId)}')">⚡ Проверить подключение</button>
     <button class="btn btn-secondary" onclick="executeAction('set_main', { profile_id: '${escapeHtml(profileId)}' })">★ Сделать основным</button>
-    <button class="btn btn-secondary" onclick="executeAction('delete_credentials', { profile_id: '${escapeHtml(profileId)}' })">Удалить ключ</button>
+    <button class="btn btn-secondary" onclick="handleDeleteCredentials('${escapeHtml(profileId)}')">Удалить ключ</button>
     <button class="btn btn-primary" onclick="closeModal()">Закрыть</button>
   `;
 
@@ -2058,5 +2058,18 @@ async function pollDeviceAuth(providerId) {
     // Отказ и просроченный код — конечные исходы, а не ожидание.
     stopDeviceAuthPolling();
     status.innerHTML = `<span style="color:var(--status-error); font-weight:600;">${escapeHtml(res.message || 'Авторизация не завершена')}</span>`;
+  }
+}
+
+async function handleDeleteCredentials(profileId) {
+  // Подтверждение обязательно: действие необратимо, аккаунт придётся
+  // подключать заново.
+  if (!confirm(`Удалить учётные данные профиля ${profileId}? Аккаунт придётся подключить заново.`)) {
+    return;
+  }
+  const res = await executeAction('delete_credentials', { profile_id: profileId });
+  if (res && res.ok) {
+    closeModal();
+    fetchSnapshot();
   }
 }
