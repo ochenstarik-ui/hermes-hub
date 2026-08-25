@@ -1,10 +1,11 @@
 """Hermes Hub — Auto-Update & Integrity Verification Engine.
 
 Features:
-- Semantic version comparison against release manifest.
+- Release commit comparison against main repo releases (ochenstarik-ui/hermes-hub).
 - SHA-256 package cryptographic hash verification.
 - Staged download without touching live executable.
 - Hermetic backup and automatic rollback on corrupt/failing update.
+- Non-blocking execution and honest error reporting (rate limits, 404, network errors).
 - Zero embedded developer PATs (safe public asset feed / signed release manifests).
 """
 from __future__ import annotations
@@ -18,8 +19,9 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
 import urllib.request
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -28,26 +30,149 @@ from antigravity_provider.version import __version__, CHANNEL, MINIMUM_HERMES_VE
 
 logger = logging.getLogger("hermes.hub.updater")
 
+DEFAULT_RELEASES_API_URL = "https://api.github.com/repos/ochenstarik-ui/hermes-hub/releases/latest"
+DEFAULT_UPDATE_URL = DEFAULT_RELEASES_API_URL
+
+ALLOWED_UPDATE_HOSTS = {
+    "api.github.com",
+    "github.com",
+    "raw.githubusercontent.com",
+    "objects.githubusercontent.com",
+    "github-releases.githubusercontent.com",
+}
+
+
+def get_installed_commit() -> str:
+    """Return currently installed git commit hash, checking deployment manifest, env, and git."""
+    # 1. Environment variable override
+    env_commit = os.environ.get("HERMES_HUB_GIT_COMMIT", "").strip()
+    if env_commit:
+        return env_commit
+
+    # 2. Check deployment_manifest.json in repo root or hermes home plugin dir
+    manifest_candidates = [
+        paths.get_repo_root() / "deployment_manifest.json",
+        paths.get_hermes_home() / "plugins" / "antigravity-provider" / "deployment_manifest.json",
+    ]
+    for mf in manifest_candidates:
+        if mf.is_file():
+            try:
+                data = json.loads(mf.read_text(encoding="utf-8"))
+                commit = (
+                    data.get("git_commit")
+                    or data.get("commit")
+                    or data.get("build_commit")
+                    or ""
+                ).strip()
+                if commit:
+                    return commit
+            except Exception as e:
+                logger.debug("Failed reading %s: %s", mf, e)
+
+    # 3. If running in a git clone, try git rev-parse HEAD
+    repo_root = paths.get_repo_root()
+    if (repo_root / ".git").exists() or shutil.which("git"):
+        try:
+            res = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=str(repo_root),
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if res.returncode == 0 and res.stdout.strip():
+                return res.stdout.strip()
+        except Exception as e:
+            logger.debug("git rev-parse HEAD failed: %s", e)
+
+    return "unknown"
+
+
+def extract_release_commit(release_data: Dict[str, Any]) -> str:
+    """Extract published git commit hash from GitHub release or manifest dictionary."""
+    # 1. Direct field
+    for key in ("git_commit", "build_commit", "commit"):
+        val = str(release_data.get(key) or "").strip()
+        if val and re.fullmatch(r"[0-9a-f]{7,40}", val, re.IGNORECASE):
+            return val.lower()
+
+    # 2. Check target_commitish if it is a hex SHA
+    target_commitish = str(release_data.get("target_commitish") or "").strip()
+    if re.fullmatch(r"[0-9a-f]{7,40}", target_commitish, re.IGNORECASE):
+        return target_commitish.lower()
+
+    # 3. Look for explicit commit markers in body or name
+    body = str(release_data.get("body") or "")
+    name = str(release_data.get("name") or "")
+    tag = str(release_data.get("tag_name") or "")
+
+    combined_text = f"{name}\n{tag}\n{body}"
+
+    # Specific patterns like "commit: <sha>" or "сборка <sha>" or "build: <sha>"
+    explicit_match = re.search(
+        r"(?:commit|build|сборка|rev|sha)[:\s#]+([0-9a-f]{7,40})\b",
+        combined_text,
+        re.IGNORECASE,
+    )
+    if explicit_match:
+        return explicit_match.group(1).lower()
+
+    # Generic SHA search in tag, name, body
+    for part in (tag, name, body):
+        m = re.search(r"\b([0-9a-f]{7,40})\b", part, re.IGNORECASE)
+        if m:
+            return m.group(1).lower()
+
+    return ""
+
 
 @dataclass
 class UpdateManifest:
     version: str
-    channel: str
-    minimum_hermes_version: str
-    published_at: str
-    package_url: str
-    sha256: str
+    channel: str = "stable"
+    minimum_hermes_version: str = MINIMUM_HERMES_VERSION
+    published_at: str = ""
+    package_url: str = ""
+    sha256: str = ""
     release_notes_url: Optional[str] = None
     changelog: Optional[str] = None
+    git_commit: Optional[str] = None
+    assets: Dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
 class UpdateCheckResult:
     update_available: bool
-    current_version: str
-    latest_version: str
+    current_version: str = __version__
+    latest_version: str = __version__
+    installed_commit: str = "unknown"
+    latest_commit: str = ""
+    release_tag: str = ""
+    published_at: str = ""
+    changelog: Optional[str] = None
+    release_notes: Optional[str] = None
+    assets: Dict[str, str] = field(default_factory=dict)
     manifest: Optional[UpdateManifest] = None
     error: Optional[str] = None
+    message: Optional[str] = None
+    checked_at: float = field(default_factory=time.time)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "update_available": self.update_available,
+            "current_version": self.current_version,
+            "latest_version": self.latest_version,
+            "installed_commit": self.installed_commit,
+            "latest_commit": self.latest_commit,
+            "release_tag": self.release_tag,
+            "published_at": self.published_at,
+            "changelog": self.changelog,
+            "release_notes": self.release_notes,
+            "assets": self.assets,
+            "error": self.error,
+            "message": self.message,
+            "checked_at": self.checked_at,
+        }
 
 
 def parse_semver(v: str) -> tuple[int, int, int]:
@@ -72,16 +197,6 @@ def compute_sha256(file_path: Path) -> str:
         while chunk := f.read(65536):
             h.update(chunk)
     return h.hexdigest().lower()
-
-
-DEFAULT_UPDATE_URL = "https://raw.githubusercontent.com/ochenstarik-ui/hermes-hub-releases/main/update_manifest.json"
-
-ALLOWED_UPDATE_HOSTS = {
-    "github.com",
-    "raw.githubusercontent.com",
-    "objects.githubusercontent.com",
-    "github-releases.githubusercontent.com",
-}
 
 
 def is_allowed_update_host(url: str, allow_dev_local: bool = False) -> bool:
@@ -114,6 +229,9 @@ def is_allowed_update_host(url: str, allow_dev_local: bool = False) -> bool:
 class UpdateManager:
     """Manages update checks, package download, hash validation, and updater execution."""
 
+    _last_check_result: Optional[UpdateCheckResult] = None
+    _last_check_time: float = 0.0
+
     def __init__(self, manifest_url: Optional[str] = None):
         self.manifest_url = manifest_url or os.environ.get("HERMES_HUB_UPDATE_URL", DEFAULT_UPDATE_URL)
         self.updates_dir = paths.get_hermes_home() / "updates"
@@ -121,58 +239,233 @@ class UpdateManager:
         self.backup_dir = self.updates_dir / "backup_prev"
         self.updates_dir.mkdir(parents=True, exist_ok=True)
 
-    def check_for_updates(self, manifest_dict: Optional[Dict[str, Any]] = None) -> UpdateCheckResult:
-        """Check for updates using either passed manifest (for tests/local) or remote URL."""
-        try:
-            if manifest_dict:
-                data = manifest_dict
-            else:
-                if not is_allowed_update_host(self.manifest_url, allow_dev_local=False):
-                    raise ValueError(f"Недопустимый хост источника обновлений: {self.manifest_url}")
+    @classmethod
+    def get_last_check_result(cls) -> Optional[UpdateCheckResult]:
+        return cls._last_check_result
 
-                req = urllib.request.Request(
-                    self.manifest_url,
-                    headers={"User-Agent": f"HermesHub/{__version__} (Windows)"}
+    def get_status_dict(self) -> Dict[str, Any]:
+        installed_commit = get_installed_commit()
+        if self._last_check_result:
+            d = self._last_check_result.to_dict()
+            d["installed_commit"] = installed_commit
+            return d
+        return {
+            "update_available": False,
+            "current_version": __version__,
+            "latest_version": __version__,
+            "installed_commit": installed_commit,
+            "latest_commit": "",
+            "release_tag": "",
+            "published_at": "",
+            "changelog": None,
+            "release_notes": None,
+            "assets": {},
+            "error": None,
+            "message": "Проверка обновлений еще не выполнялась",
+            "checked_at": 0.0,
+        }
+
+    def check_for_updates(
+        self,
+        manifest_dict: Optional[Dict[str, Any]] = None,
+        release_dict: Optional[Dict[str, Any]] = None,
+    ) -> UpdateCheckResult:
+        """Check for updates using either passed manifest/release (for tests/local) or remote URL."""
+        installed_commit = get_installed_commit()
+        data = release_dict if release_dict is not None else manifest_dict
+
+        if not data:
+            if not is_allowed_update_host(self.manifest_url, allow_dev_local=False):
+                res = UpdateCheckResult(
+                    update_available=False,
+                    current_version=__version__,
+                    latest_version=__version__,
+                    installed_commit=installed_commit,
+                    error=f"Недопустимый хост источника обновлений: {self.manifest_url}",
                 )
-                try:
-                    with urllib.request.urlopen(req, timeout=10) as resp:
-                        data = json.loads(resp.read().decode("utf-8-sig"))
-                except urllib.error.HTTPError as http_err:
-                    if http_err.code == 404:
-                        return UpdateCheckResult(
-                            update_available=False,
-                            current_version=__version__,
-                            latest_version=__version__,
-                            error="Канал обновлений пока не настроен.",
-                        )
-                    raise
+                UpdateManager._last_check_result = res
+                UpdateManager._last_check_time = time.time()
+                return res
+
+            req = urllib.request.Request(
+                self.manifest_url,
+                headers={
+                    "User-Agent": f"HermesHub/{__version__}",
+                    "Accept": "application/vnd.github.v3+json",
+                },
+            )
+            try:
+                with urllib.request.urlopen(req, timeout=15) as resp:
+                    raw_body = resp.read().decode("utf-8-sig")
+                    data = json.loads(raw_body)
+            except urllib.error.HTTPError as http_err:
+                if http_err.code == 403:
+                    err_msg = "Превышен лимит запросов к GitHub API"
+                elif http_err.code == 404:
+                    err_msg = "Релизы не найдены в репозитории (404 Not Found)"
+                else:
+                    err_msg = f"Ошибка GitHub API (HTTP {http_err.code}): {http_err.reason}"
+                logger.warning("Update check HTTP error: %s", err_msg)
+                res = UpdateCheckResult(
+                    update_available=False,
+                    current_version=__version__,
+                    latest_version=__version__,
+                    installed_commit=installed_commit,
+                    error=err_msg,
+                )
+                UpdateManager._last_check_result = res
+                UpdateManager._last_check_time = time.time()
+                return res
+            except urllib.error.URLError as url_err:
+                err_msg = f"Сетевая ошибка при проверке обновлений: {url_err.reason}"
+                logger.warning("Update check network error: %s", err_msg)
+                res = UpdateCheckResult(
+                    update_available=False,
+                    current_version=__version__,
+                    latest_version=__version__,
+                    installed_commit=installed_commit,
+                    error=err_msg,
+                )
+                UpdateManager._last_check_result = res
+                UpdateManager._last_check_time = time.time()
+                return res
+            except Exception as exc:
+                err_msg = f"Ошибка проверки обновлений: {exc}"
+                logger.warning("Update check failed: %s", exc)
+                res = UpdateCheckResult(
+                    update_available=False,
+                    current_version=__version__,
+                    latest_version=__version__,
+                    installed_commit=installed_commit,
+                    error=err_msg,
+                )
+                UpdateManager._last_check_result = res
+                UpdateManager._last_check_time = time.time()
+                return res
+
+        # Process received payload
+        try:
+            tag_name = str(data.get("tag_name") or "")
+            release_name = str(data.get("name") or "")
+            body = str(data.get("body") or data.get("changelog") or "")
+            published_at = str(data.get("published_at") or "")
+
+            # Extract assets mapping {name: download_url}
+            assets_map: Dict[str, str] = {}
+            raw_assets = data.get("assets", [])
+            if isinstance(raw_assets, list):
+                for asset in raw_assets:
+                    if isinstance(asset, dict) and "name" in asset and "browser_download_url" in asset:
+                        assets_map[asset["name"]] = asset["browser_download_url"]
+            elif isinstance(raw_assets, dict):
+                assets_map = dict(raw_assets)
+
+            latest_commit = extract_release_commit(data)
+
+            # Package URL and SHA256 from manifest or assets
+            package_url = data.get("package_url", "")
+            sha256_hash = data.get("sha256", "").lower()
+            version_str = str(data.get("version") or tag_name or __version__)
 
             manifest = UpdateManifest(
-                version=data.get("version", "0.0.0"),
-                channel=data.get("channel", "stable"),
+                version=version_str,
+                channel=data.get("channel", CHANNEL),
                 minimum_hermes_version=data.get("minimum_hermes_version", MINIMUM_HERMES_VERSION),
-                published_at=data.get("published_at", ""),
-                package_url=data.get("package_url", ""),
-                sha256=data.get("sha256", "").lower(),
-                release_notes_url=data.get("release_notes_url"),
-                changelog=data.get("changelog"),
+                published_at=published_at,
+                package_url=package_url,
+                sha256=sha256_hash,
+                release_notes_url=data.get("html_url") or data.get("release_notes_url"),
+                changelog=body,
+                git_commit=latest_commit,
+                assets=assets_map,
             )
 
-            newer = is_newer_version(__version__, manifest.version)
-            return UpdateCheckResult(
-                update_available=newer,
+            # Compare commits
+            inst_clean = installed_commit.strip().lower()
+            lat_clean = latest_commit.strip().lower()
+
+            if lat_clean and inst_clean != "unknown":
+                if inst_clean == lat_clean or inst_clean.startswith(lat_clean) or lat_clean.startswith(inst_clean):
+                    update_available = False
+                    message = "Установлена последняя сборка"
+                else:
+                    update_available = True
+                    message = f"Доступно обновление (сборка {lat_clean[:7]})"
+            elif lat_clean and inst_clean == "unknown":
+                update_available = True
+                message = f"Доступно обновление (сборка {lat_clean[:7]})"
+            elif not lat_clean and "version" in data and is_newer_version(__version__, data["version"]):
+                # Legacy semver fallback
+                update_available = True
+                message = f"Доступно обновление {data['version']}"
+            else:
+                update_available = False
+                message = "Установлена последняя сборка"
+
+            res = UpdateCheckResult(
+                update_available=update_available,
                 current_version=__version__,
-                latest_version=manifest.version,
+                latest_version=version_str,
+                installed_commit=installed_commit,
+                latest_commit=latest_commit,
+                release_tag=tag_name or release_name,
+                published_at=published_at,
+                changelog=body,
+                release_notes=body,
+                assets=assets_map,
                 manifest=manifest,
+                error=None,
+                message=message,
+                checked_at=time.time(),
             )
+            UpdateManager._last_check_result = res
+            UpdateManager._last_check_time = time.time()
+            return res
+
         except Exception as exc:
-            logger.warning("Update check failed: %s", exc)
-            return UpdateCheckResult(
+            err_msg = f"Ошибка обработки данных обновления: {exc}"
+            logger.warning("Update data processing failed: %s", exc)
+            res = UpdateCheckResult(
                 update_available=False,
                 current_version=__version__,
                 latest_version=__version__,
-                error=str(exc),
+                installed_commit=installed_commit,
+                error=err_msg,
             )
+            UpdateManager._last_check_result = res
+            UpdateManager._last_check_time = time.time()
+            return res
+
+    def _download_file(
+        self,
+        url: str,
+        dest_file: Path,
+        progress_cb: Optional[Callable[[float], None]] = None,
+    ) -> None:
+        """Helper to download a file with allowlist check and optional progress callback."""
+        if not is_allowed_update_host(url, allow_dev_local=False):
+            raise ValueError(f"Недопустимый хост пакета обновления: {url}")
+
+        if url.startswith("file://") or Path(url).is_file():
+            local_src = Path(url.replace("file://", ""))
+            shutil.copy2(local_src, dest_file)
+            if progress_cb:
+                progress_cb(1.0)
+            return
+
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": f"HermesHub/{__version__}"},
+        )
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            total_len = int(resp.headers.get("content-length", 0))
+            downloaded = 0
+            with open(dest_file, "wb") as out_f:
+                while chunk := resp.read(65536):
+                    out_f.write(chunk)
+                    downloaded += len(chunk)
+                    if progress_cb and total_len > 0:
+                        progress_cb(downloaded / total_len)
 
     def download_and_verify(
         self,
@@ -184,30 +477,11 @@ class UpdateManager:
         dest_file = self.staging_dir / f"hermes-hub-{manifest.version}.zip"
 
         try:
-            if not is_allowed_update_host(manifest.package_url, allow_dev_local=False):
-                return False, f"Недопустимый хост пакета обновления: {manifest.package_url}", None
-
-            if manifest.package_url.startswith("file://") or Path(manifest.package_url).is_file():
-                local_src = Path(manifest.package_url.replace("file://", ""))
-                shutil.copy2(local_src, dest_file)
-            else:
-                req = urllib.request.Request(
-                    manifest.package_url,
-                    headers={"User-Agent": f"HermesHub/{__version__}"}
-                )
-                with urllib.request.urlopen(req, timeout=60) as resp:
-                    total_len = int(resp.headers.get("content-length", 0))
-                    downloaded = 0
-                    with open(dest_file, "wb") as out_f:
-                        while chunk := resp.read(32768):
-                            out_f.write(chunk)
-                            downloaded += len(chunk)
-                            if progress_cb and total_len > 0:
-                                progress_cb(downloaded / total_len)
+            self._download_file(manifest.package_url, dest_file, progress_cb)
 
             # Cryptographic SHA-256 Verification
             calc_hash = compute_sha256(dest_file)
-            if manifest.sha256 and calc_hash != manifest.sha256:
+            if manifest.sha256 and calc_hash != manifest.sha256.lower():
                 dest_file.unlink(missing_ok=True)
                 return False, f"SHA-256 hash mismatch! Expected {manifest.sha256}, got {calc_hash}", None
 
@@ -216,6 +490,123 @@ class UpdateManager:
         except Exception as exc:
             dest_file.unlink(missing_ok=True)
             return False, f"Ошибка загрузки: {exc}", None
+
+    def install_latest_update(
+        self,
+        check_result: Optional[UpdateCheckResult] = None,
+        progress_cb: Optional[Callable[[float], None]] = None,
+        target_dir: Optional[Path] = None,
+    ) -> Tuple[bool, str]:
+        """Download installer or update package, verify checksums, apply and restart."""
+        if check_result is None:
+            check_result = self.check_for_updates()
+
+        if check_result.error:
+            return False, f"Ошибка проверки обновлений: {check_result.error}"
+
+        if not check_result.update_available:
+            return False, "Обновление не требуется (установлена последняя сборка)"
+
+        self.staging_dir.mkdir(parents=True, exist_ok=True)
+        assets = check_result.assets or {}
+
+        # 1. Download checksums.txt if present
+        checksums_map: Dict[str, str] = {}
+        if "checksums.txt" in assets:
+            checksums_url = assets["checksums.txt"]
+            try:
+                chk_file = self.staging_dir / "checksums.txt"
+                self._download_file(checksums_url, chk_file)
+                for line in chk_file.read_text(encoding="utf-8").splitlines():
+                    parts = line.strip().split()
+                    if len(parts) >= 2:
+                        sha = parts[0].strip().lower()
+                        fname = parts[1].lstrip("*").strip().lower()
+                        checksums_map[fname] = sha
+            except Exception as e:
+                logger.warning("Failed to download or parse checksums.txt: %s", e)
+
+        # 2. Determine target asset to download based on platform
+        is_win = sys.platform == "win32"
+        chosen_asset_name: Optional[str] = None
+        chosen_url: Optional[str] = None
+
+        if is_win:
+            if "HermesHubSetup.exe" in assets:
+                chosen_asset_name = "HermesHubSetup.exe"
+                chosen_url = assets["HermesHubSetup.exe"]
+        else:
+            for linux_name in ("hermes-hub-setup.sh", "install-linux.sh"):
+                if linux_name in assets:
+                    chosen_asset_name = linux_name
+                    chosen_url = assets[linux_name]
+                    break
+
+        # Fallback to any .zip package in assets or manifest package_url
+        if not chosen_url:
+            for a_name, a_url in assets.items():
+                if a_name.endswith(".zip"):
+                    chosen_asset_name = a_name
+                    chosen_url = a_url
+                    break
+
+        if not chosen_url and check_result.manifest and check_result.manifest.package_url:
+            chosen_url = check_result.manifest.package_url
+            chosen_asset_name = Path(chosen_url).name or f"hermes-hub-{check_result.latest_version}.zip"
+
+        if not chosen_url or not chosen_asset_name:
+            return False, "В релизе не найден подходящий файл обновления для текущей платформы"
+
+        # 3. Download target asset into staging
+        dest_file = self.staging_dir / chosen_asset_name
+        try:
+            self._download_file(chosen_url, dest_file, progress_cb)
+        except Exception as exc:
+            dest_file.unlink(missing_ok=True)
+            return False, f"Ошибка загрузки {chosen_asset_name}: {exc}"
+
+        # 4. SHA-256 Checksum Verification
+        calc_sha = compute_sha256(dest_file)
+        expected_sha = checksums_map.get(chosen_asset_name.lower())
+        if not expected_sha and check_result.manifest and check_result.manifest.sha256:
+            expected_sha = check_result.manifest.sha256.lower()
+
+        if expected_sha and calc_sha != expected_sha:
+            dest_file.unlink(missing_ok=True)
+            return (
+                False,
+                f"Контрольная сумма SHA-256 не совпала для {chosen_asset_name}! "
+                f"Ожидалось {expected_sha}, получено {calc_sha}. Установка отменена."
+            )
+
+        # 5. Apply update based on file type
+        if chosen_asset_name.endswith(".zip"):
+            ok, msg = self.apply_update_sync(dest_file, target_dir=target_dir)
+            if not ok:
+                return False, msg
+            return True, "Обновление успешно установлено"
+
+        elif chosen_asset_name == "HermesHubSetup.exe":
+            try:
+                cmd = [str(dest_file), "/silent", "/reinstall"]
+                creation_flags = 0
+                if hasattr(subprocess, "DETACHED_PROCESS") and hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+                    creation_flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                subprocess.Popen(cmd, creationflags=creation_flags)
+                return True, "Установщик запущен в фоновом режиме. Hermes Hub будет перезапущен."
+            except Exception as exc:
+                return False, f"Не удалось запустить установщик: {exc}"
+
+        elif chosen_asset_name.endswith(".sh"):
+            try:
+                os.chmod(dest_file, 0o755)
+                cmd = ["bash", str(dest_file), "--silent"]
+                subprocess.Popen(cmd)
+                return True, "Скрипт установки запущен. Hermes Hub будет перезапущен."
+            except Exception as exc:
+                return False, f"Не удалось запустить скрипт установки: {exc}"
+
+        return True, "Файл обновления загружен и проверен"
 
     def apply_update_sync(self, package_zip: Path, target_dir: Optional[Path] = None) -> Tuple[bool, str]:
         """Apply update package with automatic backup and rollback on failure."""

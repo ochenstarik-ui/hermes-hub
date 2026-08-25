@@ -91,12 +91,12 @@ readiness, agents, providers, routing, quotas, metrics, is_stale
 Имена действий берутся **ровно** из общего слоя `action_handler.py`:
 
 ```
-account_details   add_account       agent_settings    assign_role
-auto_assign_all   check_updates     delete_credentials edit_route
-oauth             open_routing      refresh_account   refresh_all
-refresh_data      refresh_models    reorder_chain     save_chain
-save_settings     set_main          set_model         set_orchestrator
-test
+account_details   add_account       agent_settings    apply_update
+assign_role       auto_assign_all   check_updates     delete_credentials
+edit_route        get_update_status oauth             open_routing
+refresh_account   refresh_all       refresh_data      refresh_models
+reorder_chain     save_chain        save_settings     set_main
+set_model         set_orchestrator  test
 ```
 
 Ответ:
@@ -108,6 +108,7 @@ test
 
 **`ok: false` — это `200`, а не `4xx`.** Отказ действия — нормальный результат, а не ошибка протокола. `4xx` остаётся для неизвестного действия и непройденной авторизации.
 
+- **`check_updates`** / **`apply_update`** / **`get_update_status`** (A27): проверка и установка обновлений из самой программы. `check_updates` опрашивает GitHub API релизов основного репозитория `ochenstarik-ui/hermes-hub` и сравнивает установленный коммит со сборкой последнего релиза. `apply_update` загружает установщик/пакет, проверяет sha256 по `checksums.txt` и запускает обновление с сохранением пользовательских данных и настроек.
 - **`save_chain`** / **`reorder_chain`** / **`edit_route`** (добавлено/расширено в A24): сохранение упорядоченной цепочки профилей для роли маршрутизатора. `data: {"role_id": "<role_id>", "chain": ["<pid1>", "<pid2>", ...]}`. Сохраняет конфигурацию в `router_profiles.yaml` через `AutoAssigner.persist_role_chain`.
 - **`assign_role`**: назначение профиля на роль. `data: {"profile_id": "<pid>", "role_id": "<role_id>", "is_primary": true|false}`. Выполняется через `AutoAssigner.assign_profile_to_role`.
 - **`open_routing`** и **`account_details`** в вебе — навигация, состояние держит клиент; сервер на них отвечает `ok: true` без побочных эффектов.

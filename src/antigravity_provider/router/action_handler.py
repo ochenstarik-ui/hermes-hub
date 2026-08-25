@@ -580,12 +580,33 @@ class ActionExecutor:
             return {'ok': ok, 'message': msg}
             
         elif action == 'check_updates':
+            mgr = UpdateManager()
             if async_runner:
-                async_runner(lambda: UpdateManager().check_for_updates(), 'CheckUpdates')
-                return {'ok': True, 'message': 'запущено'}
+                async_runner(lambda: mgr.check_for_updates(), 'CheckUpdates')
+                return {'ok': True, 'message': 'Проверка обновлений запущена'}
             else:
-                res = UpdateManager().check_for_updates()
-                return {'ok': True, 'message': 'Успешно', 'data': res}
-                
+                res = mgr.check_for_updates()
+                if res.error:
+                    return {'ok': False, 'message': res.error, 'data': res.to_dict()}
+                return {
+                    'ok': True,
+                    'message': res.message or ('Доступно обновление' if res.update_available else 'Установлена последняя сборка'),
+                    'data': res.to_dict(),
+                }
+
+        elif action == 'apply_update':
+            mgr = UpdateManager()
+            if async_runner:
+                async_runner(lambda: mgr.install_latest_update(), 'ApplyUpdate')
+                return {'ok': True, 'message': 'Установка обновления запущена в фоновом режиме'}
+            else:
+                ok, msg = mgr.install_latest_update()
+                return {'ok': ok, 'message': msg}
+
+        elif action == 'get_update_status':
+            mgr = UpdateManager()
+            status = mgr.get_status_dict()
+            return {'ok': True, 'message': status.get('message') or 'Статус получен', 'data': status}
+
         else:
             return {'ok': False, 'message': f'Неизвестное действие: {action}', 'unknown': True}
