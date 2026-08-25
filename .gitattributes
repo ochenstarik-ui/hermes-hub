@@ -1,0 +1,23 @@
+# Переводы строк фиксируются намеренно.
+#
+# core.autocrlf=true на машинах разработки записывал shell-скрипты в индекс с
+# CRLF. На Linux такой файл даёт "$'\r': command not found", а собранный из
+# него самораспаковывающийся установщик ломается целиком. Поэтому всё, что
+# исполняется на Linux, хранится и выдаётся только с LF.
+* text=auto
+
+*.sh    text eol=lf
+*.bash  text eol=lf
+*.py    text eol=lf
+*.yaml  text eol=lf
+*.yml   text eol=lf
+
+# Виндовые скрипты остаются с CRLF.
+*.ps1   text eol=crlf
+*.bat   text eol=crlf
+*.cmd   text eol=crlf
+
+# Бинарники не трогать.
+*.exe   binary
+*.ico   binary
+*.png   binary
