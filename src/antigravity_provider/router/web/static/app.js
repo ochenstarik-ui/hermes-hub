@@ -2228,25 +2228,52 @@ async function pollDeviceAuth(providerId) {
   }
 }
 
+// Профили, реально участвующие в цепочках маршрутизации.
+//
+// Судить по assigned_roles нельзя: холодный резерв и ag-spare-2 значатся с
+// ролью "spare", которой среди шести маршрутизируемых ролей нет. Поэтому
+// берём состав самих цепочек — это точно и не зависит от названий ролей.
+function profilesInRouting() {
+  const routing = (currentSnapshot || {}).routing || {};
+  const ids = new Set();
+  Object.values(routing).forEach((pipeline) => {
+    ((pipeline && pipeline.nodes) || []).forEach((n) => {
+      if (n && n.profile_id) ids.add(n.profile_id);
+    });
+  });
+  return ids;
+}
+
 // Список слотов провайдера из снимка: занятые помечены, свободные идут первыми.
 function buildSlotOptions(providerId) {
   const profiles = ((currentSnapshot || {}).profiles_by_provider || {})[providerId] || [];
   if (!profiles.length) {
     return '<option value="">Список слотов ещё не получен</option>';
   }
+  // Роль слота показываем прямо в списке. Без этого выбор вслепую: слоты
+  // ag-spare-* и ag-cold-* не входят ни в одну цепочку, поэтому подключённый
+  // в них аккаунт честно не появляется ни в «Обзоре», ни в «Маршрутизации» —
+  // и выглядит это как пропажа.
+  const routed = profilesInRouting();
   const free = [];
   const used = [];
+  const idle = [];
   profiles.forEach((p) => {
     const isFree = p.health_state === 'not_configured';
+    const inRouting = routed.has(p.profile_id);
+    const roles = (p.assigned_roles || []).join(', ');
     const who = p.email || p.account_identity || '';
-    const label = isFree
-      ? `${p.profile_id} — свободен`
-      : `${p.profile_id} — занят${who ? ': ' + who : ''}`;
-    (isFree ? free : used).push(
-      `<option value="${escapeHtml(p.profile_id)}">${escapeHtml(label)}</option>`
-    );
+    const state = isFree ? 'свободен' : `занят${who ? ': ' + who : ''}`;
+    const label = inRouting
+      ? `${p.profile_id} — ${state} · ${roles || 'в маршрутизации'}`
+      : `${p.profile_id} — ${state} · не участвует в маршрутизации`;
+    const opt = `<option value="${escapeHtml(p.profile_id)}">${escapeHtml(label)}</option>`;
+    if (!inRouting) idle.push(opt);
+    else if (isFree) free.push(opt);
+    else used.push(opt);
   });
-  return free.concat(used).join('');
+  // Свободные слоты с ролью — первыми: именно они дают работающий маршрут.
+  return free.concat(used, idle).join('');
 }
 
 let _redirectAuthTimer = null;
@@ -2292,6 +2319,7 @@ async function startRedirectAuth(providerId) {
   const d = res.data || {};
   window._wiz_redirect_session = d.session_id;
   window._wiz_redirect_provider = providerId;
+  window._wiz_redirect_slot_id = d.profile_id;
 
   const pastesUrl = d.paste_kind !== 'code';
   const label = pastesUrl
@@ -2377,7 +2405,7 @@ async function submitRedirectCallback() {
 
   if (res && res.ok) {
     stopRedirectAuthPolling();
-    status.innerHTML = '<span style="color:var(--status-healthy); font-weight:600;">Аккаунт подключён</span>';
+    status.innerHTML = '<span style="color:var(--status-healthy); font-weight:600;">Аккаунт подключён</span>' + redirectSlotRoleNote();
     showToast('Аккаунт подключён', 'success');
     fetchSnapshot();
     return;
@@ -2385,6 +2413,24 @@ async function submitRedirectCallback() {
   // Промах при вставке не заканчивает сессию: ссылка ещё годна, можно
   // вставить снова. Поэтому опрос не останавливаем.
   status.innerHTML = `<span style="color:var(--status-error);">${escapeHtml((res && res.message) || 'Не удалось завершить вход')}</span>`;
+}
+
+// Если слот не входит ни в одну цепочку, аккаунт не появится ни в «Обзоре»,
+// ни в «Маршрутизации» — и это выглядит как пропажа. Говорим об этом сразу.
+function redirectSlotRoleNote() {
+  const pid = window._wiz_redirect_slot_id;
+  if (!pid) return '';
+  const all = (currentSnapshot || {}).all_profiles || [];
+  const prof = all.find((p) => p.profile_id === pid);
+  const roles = prof ? (prof.assigned_roles || []) : [];
+  if (profilesInRouting().has(pid)) {
+    return `<div style="margin-top:6px; font-size:12px; color:var(--text-muted);">Роль: ${escapeHtml(roles.join(', '))}</div>`;
+  }
+  return `<div class="modal-feedback info" style="margin-top:8px; font-size:12px;">
+      Слот <code>${escapeHtml(pid)}</code> не входит ни в одну цепочку, поэтому в
+      «Обзоре» и «Маршрутизации» аккаунт не появится. Добавьте его нужной роли
+      в разделе «Маршрутизация» кнопкой «+ Добавить».
+    </div>`;
 }
 
 async function pollRedirectAuth() {
