@@ -29,6 +29,16 @@ for item in src launcher assets config scripts installer; do
 done
 printf '%s' "$COMMIT" > "$STAGE/BUILD_COMMIT"
 
+# Нормализация переводов строк — обязательный шаг, а не гигиена.
+#
+# Сборка идёт на Windows, где рабочая копия хранится с CRLF (core.autocrlf).
+# В git объекты лежат с LF, но сборщик копирует из РАБОЧЕЙ КОПИИ, поэтому
+# .gitattributes её не спасает. Установщик с  падает на первой же строке:
+# "$'': command not found", а строка-маркер с  не совпадает, и пролог не
+# находит границу вложенных данных. Именно так сломалась сборка 44808bd.
+echo "Нормализация переводов строк..."
+find "$STAGE" -type f \( -name '*.sh' -o -name '*.py' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' \) -print0     | xargs -0 -r sed -i 's/$//'
+
 find "$STAGE" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 find "$STAGE" -name '*.pyc' -delete 2>/dev/null || true
 # Виндовые бинарники в линуксовой поставке бесполезны и весят больше мегабайта.
