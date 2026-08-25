@@ -20,6 +20,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "release_channel": "stable",
     "model_timeout_seconds": 60,
     "monitoring_interval_seconds": 30,
+    "quota_threshold_percent": 10.0,
+    "quota_threshold_action": "notify",
 }
 
 
@@ -85,6 +87,16 @@ def get_hub_settings() -> Dict[str, Any]:
         merged["monitoring_interval_seconds"] = int(merged.get("monitoring_interval_seconds", 30))
     except (ValueError, TypeError):
         merged["monitoring_interval_seconds"] = 30
+
+    try:
+        merged["quota_threshold_percent"] = float(merged.get("quota_threshold_percent", 10.0))
+    except (ValueError, TypeError):
+        merged["quota_threshold_percent"] = 10.0
+
+    action = str(merged.get("quota_threshold_action", "notify")).strip().lower()
+    if action not in ("notify", "switch"):
+        action = "notify"
+    merged["quota_threshold_action"] = action
 
     _SETTINGS_CACHE = dict(merged)
     _SETTINGS_CACHE_MTIME = current_mtime

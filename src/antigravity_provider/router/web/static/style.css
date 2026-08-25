@@ -449,6 +449,38 @@ body {
   color: var(--text-muted);
 }
 
+.accounts-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 24px;
+  text-align: center;
+  background-color: var(--surface);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-md);
+  margin: 16px 0;
+}
+
+.accounts-empty-state .empty-state-icon {
+  font-size: 40px;
+  margin-bottom: 12px;
+}
+
+.accounts-empty-state h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.accounts-empty-state p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 18px;
+  max-width: 440px;
+}
+
 .accounts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
@@ -942,7 +974,8 @@ body {
 }
 
 .node-model-select,
-.diagram-model-select {
+.diagram-model-select,
+.diagram-account-select {
   flex: 1;
   background-color: var(--bg-base);
   border: 1px solid var(--border-subtle);
@@ -956,8 +989,17 @@ body {
   max-width: 100%;
 }
 
+.diagram-account-select {
+  margin-bottom: 4px;
+  width: 100%;
+  font-family: var(--font-sans);
+  font-size: 11px;
+  font-weight: 500;
+}
+
 .node-model-select:focus,
-.diagram-model-select:focus {
+.diagram-model-select:focus,
+.diagram-account-select:focus {
   border-color: var(--accent);
 }
 

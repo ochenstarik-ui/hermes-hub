@@ -143,6 +143,30 @@ def do_save_settings(settings: Dict[str, Any]) -> Tuple[bool, str]:
     except Exception as e:
         return False, f"Не удалось сохранить настройки: {e}"
 
+    from antigravity_provider.router.settings_service import invalidate_settings_cache
+    invalidate_settings_cache()
+
+    try:
+        from antigravity_provider.router.router_config import load_router_config, save_router_config
+        rcfg = load_router_config()
+        updated_rcfg = False
+        if "quota_threshold_percent" in settings:
+            rcfg.quota_threshold_percent = float(settings["quota_threshold_percent"])
+            updated_rcfg = True
+        if "quota_threshold_action" in settings:
+            rcfg.quota_threshold_action = str(settings["quota_threshold_action"])
+            updated_rcfg = True
+        if updated_rcfg:
+            save_router_config(rcfg)
+    except Exception:
+        pass
+
+    try:
+        from antigravity_provider.router.state_store import HubStateStore
+        HubStateStore.get().refresh(force_scan=True)
+    except Exception:
+        pass
+
     from antigravity_provider.router.quota_collector import AccountQuotaService
 
     AccountQuotaService.get().set_refresh_interval(int(settings.get("quota_refresh_interval_sec", 300)))

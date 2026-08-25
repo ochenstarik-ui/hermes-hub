@@ -82,21 +82,24 @@ def test_auto_assigner_find_free_slot_for_all_five_providers(clean_env):
             assert slot in config.profiles
             assert config.profiles[slot].provider == provider
 
-    # Test recommendation when all slots are filled
+    # Test allocation when all default slots are filled (A26: unlimited accounts)
     slot_claude = AutoAssigner.find_free_slot("claude")
     assert slot_claude is not None
     assert slot_claude in ("claude-orch", "claude-worker-1", "claude-worker-2")
 
-    # Simulate fake auth on all claude slots
+    # Simulate fake auth on all 3 default claude slots
     for c_slot in ["claude-orch", "claude-worker-1", "claude-worker-2"]:
         ProfileAuthManager.save_profile_auth("claude", c_slot, {"api_key": "sk-ant-test-key-1234567890123456"})
 
-    # Now claude has no free slots -> find_free_slot must return None, NOT a non-existent candidate!
-    assert AutoAssigner.find_free_slot("claude") is None
+    # Now all default claude slots are taken -> find_free_slot dynamically generates claude-worker-3
+    next_slot = AutoAssigner.find_free_slot("claude")
+    assert next_slot == "claude-worker-3"
+    cfg = load_router_config()
+    assert "claude-worker-3" in cfg.profiles
+    assert cfg.profiles["claude-worker-3"].provider == "claude"
 
     rec_slot, title, reason = AutoAssigner.recommend_assignment("claude")
-    assert rec_slot == ""
-    assert "Нет свободных слотов" in title
+    assert rec_slot == "claude-worker-3"
 
 
 @pytest.mark.unit

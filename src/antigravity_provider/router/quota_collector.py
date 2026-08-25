@@ -166,12 +166,12 @@ class AccountQuotaService:
         with self._cache_lock:
             self._snapshots[key] = snap
 
-        if snap.source == "provider_api":
+        if snap.source in ("provider_api", "local_provider") or snap.buckets:
             measured_by_family: dict[str, float] = {}
             for bucket in snap.buckets:
-                family = bucket.model_family
+                family = bucket.model_family or "default"
                 remaining = bucket.remaining_percent
-                if not family or remaining is None:
+                if remaining is None:
                     continue
                 measured_by_family[family] = min(measured_by_family.get(family, 100.0), float(remaining))
             if measured_by_family:
@@ -179,8 +179,13 @@ class AccountQuotaService:
                     from .router_engine import get_router_engine
 
                     get_router_engine().health.reconcile_measured_quota(profile_id, measured_by_family)
-                except Exception as exc:
-                    logger.debug("Could not reconcile live quota health for %s: %s", profile_id, exc)
+                except Exception:
+                    try:
+                        from .health_tracker import HealthTracker
+
+                        HealthTracker().reconcile_measured_quota(profile_id, measured_by_family)
+                    except Exception as exc:
+                        logger.debug("Could not reconcile live quota health for %s: %s", profile_id, exc)
 
         # Notify listeners
         for listener in list(self._listeners):

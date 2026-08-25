@@ -399,31 +399,68 @@ class HealthTracker:
             self._save_state()
 
     def reconcile_measured_quota(self, profile_id: str, remaining_by_family: Dict[str, float]) -> bool:
-        """Clear stale quota-exhausted flags when the provider reports live capacity.
+        """Evaluate measured quota against configured threshold and recover when capacity restores.
 
         A successful quota read is authoritative for quota exhaustion, but it
         must not erase unrelated authentication or runtime failures.
         """
-        measured = {family: float(value) for family, value in remaining_by_family.items()}
+        measured = {family: float(value) for family, value in remaining_by_family.items() if value is not None}
         if not measured:
             return False
+
+        from antigravity_provider.router.settings_service import get_hub_settings
+        settings = get_hub_settings()
+        threshold = float(settings.get("quota_threshold_percent", 10.0))
+        action = str(settings.get("quota_threshold_action", "notify")).strip().lower()
+
         with self._lock:
             record = self.get_or_create(profile_id)
             changed = False
+            now = time.time()
+
             for family, remaining in measured.items():
                 family_record = record.families.get(family)
-                if remaining > 0 and family_record and family_record.state == QUOTA_EXHAUSTED:
-                    family_record.state = HEALTHY
-                    family_record.reset_at = None
-                    family_record.reason = None
-                    family_record.last_error = None
-                    family_record.simulated = False
-                    changed = True
-            if all(value > 0 for value in measured.values()) and record.overall_state == QUOTA_EXHAUSTED:
+                if remaining <= threshold:
+                    if action == "switch":
+                        if family not in record.families:
+                            record.families[family] = FamilyHealthRecord(family=family)
+                        frec = record.families[family]
+                        if frec.state != QUOTA_EXHAUSTED:
+                            frec.state = QUOTA_EXHAUSTED
+                            frec.reset_at = now + 1800
+                            frec.reason = f"Остаток квоты {remaining:.1f}% <= порога {threshold:.1f}%"
+                            frec.last_error = frec.reason
+                            changed = True
+                    elif action == "notify":
+                        try:
+                            from antigravity_provider.router.unified_health import EventLogService
+                            EventLogService.get().log(
+                                "quota",
+                                f"Внимание: остаток квоты профиля {profile_id} ({family}) составляет {remaining:.1f}% (порог: {threshold:.1f}%).",
+                                level="warning",
+                            )
+                        except Exception:
+                            pass
+                elif remaining > threshold:
+                    if family_record and family_record.state == QUOTA_EXHAUSTED:
+                        family_record.state = HEALTHY
+                        family_record.reset_at = None
+                        family_record.reason = None
+                        family_record.last_error = None
+                        family_record.simulated = False
+                        changed = True
+
+            if all(value > threshold for value in measured.values()) and record.overall_state == QUOTA_EXHAUSTED:
                 record.overall_state = HEALTHY
                 record.last_error = None
                 record.simulated = False
                 changed = True
+            elif any(value <= threshold for value in measured.values()) and action == "switch":
+                if record.overall_state == HEALTHY:
+                    record.overall_state = QUOTA_EXHAUSTED
+                    record.last_error = f"Остаток квоты ниже порога {threshold:.1f}%"
+                    changed = True
+
             if changed:
                 self._save_state()
             return changed

@@ -36,18 +36,9 @@ app.add_middleware(
 
 
 def _web_settings() -> Dict[str, Any]:
-    """Настройки веб-API живут в hub_settings.json, а не в RouterConfig.
-
-    Прежняя версия читала config.hub — такого атрибута у RouterConfig нет,
-    поэтому /api/snapshot и /api/action падали с 500, а run_server не
-    поднимался вовсе. Работал только /api/health, у которого нет проверки
-    авторизации, — из-за чего дефект и выглядел как рабочий сервер.
-    """
-    settings_file = paths.get_hermes_home() / "hub_settings.json"
-    try:
-        return json.loads(settings_file.read_text(encoding="utf-8"))
-    except (OSError, ValueError, TypeError):
-        return {}
+    """Настройки веб-API живут в hub_settings.json, а не в RouterConfig."""
+    from antigravity_provider.router.settings_service import get_hub_settings
+    return get_hub_settings()
 
 
 def get_auth_token(x_hub_token: str = Header(None)) -> bool:

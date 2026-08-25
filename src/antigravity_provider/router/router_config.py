@@ -42,6 +42,8 @@ class RouterConfig:
     cooldown_base_seconds: int = 300
     cooldown_max_seconds: int = 3600
     session_affinity_ttl_seconds: int = 1800
+    quota_threshold_percent: float = 10.0
+    quota_threshold_action: str = "notify"  # "notify" | "switch"
     roles: dict[str, RolePolicy] = field(default_factory=dict)
     profiles: dict[str, RouterProfileConfig] = field(default_factory=dict)
     pricing: dict[str, dict[str, float]] = field(default_factory=dict)
@@ -387,6 +389,13 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
         session_ttl = int(r_block.get("session_affinity_ttl_seconds", data.get("session_affinity_ttl_seconds", 1800)))
         quota_cooldown = int(r_block.get("quota_cooldown_seconds", data.get("quota_cooldown_seconds", 1800)))
         rate_cooldown = int(r_block.get("rate_limit_cooldown_seconds", data.get("rate_limit_cooldown_seconds", 60)))
+        try:
+            quota_threshold_percent = float(r_block.get("quota_threshold_percent", data.get("quota_threshold_percent", 10.0)))
+        except (ValueError, TypeError):
+            quota_threshold_percent = 10.0
+        quota_threshold_action = str(r_block.get("quota_threshold_action", data.get("quota_threshold_action", "notify"))).strip().lower()
+        if quota_threshold_action not in ("notify", "switch"):
+            quota_threshold_action = "notify"
 
         # Automatic Idempotent Migration (P0-0.1)
         # Merge missing default profiles and roles into loaded user configuration
@@ -435,6 +444,8 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
                     cooldown_base_seconds=cooldown_base,
                     cooldown_max_seconds=cooldown_max,
                     session_affinity_ttl_seconds=session_ttl,
+                    quota_threshold_percent=quota_threshold_percent,
+                    quota_threshold_action=quota_threshold_action,
                     roles=roles,
                     profiles=profiles,
                     pricing=pricing,
@@ -453,6 +464,8 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
             cooldown_base_seconds=cooldown_base,
             cooldown_max_seconds=cooldown_max,
             session_affinity_ttl_seconds=session_ttl,
+            quota_threshold_percent=quota_threshold_percent,
+            quota_threshold_action=quota_threshold_action,
             roles=roles,
             profiles=profiles,
             pricing=pricing,
@@ -509,6 +522,8 @@ def save_router_config(config: RouterConfig, config_path: Optional[Path] = None)
             "cooldown_base_seconds": config.cooldown_base_seconds,
             "cooldown_max_seconds": config.cooldown_max_seconds,
             "session_affinity_ttl_seconds": config.session_affinity_ttl_seconds,
+            "quota_threshold_percent": config.quota_threshold_percent,
+            "quota_threshold_action": config.quota_threshold_action,
         })
 
         data = {
