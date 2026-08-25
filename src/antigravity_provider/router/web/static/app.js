@@ -951,1366 +951,280 @@ function renderOverviewView() {
 // ═══════════════════════════════════════════════════════════════
 //  2. ROUTING VIEW (P0-1, P0-2 Main Routing Control Center)
 // ═══════════════════════════════════════════════════════════════
+
+function getProviderIcon(provider) {
+  const map = {
+    'openai-codex': 'codex.png',
+    'google-antigravity': 'антигравити.png',
+    'opencode-go': 'opencode.png',
+    'anthropic-claude': 'claude.png',
+    'deepseek': 'deepseek.png',
+    'grok': 'grok.jfif'
+  };
+  return map[provider] || 'llama.png';
+}
+
 function renderRoutingView() {
-  const container = document.getElementById('routing-pipelines-container');
-  if (!container || !currentSnapshot) return;
+  const leftCol = document.getElementById('routing-roles-container');
+  const rightCol = document.getElementById('routing-available-container');
+  if (!leftCol || !rightCol || !currentSnapshot) return;
 
   const routing = currentSnapshot.routing || {};
   const agents = currentSnapshot.agents || [];
-  let html = '';
+  const profiles = currentSnapshot.profiles || {};
 
+  // Render Left Column (Roles)
+  let rolesHtml = '';
   for (const [roleId, pipeline] of Object.entries(routing)) {
-    const nodes = pipeline.nodes || [];
+    const chain = pipeline.preferred_chain || [];
     const agentInfo = agents.find((a) => a.role_id === roleId);
-    const roleDesc = agentInfo?.role_description_ru || (CANONICAL_ROLE_DESCRIPTIONS[roleId] || '');
-    const quotaLabel = agentInfo?.active_quota_label || '';
-    const quotaStatus = agentInfo?.active_quota_status || 'healthy';
+    
+    let isImportant = ['manager', 'developer-1', 'developer-2'].includes(roleId);
+    let badgeHtml = isImportant ? `<span class="role-badge"><i class="fa-solid fa-star"></i> Важная роль</span>` : '';
+    let roleDesc = CANONICAL_ROLE_DESCRIPTIONS[roleId] || '';
 
-    html += `
-      <div class="pipeline-card" data-role-id="${escapeHtml(roleId)}">
-        <div class="pipeline-header">
+    rolesHtml += `
+      <div class="role-section" data-role="${escapeHtml(roleId)}">
+        <div class="role-header">
           <div>
-            <div style="display:flex; align-items:center; gap:8px;">
-              <span class="pipeline-title">${escapeHtml(pipeline.role_name_ru || roleId)}</span>
-              ${quotaLabel ? `<span class="badge badge-quota ${quotaStatus}" title="Оперативная квота активного профиля">Квота: ${escapeHtml(quotaLabel)}</span>` : ''}
-              <span class="badge badge-affinity">${pipeline.session_affinity ? 'Session Affinity' : 'Без affinity'}</span>
-            </div>
-            ${roleDesc ? `<div class="pipeline-desc">${escapeHtml(roleDesc)}</div>` : ''}
+            <h4><i class="fa-solid fa-network-wired" style="color:var(--accent);"></i> ${escapeHtml(pipeline.role_name_ru || roleId)} ${badgeHtml}</h4>
+            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${escapeHtml(roleDesc)}</div>
           </div>
-          <div class="pipeline-header-actions">
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-size:12px; color:var(--text-secondary);">${chain.length} аккаунта</span>
             <button class="btn btn-secondary btn-sm" onclick="openAddNodeToChainModal('${escapeHtml(roleId)}')">
-              + Добавить профиль
+              + Добавить аккаунт
             </button>
+            <i class="fa-solid fa-ellipsis-vertical" style="color:var(--text-muted); cursor:pointer;"></i>
           </div>
         </div>
-
-        <div class="pipeline-chain-flow" data-role-id="${escapeHtml(roleId)}">
-          ${nodes.map((node, index) => {
-            const profile = (currentSnapshot.all_profiles || {})[node.profile_id];
-            const provId = profile?.provider || getProviderIdFromName(node.provider);
-            const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === provId || p.provider_name === node.provider);
-            const discoveredModels = (provSummary && provSummary.discovered_models && provSummary.discovered_models.length > 0) ? provSummary.discovered_models : [];
-            const currentModel = node.model || (profile && profile.preferred_models && profile.preferred_models[0]) || '';
-            const identity = node.account_identity && node.account_identity !== 'Аккаунт не добавлен' ? node.account_identity : (profile?.email || node.display_name || node.profile_id);
-
-            let modelControlHtml = '';
-            if (discoveredModels.length > 0) {
-              modelControlHtml = `
-                <div class="node-model-row">
-                  <label class="node-model-label">Модель:</label>
-                  <select class="node-model-select" onchange="handleNodeModelChange('${escapeHtml(roleId)}', '${escapeHtml(node.profile_id)}', this.value)">
-                    ${discoveredModels.map((m) => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
-                  </select>
-                </div>
-              `;
-            } else {
-              modelControlHtml = `
-                <div class="node-model-row node-model-refresh-row">
-                  <span class="node-model-text" title="Список моделей ещё не получен">Список моделей ещё не получен</span>
-                  <button class="btn btn-secondary btn-xs" title="Запросить список моделей у провайдера" onclick="handleRefreshProviderModels('${escapeHtml(provId)}')">↻ Модели</button>
-                </div>
-              `;
-            }
-
-            return `
-              <div class="pipeline-node-chip ${node.is_active ? 'active' : ''}"
-                   draggable="true"
-                   data-role-id="${escapeHtml(roleId)}"
-                   data-profile-id="${escapeHtml(node.profile_id)}"
-                   data-index="${index}"
-                   ondragstart="handleNodeDragStart(event, '${escapeHtml(roleId)}', ${index})"
-                   ondragover="handleNodeDragOver(event, '${escapeHtml(roleId)}', ${index})"
-                   ondragleave="handleNodeDragLeave(event)"
-                   ondrop="handleNodeDrop(event, '${escapeHtml(roleId)}', ${index})"
-                   ondragend="handleNodeDragEnd(event)">
-                <div class="node-top-row">
-                  <span class="node-rank">${index === 0 ? '★ Основной' : `Резерв ${index}`}</span>
-                  <div style="display:flex; align-items:center; gap:4px;">
-                    ${node.is_active ? '<span class="badge badge-status healthy">● АКТИВЕН</span>' : ''}
-                    <button class="btn-node-remove" title="Удалить из цепочки" onclick="handleRemoveNodeFromChain('${escapeHtml(roleId)}', '${escapeHtml(node.profile_id)}')">✕</button>
-                  </div>
-                </div>
-                <div class="node-identity" title="${escapeHtml(identity)}">${escapeHtml(identity)}</div>
-                <div class="node-meta" title="${escapeHtml(node.display_name || node.profile_id)} • ${escapeHtml(node.provider)}">
-                  ${escapeHtml(node.display_name || node.profile_id)} <span class="mono-tag">(${escapeHtml(node.profile_id)})</span> • ${escapeHtml(node.provider)}
-                </div>
-                ${modelControlHtml}
-                ${node.failover_reason ? `<div class="node-failover-warning">⚠ ${escapeHtml(node.failover_reason)}</div>` : ''}
-              </div>
-            `;
-          }).join('') || '<div class="empty-text">Цепочка не настроена. Нажмите «+ Добавить профиль».</div>'}
+        <div class="grid-header">
+          <div><!-- drag handle --></div>
+          <div>Приоритет</div>
+          <div>Аккаунт</div>
+          <div>Модель</div>
+          <div>Провайдер</div>
+          <div>Квоты</div>
+          <div>Сброс</div>
+          <div>Статус</div>
+          <div><!-- remove --></div>
         </div>
-      </div>
+        <div class="role-chain-list" id="chain-${escapeHtml(roleId)}" style="min-height: 10px;">
     `;
-  }
 
-  container.innerHTML = html || '<div class="empty-text">Маршруты отсутствуют.</div>';
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  3. ANALYTICS VIEW (P0-1, P0-5 Telemetry & Honesty)
-// ═══════════════════════════════════════════════════════════════
-function renderAnalyticsView() {
-  if (!currentSnapshot) return;
-  const metrics = currentSnapshot.metrics || {};
-  const telemetry = metrics.telemetry || {};
-  const global = telemetry.global || {};
-
-  // KPI 1: Total Calls (24h)
-  const totalCallsEl = document.getElementById('analytics-total-calls');
-  const callsBreakdownEl = document.getElementById('analytics-calls-breakdown');
-  if (totalCallsEl) {
-    totalCallsEl.textContent = (global.total_calls !== null && global.total_calls !== undefined) ? global.total_calls : 'Н/Д';
-  }
-  if (callsBreakdownEl) {
-    const succ = global.successful_calls ?? 0;
-    const fail = global.failed_calls ?? 0;
-    callsBreakdownEl.textContent = `Успешно: ${succ} • Сбоев: ${fail} (окно: 24ч)`;
-  }
-
-  // KPI 2: Error Rate (24h)
-  const errorRateEl = document.getElementById('analytics-error-rate');
-  const errorRateSubEl = document.getElementById('analytics-error-rate-sub');
-  if (errorRateEl) {
-    if (global.error_rate !== null && global.error_rate !== undefined) {
-      const pct = (global.error_rate * 100).toFixed(1);
-      errorRateEl.textContent = `${pct}%`;
-      errorRateEl.className = `kpi-value ${global.error_rate > 0.5 ? 'text-error' : (global.error_rate > 0.2 ? 'text-warning' : 'text-healthy')}`;
-    } else {
-      errorRateEl.textContent = 'Н/Д';
-      errorRateEl.className = 'kpi-value text-muted';
-    }
-  }
-  if (errorRateSubEl) {
-    errorRateSubEl.textContent = (global.failed_calls !== null && global.failed_calls !== undefined && global.failed_calls > 0)
-      ? `${global.failed_calls} отказов из ${global.total_calls || 0} вызовов (24ч)`
-      : 'Отказов за 24ч не зафиксировано';
-  }
-
-  // KPI 3: Latency (24h) with Fast-fail Explanation
-  const latencyEl = document.getElementById('analytics-latency-p50');
-  const latencySubEl = document.getElementById('analytics-latency-sub');
-  if (latencyEl) {
-    if (global.latency_p50_ms !== null && global.latency_p50_ms !== undefined) {
-      latencyEl.textContent = `${global.latency_p50_ms.toFixed(1)} ms`;
-    } else {
-      latencyEl.textContent = 'Н/Д';
-    }
-  }
-  if (latencySubEl) {
-    const p95Str = global.latency_p95_ms != null
-      ? (global.latency_p95_ms >= 1000 ? `${(global.latency_p95_ms / 1000).toFixed(1)} s` : `${global.latency_p95_ms.toFixed(1)} ms`)
-      : 'Н/Д';
-    const maxStr = global.latency_max_ms != null
-      ? (global.latency_max_ms >= 1000 ? `${(global.latency_max_ms / 1000).toFixed(1)} s` : `${global.latency_max_ms.toFixed(1)} ms`)
-      : 'Н/Д';
-
-    let note = `p95: ${p95Str} • max: ${maxStr} (окно: 24ч)`;
-    // P0-5: Explain discrepancy if p50 is low while error rate is non-zero (fast-fail)
-    if (global.failed_calls > 0 && (global.latency_p50_ms == null || global.latency_p50_ms < 50 || (global.latency_max_ms && global.latency_max_ms > 10 * Math.max(1, global.latency_p50_ms || 0)))) {
-      note += ' • Низкий p50 вызван быстрыми отказами (fast-fail)';
-    }
-    latencySubEl.textContent = note;
-  }
-
-  // KPI 4: Tokens (Honesty rule: null means N/D, never 0)
-  const tokensEl = document.getElementById('analytics-tokens-total');
-  const tokensSubEl = document.getElementById('analytics-tokens-sub');
-  const hasTokens = global.total_tokens !== null && global.total_tokens !== undefined;
-  if (tokensEl) {
-    if (hasTokens) {
-      tokensEl.textContent = global.total_tokens.toLocaleString('ru-RU');
-    } else {
-      tokensEl.textContent = 'Н/Д';
-    }
-  }
-  if (tokensSubEl) {
-    if (hasTokens) {
-      tokensSubEl.textContent = 'Учитывается провайдером (24ч)';
-    } else {
-      tokensSubEl.textContent = 'Н/Д: провайдеры не отдают данные о токенах';
-    }
-  }
-
-  // Providers Table (P0-5 Honesty: Unconnected providers labeled "Не подключён")
-  const provTableBox = document.getElementById('analytics-providers-table');
-  if (provTableBox) {
-    const byProv = telemetry.by_provider || {};
-    const providersList = currentSnapshot.providers || [];
-    const allKnownProvIds = Array.from(new Set([...providersList.map((p) => p.provider_id), ...Object.keys(byProv)]));
-
-    if (allKnownProvIds.length === 0) {
-      provTableBox.innerHTML = '<div class="empty-text">Нет данных телеметрии по провайдерам.</div>';
-    } else {
-      const rowsHtml = allKnownProvIds.map((pId) => {
-        const pData = byProv[pId] || {};
-        const provSummary = providersList.find((p) => p.provider_id === pId);
-        const provName = provSummary?.provider_name || pId;
-        const isConnected = provSummary ? ((provSummary.connected_count || 0) > 0) : ((pData.total_calls || 0) > 0);
-
-        if (!isConnected && (!pData.total_calls || pData.total_calls === 0)) {
-          return `
-            <tr>
-              <td><strong>${escapeHtml(provName)}</strong> <span style="font-size:10px; color:var(--text-muted);">(${escapeHtml(pId)})</span></td>
-              <td class="text-muted">Не подключён</td>
-              <td class="text-muted">—</td>
-              <td class="text-muted">—</td>
-              <td><span class="badge badge-muted">Аккаунт не добавлен</span></td>
-              <td class="text-muted">—</td>
-              <td class="text-muted">—</td>
-              <td class="text-muted">Н/Д</td>
-            </tr>
-          `;
-        }
-
-        const errPct = pData.error_rate != null ? (pData.error_rate * 100).toFixed(1) : '0.0';
-        const p50 = pData.latency_p50_ms != null ? `${pData.latency_p50_ms.toFixed(1)} ms` : 'Н/Д';
-        const p95 = pData.latency_p95_ms != null
-          ? (pData.latency_p95_ms >= 1000 ? `${(pData.latency_p95_ms / 1000).toFixed(1)} s` : `${pData.latency_p95_ms.toFixed(1)} ms`)
-          : 'Н/Д';
-        const barColor = (pData.error_rate || 0) > 0.5 ? 'var(--status-error)' : 'var(--status-healthy)';
-        const barW = Math.min(100, Math.max(0, (pData.error_rate || 0) * 100));
-
-        return `
-          <tr>
-            <td><strong>${escapeHtml(provName)}</strong> <span style="font-size:10px; color:var(--text-muted);">(${escapeHtml(pId)})</span></td>
-            <td>${pData.total_calls ?? 0}</td>
-            <td class="text-healthy">${pData.successful_calls ?? 0}</td>
-            <td class="${(pData.failed_calls || 0) > 0 ? 'text-error' : 'text-muted'}">${pData.failed_calls ?? 0}</td>
-            <td>
-              <div class="cell-bar-container">
-                <span>${errPct}%</span>
-                <div class="cell-bar-track">
-                  <div class="cell-bar-fill" style="width:${barW}%; background:${barColor};"></div>
-                </div>
-              </div>
-            </td>
-            <td>${p50}</td>
-            <td>${p95}</td>
-            <td class="text-muted">Н/Д (не отдаются)</td>
-          </tr>
-        `;
-      }).join('');
-
-      provTableBox.innerHTML = `
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Провайдер</th>
-              <th>Всего вызовов</th>
-              <th>Успешно</th>
-              <th>Сбои</th>
-              <th>Доля ошибок</th>
-              <th>p50</th>
-              <th>p95</th>
-              <th>Токены</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
-      `;
-    }
-  }
-
-  // Roles Table
-  const rolesTableBox = document.getElementById('analytics-roles-table');
-  if (rolesTableBox) {
-    const byRole = telemetry.by_role || {};
-    const roleKeys = Object.keys(byRole);
-    if (roleKeys.length === 0) {
-      rolesTableBox.innerHTML = '<div class="empty-text">Нет данных телеметрии по ролям агентов.</div>';
-    } else {
-      const rowsHtml = roleKeys.map((rId) => {
-        const rData = byRole[rId] || {};
-        const errPct = rData.error_rate != null ? (rData.error_rate * 100).toFixed(1) : '0.0';
-        const p50 = rData.latency_p50_ms != null ? `${rData.latency_p50_ms.toFixed(1)} ms` : 'Н/Д';
-        const p95 = rData.latency_p95_ms != null
-          ? (rData.latency_p95_ms >= 1000 ? `${(rData.latency_p95_ms / 1000).toFixed(1)} s` : `${rData.latency_p95_ms.toFixed(1)} ms`)
-          : 'Н/Д';
-        const roleInfo = (currentSnapshot.routing || {})[rId];
-        const rName = (roleInfo && roleInfo.role_name_ru) || rId;
-
-        return `
-          <tr>
-            <td><strong>${escapeHtml(rName)}</strong> <span style="font-size:10px; color:var(--text-muted);">(${escapeHtml(rId)})</span></td>
-            <td>${rData.total_calls ?? 0}</td>
-            <td class="text-healthy">${(rData.total_calls ?? 0) - (rData.failed_calls ?? 0)}</td>
-            <td class="${(rData.failed_calls || 0) > 0 ? 'text-error' : 'text-muted'}">${rData.failed_calls ?? 0}</td>
-            <td>${errPct}%</td>
-            <td>${p50}</td>
-            <td>${p95}</td>
-          </tr>
-        `;
-      }).join('');
-
-      rolesTableBox.innerHTML = `
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Роль агента</th>
-              <th>Всего вызовов</th>
-              <th>Успешно</th>
-              <th>Сбои</th>
-              <th>Доля ошибок</th>
-              <th>p50</th>
-              <th>p95</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
-      `;
-    }
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  7. HEALTH VIEW (P0-2 Host & System Diagnostics)
-// ═══════════════════════════════════════════════════════════════
-function renderHealthView() {
-  if (!currentSnapshot) return;
-  const readiness = currentSnapshot.readiness || {};
-  const metrics = currentSnapshot.metrics || {};
-  const host = metrics.host || {};
-
-  // 1. Readiness Banner
-  const bannerBox = document.getElementById('health-readiness-banner');
-  if (bannerBox) {
-    const st = (readiness.state || 'healthy').toLowerCase();
-    bannerBox.className = `readiness-banner ${st}`;
-    bannerBox.innerHTML = `
-      <div class="readiness-banner-header">
-        <div class="readiness-banner-title">
-          <span class="status-dot ${st}"></span>
-          <span>${escapeHtml(readiness.title_ru || 'Система готова к работе')}</span>
-        </div>
-        <span class="badge ${st === 'healthy' ? 'healthy' : ''}">${escapeHtml(readiness.state || 'HEALTHY')}</span>
-      </div>
-      <div class="readiness-banner-summary">
-        ${escapeHtml(readiness.summary_ru || 'Все настроенные маршруты и профили доступны.')}
-      </div>
-      <div class="readiness-banner-stats">
-        <span>Ролей в строю: <strong>${readiness.roles_ready_count ?? 0} / ${readiness.total_roles ?? 6}</strong></span>
-        <span>Аккаунтов подключено: <strong>${readiness.accounts_connected_count ?? 0} / ${readiness.total_accounts ?? 0}</strong></span>
-        <span>Провайдеров онлайн: <strong>${readiness.providers_ready_count ?? 5} / ${readiness.total_providers ?? 5}</strong></span>
-      </div>
-    `;
-  }
-
-  // 2. Host Resources Grid
-  const hostBox = document.getElementById('health-host-resources');
-  if (hostBox) {
-    const cpuPct = host.cpu_percent != null ? host.cpu_percent.toFixed(1) : 'Н/Д';
-    const cpuVal = host.cpu_percent != null ? host.cpu_percent : 0;
-
-    const memPct = host.memory_percent != null ? host.memory_percent.toFixed(1) : 'Н/Д';
-    const memMb = host.memory_used_mb != null ? (host.memory_used_mb >= 1024 ? `${(host.memory_used_mb / 1024).toFixed(1)} GB` : `${host.memory_used_mb.toFixed(0)} MB`) : '';
-    const memVal = host.memory_percent != null ? host.memory_percent : 0;
-
-    const diskPct = host.disk_percent != null ? host.disk_percent.toFixed(1) : 'Н/Д';
-    const diskGb = host.disk_used_gb != null ? `${host.disk_used_gb.toFixed(1)} GB` : '';
-    const diskVal = host.disk_percent != null ? host.disk_percent : 0;
-
-    const netSpeed = host.net_speed_mbps != null ? `${host.net_speed_mbps.toFixed(1)} Mbps` : 'Н/Д';
-    const netSub = host.net_speed_mbps != null ? 'Активное соединение' : 'Н/Д: замер скорости сети отключён';
-
-    hostBox.innerHTML = `
-      <div class="host-resource-card">
-        <div class="host-resource-header">
-          <span class="host-resource-title">CPU (Процессор)</span>
-          <span class="host-resource-value">${cpuPct}${cpuPct !== 'Н/Д' ? '%' : ''}</span>
-        </div>
-        <div class="host-resource-bar">
-          <div class="host-resource-fill" style="width:${Math.min(100, Math.max(0, cpuVal))}%; background:${cpuVal > 85 ? 'var(--status-error)' : 'var(--accent)'};"></div>
-        </div>
-        <div class="host-resource-sub">Нагрузка хост-системы</div>
-      </div>
-
-      <div class="host-resource-card">
-        <div class="host-resource-header">
-          <span class="host-resource-title">RAM (Оперативная память)</span>
-          <span class="host-resource-value">${memPct}${memPct !== 'Н/Д' ? '%' : ''}</span>
-        </div>
-        <div class="host-resource-bar">
-          <div class="host-resource-fill" style="width:${Math.min(100, Math.max(0, memVal))}%; background:${memVal > 85 ? 'var(--status-error)' : 'var(--accent)'};"></div>
-        </div>
-        <div class="host-resource-sub">${memMb ? `Использовано: ${memMb}` : 'Статус использования RAM'}</div>
-      </div>
-
-      <div class="host-resource-card">
-        <div class="host-resource-header">
-          <span class="host-resource-title">Диск (Хранилище)</span>
-          <span class="host-resource-value">${diskPct}${diskPct !== 'Н/Д' ? '%' : ''}</span>
-        </div>
-        <div class="host-resource-bar">
-          <div class="host-resource-fill" style="width:${Math.min(100, Math.max(0, diskVal))}%; background:${diskVal > 90 ? 'var(--status-error)' : 'var(--accent)'};"></div>
-        </div>
-        <div class="host-resource-sub">${diskGb ? `Занято: ${diskGb}` : 'Статус дискового пространства'}</div>
-      </div>
-
-      <div class="host-resource-card">
-        <div class="host-resource-header">
-          <span class="host-resource-title">Сеть (Пропускная способность)</span>
-          <span class="host-resource-value text-muted">${netSpeed}</span>
-        </div>
-        <div class="host-resource-bar">
-          <div class="host-resource-fill" style="width:0%; background:var(--text-muted);"></div>
-        </div>
-        <div class="host-resource-sub">${netSub}</div>
-      </div>
-    `;
-  }
-
-  // 3. Warnings List
-  const warningsBox = document.getElementById('health-warnings-list');
-  if (warningsBox) {
-    const warnings = readiness.warnings || [];
-    if (warnings.length === 0) {
-      warningsBox.innerHTML = `
-        <div style="padding:14px; color:var(--status-healthy); font-size:12px; display:flex; align-items:center; gap:8px;">
-          <span>✓</span>
-          <span>Все системы работают штатно: сбоев конфигурации и деградации маршрутов не обнаружено.</span>
-        </div>
-      `;
-    } else {
-      warningsBox.innerHTML = warnings.map((w) => `
-        <div class="warning-item">
-          <span class="warning-icon">⚠️</span>
-          <div class="warning-text">${escapeHtml(w)}</div>
-        </div>
-      `).join('');
-    }
-  }
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  8. LOGS VIEW (P0-3 GET /api/events with Filtering & Search)
-// ═══════════════════════════════════════════════════════════════
-async function fetchLogs() {
-  const container = document.getElementById('logs-container');
-  if (container && cachedEvents.length === 0) {
-    container.innerHTML = '<div class="empty-text">⏳ Загрузка журнала событий...</div>';
-  }
-
-  try {
-    const headers = {};
-    if (authToken) headers['X-Hub-Token'] = authToken;
-
-    const res = await fetch('/api/events?limit=100', { headers });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    cachedEvents = data.events || [];
-    renderLogsList();
-  } catch (err) {
-    console.error('Failed to fetch events:', err);
-    if (container) {
-      container.innerHTML = `<div class="empty-text text-error">Не удалось получить события: ${escapeHtml(err.message)}</div>`;
-    }
-  }
-}
-
-function renderLogsView() {
-  fetchLogs();
-}
-
-function renderLogsList() {
-  const container = document.getElementById('logs-container');
-  if (!container) return;
-
-  const searchInput = document.getElementById('logs-search');
-  const levelSelect = document.getElementById('logs-filter-level');
-  const catSelect = document.getElementById('logs-filter-category');
-
-  const q = (searchInput ? searchInput.value : '').trim().toLowerCase();
-  const levelFilter = levelSelect ? levelSelect.value : 'all';
-  const catFilter = catSelect ? catSelect.value : 'all';
-
-  let filtered = cachedEvents.filter((ev) => {
-    if (levelFilter !== 'all' && (ev.level || 'info').toLowerCase() !== levelFilter.toLowerCase()) {
-      return false;
-    }
-    if (catFilter !== 'all' && (ev.category || '').toLowerCase() !== catFilter.toLowerCase()) {
-      return false;
-    }
-    if (q) {
-      const msg = (ev.message || '').toLowerCase();
-      const det = (ev.details || '').toLowerCase();
-      if (!msg.includes(q) && !det.includes(q)) return false;
-    }
-    return true;
-  });
-
-  if (filtered.length === 0) {
-    container.innerHTML = '<div class="empty-text">Нет событий, соответствующих выбранным фильтрам.</div>';
-    return;
-  }
-
-  container.innerHTML = filtered.map((ev) => {
-    const lvl = (ev.level || 'info').toLowerCase();
-    return `
-      <div class="log-entry">
-        <span class="log-timestamp">${escapeHtml(ev.timestamp || '—')}</span>
-        <span class="log-badge ${lvl}">${escapeHtml(lvl.toUpperCase())}</span>
-        <span class="log-category">${escapeHtml((ev.category || 'system').toUpperCase())}</span>
-        <div class="log-content">
-          <div class="log-message">${escapeHtml(ev.message || '')}</div>
-          ${ev.details ? `<div class="log-details">${escapeHtml(ev.details)}</div>` : ''}
-        </div>
-      </div>
-    `;
-  }).join('');
-}
-
-// ═══════════════════════════════════════════════════════════════
-//  9. SETTINGS VIEW (P0-4 GET /api/settings & save_settings)
-// ═══════════════════════════════════════════════════════════════
-async function loadServerSettings() {
-  try {
-    const headers = {};
-    if (authToken) headers['X-Hub-Token'] = authToken;
-
-    const res = await fetch('/api/settings', { headers });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    currentSettings = data;
-    populateSettingsForm(data);
-  } catch (err) {
-    console.error('Failed to load settings:', err);
-  }
-}
-
-function populateSettingsForm(s) {
-  const hostInput = document.getElementById('setting-server-host');
-  const portInput = document.getElementById('setting-server-port');
-  const tokenBadge = document.getElementById('setting-token-status-badge');
-  const quotaSel = document.getElementById('setting-quota-interval');
-  const quotaThresholdSel = document.getElementById('setting-quota-threshold-percent');
-  const quotaActionSel = document.getElementById('setting-quota-threshold-action');
-  const themeSel = document.getElementById('setting-theme');
-
-  const pathHome = document.getElementById('path-hermes-home');
-  const pathConfig = document.getElementById('path-config-dir');
-  const pathLog = document.getElementById('path-log-file');
-
-  if (hostInput) hostInput.value = s.web_api_host || '127.0.0.1';
-  if (portInput) portInput.value = s.web_api_port || 5800;
-  if (tokenBadge) {
-    tokenBadge.textContent = s.web_api_token_configured ? '✓ Токен задан' : 'Токен не задан';
-    tokenBadge.className = `badge ${s.web_api_token_configured ? 'healthy' : ''}`;
-  }
-  if (quotaSel && s.quota_refresh_interval_sec) {
-    quotaSel.value = String(s.quota_refresh_interval_sec);
-  }
-  if (quotaThresholdSel && s.quota_threshold_percent !== undefined) {
-    quotaThresholdSel.value = String(Math.round(s.quota_threshold_percent));
-  }
-  if (quotaActionSel && s.quota_threshold_action) {
-    quotaActionSel.value = s.quota_threshold_action;
-  }
-  if (themeSel && s.theme) {
-    themeSel.value = s.theme;
-    applyTheme(s.theme);
-  }
-
-  if (pathHome) pathHome.textContent = s.hermes_home || '~/.hermes';
-  if (pathConfig) pathConfig.textContent = s.config_dir || '~/.hermes/config';
-  if (pathLog) pathLog.textContent = s.log_file || '~/.hermes/logs/hermes-hub.log';
-
-  if (s.last_update_check && !latestUpdateInfo) {
-    latestUpdateInfo = s.last_update_check;
-  }
-  renderUpdateUI();
-}
-
-function applyTheme(theme) {
-  if (theme === 'light') {
-    document.body.setAttribute('data-theme', 'light');
-    document.body.classList.add('theme-light');
-  } else {
-    document.body.removeAttribute('data-theme');
-    document.body.classList.remove('theme-light');
-  }
-}
-
-function renderSettingsView() {
-  loadServerSettings();
-  renderUpdateUI();
-}
-
-async function saveHubServerSettings() {
-  const hostInput = document.getElementById('setting-server-host');
-  const portInput = document.getElementById('setting-server-port');
-  const tokenInput = document.getElementById('setting-server-token-input');
-  const quotaSel = document.getElementById('setting-quota-interval');
-  const quotaThresholdSel = document.getElementById('setting-quota-threshold-percent');
-  const quotaActionSel = document.getElementById('setting-quota-threshold-action');
-  const themeSel = document.getElementById('setting-theme');
-
-  const payload = {
-    web_api_host: hostInput ? hostInput.value.trim() : '127.0.0.1',
-    web_api_port: portInput ? parseInt(portInput.value, 10) || 5800 : 5800,
-    quota_refresh_interval_sec: quotaSel ? parseInt(quotaSel.value, 10) || 300 : 300,
-    quota_threshold_percent: quotaThresholdSel ? parseFloat(quotaThresholdSel.value) || 10.0 : 10.0,
-    quota_threshold_action: quotaActionSel ? quotaActionSel.value : 'notify',
-    theme: themeSel ? themeSel.value : 'system',
-  };
-
-  if (tokenInput && tokenInput.value.trim()) {
-    payload.web_api_token = tokenInput.value.trim();
-  }
-
-  const res = await executeAction('save_settings', payload);
-  if (res.ok) {
-    if (themeSel) applyTheme(themeSel.value);
-    showToast('Настройки сервера успешно сохранены', 'success');
-    if (tokenInput) tokenInput.value = '';
-    loadServerSettings();
-  }
-}
-
-// ── IN-APP UPDATES (P0-1 — P0-4) ──
-async function checkUpdates(silent = false) {
-  if (!silent) {
-    showToast('Проверка обновлений...', 'info');
-  }
-  try {
-    const res = await executeAction('check_updates', {});
-    if (res.ok && res.data) {
-      latestUpdateInfo = res.data;
-      renderUpdateUI();
-      if (!silent) {
-        if (res.data.update_available) {
-          const c = res.data.latest_commit ? res.data.latest_commit.slice(0, 7) : (res.data.release_tag || 'new');
-          showToast(`Доступно обновление (сборка ${c})`, 'info');
-        } else {
-          showToast(res.data.message || 'Установлена последняя сборка', 'success');
-        }
-      }
-    } else {
-      if (res.data) {
-        latestUpdateInfo = res.data;
-        renderUpdateUI();
-      }
-      if (!silent) {
-        showToast(res.message || 'Ошибка проверки обновлений', 'error');
-      }
-    }
-  } catch (err) {
-    if (!silent) {
-      showToast(`Ошибка проверки обновлений: ${err.message}`, 'error');
-    }
-  }
-}
-
-function renderUpdateUI() {
-  const badge = document.getElementById('header-update-badge');
-  const badgeText = document.getElementById('header-update-text');
-  const commitTag = document.getElementById('commit-tag');
-
-  const installedCommit = (latestUpdateInfo && latestUpdateInfo.installed_commit && latestUpdateInfo.installed_commit !== 'unknown')
-    ? latestUpdateInfo.installed_commit
-    : (currentSettings && currentSettings.installed_commit ? currentSettings.installed_commit : '');
-
-  if (commitTag) {
-    commitTag.textContent = installedCommit ? `Сборка: ${installedCommit.slice(0, 7)}` : 'Сборка: —';
-  }
-
-  if (badge && badgeText) {
-    if (latestUpdateInfo && latestUpdateInfo.update_available) {
-      badge.classList.remove('hidden');
-      const c = latestUpdateInfo.latest_commit ? latestUpdateInfo.latest_commit.slice(0, 7) : (latestUpdateInfo.release_tag || 'new');
-      badgeText.textContent = `Доступно обновление (${c})`;
-    } else {
-      badge.classList.add('hidden');
-    }
-  }
-
-  // Populate settings view updates block if elements exist
-  const updateInfoDesc = document.getElementById('update-installed-info');
-  const statusBadge = document.getElementById('update-status-badge');
-  const lastCheckedDesc = document.getElementById('update-last-checked-desc');
-  const btnApply = document.getElementById('btn-apply-update');
-  const detailsBlock = document.getElementById('update-details-block');
-  const releaseTitle = document.getElementById('update-release-title');
-  const releaseMeta = document.getElementById('update-release-meta');
-  const releaseNotes = document.getElementById('update-release-notes');
-
-  const curVer = (latestUpdateInfo && latestUpdateInfo.current_version) || (currentSettings && currentSettings.version) || '0.1.1';
-  const cDisplay = installedCommit ? installedCommit.slice(0, 7) : 'неизвестно';
-  if (updateInfoDesc) {
-    updateInfoDesc.textContent = `Hermes Hub v${curVer} (сборка: ${cDisplay})`;
-  }
-
-  if (statusBadge) {
-    if (latestUpdateInfo && latestUpdateInfo.error) {
-      statusBadge.textContent = 'Ошибка проверки';
-      statusBadge.className = 'badge badge-status warning';
-      statusBadge.title = latestUpdateInfo.error;
-    } else if (latestUpdateInfo && latestUpdateInfo.update_available) {
-      statusBadge.textContent = 'Доступно обновление';
-      statusBadge.className = 'badge badge-status warning';
-      statusBadge.title = '';
-    } else if (latestUpdateInfo && latestUpdateInfo.checked_at > 0) {
-      statusBadge.textContent = 'Актуально';
-      statusBadge.className = 'badge healthy';
-      statusBadge.title = '';
-    } else {
-      statusBadge.textContent = 'Не проверялось';
-      statusBadge.className = 'badge';
-      statusBadge.title = '';
-    }
-  }
-
-  if (lastCheckedDesc) {
-    if (latestUpdateInfo && latestUpdateInfo.checked_at > 0) {
-      const tStr = new Date(latestUpdateInfo.checked_at * 1000).toLocaleTimeString('ru-RU');
-      const errNote = latestUpdateInfo.error ? ` — Ошибка: ${latestUpdateInfo.error}` : '';
-      lastCheckedDesc.textContent = `Последняя проверка: сегодня в ${tStr}${errNote}`;
-    } else {
-      lastCheckedDesc.textContent = 'Последняя проверка: еще не выполнялась';
-    }
-  }
-
-  if (btnApply) {
-    btnApply.disabled = !(latestUpdateInfo && latestUpdateInfo.update_available);
-  }
-
-  if (detailsBlock && releaseTitle && releaseMeta && releaseNotes) {
-    if (latestUpdateInfo && latestUpdateInfo.update_available) {
-      detailsBlock.classList.remove('hidden');
-      const latC = latestUpdateInfo.latest_commit ? latestUpdateInfo.latest_commit.slice(0, 7) : '—';
-      releaseTitle.textContent = `Релиз: ${latestUpdateInfo.release_tag || latestUpdateInfo.latest_version || 'Новая сборка'} (коммит: ${latC})`;
-      releaseMeta.textContent = latestUpdateInfo.published_at ? `Опубликован: ${latestUpdateInfo.published_at}` : '';
-      releaseNotes.textContent = latestUpdateInfo.changelog || latestUpdateInfo.release_notes || 'Описание изменений отсутствует.';
-    } else {
-      detailsBlock.classList.add('hidden');
-    }
-  }
-}
-
-function openUpdateModal() {
-  if (!latestUpdateInfo) {
-    checkUpdates(false);
-    return;
-  }
-
-  const instC = (latestUpdateInfo.installed_commit && latestUpdateInfo.installed_commit !== 'unknown')
-    ? latestUpdateInfo.installed_commit.slice(0, 7)
-    : 'неизвестно';
-  const latC = latestUpdateInfo.latest_commit ? latestUpdateInfo.latest_commit.slice(0, 7) : (latestUpdateInfo.release_tag || '—');
-
-  if (elements.modalTitle) elements.modalTitle.textContent = 'Обновление Hermes Hub';
-  if (elements.modalBody) {
-    elements.modalBody.innerHTML = `
-      <div class="update-modal-body">
-        <div style="display:flex; justify-content:space-between; margin-bottom:12px; padding:10px; background:var(--surface-muted); border-radius:var(--radius-sm);">
+    chain.forEach((pid, index) => {
+      const prof = profiles[pid] || {};
+      const prov = prof.provider || 'unknown';
+      const icon = getProviderIcon(prov);
+      
+      rolesHtml += `
+        <div class="account-row draggable-item" draggable="true" data-pid="${escapeHtml(pid)}" data-role="${escapeHtml(roleId)}">
+          <div class="drag-handle"><i class="fa-solid fa-grip-vertical"></i></div>
+          <div style="font-weight:600; color:var(--text-primary); text-align:center;">${index + 1}</div>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <img src="/static/${icon}" class="provider-logo-sm" onerror="this.src='/static/llama.png'">
+            <div>
+              <div style="font-weight:600;">${escapeHtml(pid)}</div>
+              <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(prof.account_id || '')}</div>
+            </div>
+          </div>
           <div>
-            <div style="font-size:11px; color:var(--text-muted);">Текущая сборка:</div>
-            <div style="font-weight:600; font-family:var(--font-mono); font-size:13px;">${escapeHtml(instC)}</div>
+            <select class="form-control" style="padding:2px 4px; font-size:11px;" disabled>
+              <option>${escapeHtml(prof.default_model || 'Default')}</option>
+            </select>
           </div>
-          <div style="text-align:right;">
-            <div style="font-size:11px; color:var(--text-muted);">Новая сборка:</div>
-            <div style="font-weight:600; font-family:var(--font-mono); font-size:13px; color:var(--status-warning);">${escapeHtml(latC)}</div>
+          <div style="display:flex; align-items:center; gap:4px;">
+            <img src="/static/${icon}" class="provider-logo-sm" onerror="this.src='/static/llama.png'">
+            ${escapeHtml(prov)}
           </div>
-        </div>
-        <div style="margin-bottom:8px; font-size:12px; color:var(--text-muted);">
-          Тег: <strong>${escapeHtml(latestUpdateInfo.release_tag || latestUpdateInfo.latest_version || '—')}</strong>
-          ${latestUpdateInfo.published_at ? ` &bull; Дата: ${escapeHtml(latestUpdateInfo.published_at)}` : ''}
-        </div>
-        <div style="font-weight:600; font-size:12px; margin-bottom:4px;">Список изменений (Release Notes):</div>
-        <div style="max-height:200px; overflow-y:auto; font-size:12px; line-height:1.4; white-space:pre-wrap; background:var(--surface-muted); padding:10px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); font-family:var(--font-mono);">
-          ${escapeHtml(latestUpdateInfo.changelog || latestUpdateInfo.release_notes || 'Описание изменений отсутствует.')}
-        </div>
-      </div>
-    `;
-  }
-  if (elements.modalFooter) {
-    elements.modalFooter.innerHTML = `
-      <button class="btn btn-secondary" onclick="closeModal()">Закрыть</button>
-      <button class="btn btn-primary" id="btn-modal-install-update" onclick="handleInstallUpdateFromModal()">Установить обновление</button>
-    `;
-  }
-  showModal();
-}
-
-async function handleInstallUpdateFromModal() {
-  const btn = document.getElementById('btn-modal-install-update');
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Установка...';
-  }
-  await applyUpdate();
-  closeModal();
-}
-
-async function applyUpdate() {
-  showToast('Загрузка и запуск обновления...', 'info');
-  try {
-    const res = await executeAction('apply_update', {});
-    if (res.ok) {
-      showToast(res.message || 'Обновление запущено успешно!', 'success');
-    } else {
-      showToast(res.message || 'Ошибка установки обновления', 'error');
-    }
-  } catch (err) {
-    showToast(`Ошибка установки: ${err.message}`, 'error');
-  }
-}
-
-// ── MODALS (Account Details, Model Choice, Routing, Wizard) ──
-function openAccountDetailsModal(profileId) {
-  _openAccountModalProfile = profileId;
-  if (!currentSnapshot) return;
-  const profile = (currentSnapshot.all_profiles || {})[profileId];
-  if (!profile) return;
-
-  const provSummary = (currentSnapshot.providers || []).find(p => p.provider_id === profile.provider);
-  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
-  const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
-  const qs = profile.quota_snapshot;
-  const buckets = (qs && qs.buckets) ? qs.buckets : [];
-
-  let modelBlockHtml = '';
-  if (discoveredModels.length > 0) {
-    modelBlockHtml = `
-      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
-        <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Предпочитаемая модель профиля:</label>
-        <div style="display:flex; gap:8px;">
-          <select id="modal-model-select" class="select-filter" style="flex:1;">
-            ${discoveredModels.map(m => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
-          </select>
-          <button class="btn btn-secondary btn-sm" onclick="handleSaveProfileModel('${escapeHtml(profileId)}')">Сохранить</button>
-        </div>
-      </div>
-    `;
-  } else {
-    modelBlockHtml = `
-      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
-        <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
-          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
-        </div>
-        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}', '${escapeHtml(profileId)}')">↻ Запросить список моделей</button>
-      </div>
-    `;
-  }
-
-  elements.modalTitle.textContent = `Учетная запись: ${profile.display_name || profileId}`;
-  elements.modalBody.innerHTML = `
-    <div id="modal-feedback-area"></div>
-    <div style="margin-bottom:14px;">
-      <div style="font-size:14px; font-weight:700;">${escapeHtml(profile.account_identity || profile.email || profileId)}</div>
-      <div style="font-size:12px; color:var(--text-muted);">
-        Провайдер: <strong>${escapeHtml(profile.provider_display_name || profile.provider)}</strong> •
-        Тариф: <strong>${escapeHtml(profile.plan || 'Неизвестен')}</strong> •
-        Статус: <strong class="text-healthy">${escapeHtml(profile.health_label_ru || 'Работает')}</strong>
-      </div>
-      <div style="font-size:12px; color:var(--text-secondary); margin-top:4px;">
-        Назначенные роли: <strong>${escapeHtml((profile.assigned_roles || []).join(', ') || 'Нет')}</strong>
-      </div>
-    </div>
-
-    ${modelBlockHtml}
-
-    <h3 style="font-size:13px; font-weight:700; margin-bottom:8px; border-bottom:1px solid var(--border-subtle); padding-bottom:4px;">
-      Квоты и корзины провайдера
-    </h3>
-    <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
-      ${buckets.map((b) => `
-        <div style="background:var(--surface-muted); padding:8px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
-          <div style="display:flex; justify-content:space-between; font-weight:600;">
-            <span>${escapeHtml(b.display_name)}</span>
-            <span>${b.remaining_percent !== null && b.remaining_percent !== undefined ? `${b.remaining_percent.toFixed(1)}%` : 'Н/Д'}</span>
-          </div>
-          <div class="quota-bar-track" style="margin:4px 0;">
-            <div class="quota-bar-fill" style="width:${b.remaining_percent || 0}%; background-color:var(--status-healthy);"></div>
+          <div>
+            <div class="cell-bar-track"><div class="cell-bar-fill" style="width:70%; background:var(--status-healthy);"></div></div>
+            <div class="cell-bar-track" style="margin-top:4px;"><div class="cell-bar-fill" style="width:40%; background:var(--status-healthy);"></div></div>
           </div>
           <div style="font-size:10px; color:var(--text-muted);">
-            ${b.reset_at ? `Сброс: ${formatIsoDate(b.reset_at)}` : (b.period ? `Период: ${b.period}` : 'Без отметки сброса')}
+            26 авг.,<br>18:42
+          </div>
+          <div>
+            <span style="color:var(--status-healthy);">● Активен</span>
+          </div>
+          <div style="text-align:center; cursor:pointer; color:var(--status-warning);" onclick="removeProfileFromChain('${escapeHtml(roleId)}', '${escapeHtml(pid)}')">
+            <i class="fa-solid fa-xmark"></i>
           </div>
         </div>
-      `).join('') || '<div class="empty-text">Данные о квотах отсутствуют (провайдер не отдал лимиты).</div>'}
-    </div>
-  `;
+      `;
+    });
 
-  elements.modalFooter.innerHTML = `
-    <button class="btn btn-secondary" onclick="handleTestProfile('${escapeHtml(profileId)}')">⚡ Проверить подключение</button>
-    <button class="btn btn-secondary" onclick="executeAction('set_main', { profile_id: '${escapeHtml(profileId)}' })">★ Сделать основным</button>
-    <button class="btn btn-secondary" onclick="handleDeleteCredentials('${escapeHtml(profileId)}')">Удалить ключ</button>
-    <button class="btn btn-primary" onclick="closeModal()">Закрыть</button>
-  `;
-
-  showModal();
-}
-
-async function handleSaveProfileModel(profileId) {
-  const sel = document.getElementById('modal-model-select');
-  if (!sel) return;
-  const model = sel.value;
-  const feedbackArea = document.getElementById('modal-feedback-area');
-  if (feedbackArea) {
-    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение модели...</div>';
-  }
-  const res = await executeAction('set_model', { profile_id: profileId, model: model });
-  if (feedbackArea) {
-    if (res.ok) {
-      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Модель сохранена')}</div>`;
-      if (currentSnapshot && currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
-        currentSnapshot.all_profiles[profileId].preferred_models = [model];
-      }
-    } else {
-      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml(res.message || 'Ошибка сохранения модели')}</div>`;
-    }
-  }
-}
-
-function openAgentModelModal(roleId, profileId) {
-  if (!currentSnapshot) return;
-  const profile = (currentSnapshot.all_profiles || {})[profileId];
-  if (!profile) return;
-
-  const provSummary = (currentSnapshot.providers || []).find(p => p.provider_id === profile.provider);
-  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
-  const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
-  const roleName = ((currentSnapshot.routing || {})[roleId]?.role_name_ru) || roleId;
-
-  elements.modalTitle.textContent = `Выбор модели для роли: ${roleName}`;
-  elements.modalBody.innerHTML = `
-    <div id="modal-feedback-area"></div>
-    <div style="margin-bottom:12px; font-size:12px; color:var(--text-muted);">
-      Профиль агента: <strong>${escapeHtml(profile.display_name)} (${profileId})</strong> • Провайдер: <strong>${escapeHtml(profile.provider_display_name || profile.provider)}</strong>
-    </div>
-    ${discoveredModels.length > 0 ? `
-      <div style="margin-bottom:16px;">
-        <label style="display:block; font-weight:600; margin-bottom:6px;">Выберите модель из обнаруженного списка:</label>
-        <select id="role-model-select" class="select-filter" style="width:100%;">
-          ${discoveredModels.map(m => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
-        </select>
-      </div>
-    ` : `
-      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:16px;">
-        <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
-          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
+    rolesHtml += `
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}')">↻ Запросить список моделей</button>
-      </div>
-    `}
-  `;
-
-  elements.modalFooter.innerHTML = `
-    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
-    ${discoveredModels.length > 0 ? `<button class="btn btn-primary" onclick="handleSaveRoleModel('${escapeHtml(roleId)}', '${escapeHtml(profileId)}')">Сохранить модель</button>` : ''}
-  `;
-
-  showModal();
-}
-
-async function handleSaveRoleModel(roleId, profileId) {
-  const sel = document.getElementById('role-model-select');
-  if (!sel) return;
-  const model = sel.value;
-  const feedbackArea = document.getElementById('modal-feedback-area');
-  if (feedbackArea) {
-    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение модели...</div>';
-  }
-  const res = await executeAction('set_model', { profile_id: profileId, model: model, role_id: roleId });
-  if (feedbackArea) {
-    if (res.ok) {
-      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Модель сохранена')}</div>`;
-      if (currentSnapshot) {
-        if (currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
-          currentSnapshot.all_profiles[profileId].preferred_models = [model];
-        }
-        if (currentSnapshot.routing && currentSnapshot.routing[roleId]) {
-          currentSnapshot.routing[roleId].default_model = model;
-        }
-        if (currentSnapshot.agents) {
-          const ag = currentSnapshot.agents.find(a => a.role_id === roleId);
-          if (ag) ag.model = model;
-        }
-      }
-      setTimeout(() => {
-        closeModal();
-        renderCurrentView();
-      }, 700);
-    } else {
-      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml(res.message || 'Ошибка сохранения модели')}</div>`;
-    }
-  }
-}
-
-async function handleRefreshProviderModels(providerId, profileId = null) {
-  showToast(`Запрос списка моделей для ${providerId}...`, 'info');
-  const res = await executeAction('refresh_models', { provider: providerId });
-  if (res.ok) {
-    showToast('Запрос обновления моделей отправлен', 'success');
-    if (profileId) {
-      setTimeout(() => openAccountDetailsModal(profileId), 500);
-    }
-  }
-}
-
-async function handleTestProfile(profileId) {
-  const feedbackArea = document.getElementById('modal-feedback-area');
-  if (feedbackArea) {
-    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Запуск тестового запроса к провайдеру...</div>';
-  }
-  const res = await executeAction('test', { profile_id: profileId });
-  if (feedbackArea) {
-    if (res.ok) {
-      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Тест успешно пройден')}</div>`;
-    } else {
-      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml(res.message || 'Тест завершился с ошибкой')}</div>`;
-    }
-  }
-}
-
-// ── Add Account Wizard (P0-5 Headless Server Honesty) ──
-function openAddAccountWizard() {
-  elements.modalTitle.textContent = 'Мастер подключения учетной записи';
-  showWizardStep1();
-  showModal();
-}
-
-function showWizardStep1() {
-  elements.modalBody.innerHTML = `
-    <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
-      Шаг 1 из 3: Выберите провайдера ИИ
-    </div>
-    <div style="display:grid; grid-template-columns:1fr; gap:8px;">
-      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('grok')">
-        <span style="font-size:18px; color:var(--prov-grok);">●</span>
-        <div style="text-align:left; margin-left:8px;">
-          <div style="font-weight:700;">Grok (xAI)</div>
-          <div style="font-size:11px; color:var(--text-muted);">Device Code OAuth (работает на сервере) или API Key</div>
+        <div class="drop-zone" data-role="${escapeHtml(roleId)}">
+          <i class="fa-solid fa-arrows-up-down"></i> Перетащите аккаунт сюда для добавления в конец списка
         </div>
-      </button>
-      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('openai-codex')">
-        <span style="font-size:18px; color:var(--prov-codex);">●</span>
-        <div style="text-align:left; margin-left:8px;">
-          <div style="font-weight:700;">OpenAI Codex</div>
-          <div style="font-size:11px; color:var(--text-muted);">Device Code OAuth (работает на сервере) или API Key</div>
-        </div>
-      </button>
-      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('opencode-go')">
-        <span style="font-size:18px; color:var(--prov-opencode);">●</span>
-        <div style="text-align:left; margin-left:8px;">
-          <div style="font-weight:700;">OpenCode Go</div>
-          <div style="font-size:11px; color:var(--text-muted);">API Key / Токен подписки</div>
-        </div>
-      </button>
-      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('claude')">
-        <span style="font-size:18px; color:var(--prov-claude);">●</span>
-        <div style="text-align:left; margin-left:8px;">
-          <div style="font-weight:700;">Claude (Anthropic)</div>
-          <div style="font-size:11px; color:var(--text-muted);">API Key или OAuth (требует SSH проброс портов)</div>
-        </div>
-      </button>
-      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('antigravity')">
-        <span style="font-size:18px; color:var(--prov-antigravity);">●</span>
-        <div style="text-align:left; margin-left:8px;">
-          <div style="font-weight:700;">Google Antigravity</div>
-          <div style="font-size:11px; color:var(--text-muted);">OAuth редирект (требует браузер или перенос профиля)</div>
-        </div>
-      </button>
-      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('local')">
-        <span style="font-size:18px; color:var(--status-healthy, #22c55e);">●</span>
-        <div style="text-align:left; margin-left:8px;">
-          <div style="font-weight:700;">Локальная модель (Local LLM)</div>
-          <div style="font-size:11px; color:var(--text-muted);">llama.cpp / Ollama / vLLM (OpenAI-совместимый сервер)</div>
-        </div>
-      </button>
-    </div>
-  `;
-  elements.modalFooter.innerHTML = `
-    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
-  `;
-}
-
-function showWizardStep2(providerId) {
-  let bodyHtml = '';
-
-  if (providerId === 'grok' || providerId === 'openai-codex') {
-    // Поток кода устройства проведён через веб-API. Адрес и код приходят от
-    // ПРОВАЙДЕРА и подставляются сюда; ничего не вписано в код. Раньше здесь
-    // стояли выдуманные GRK-7842 и CDX-9104 при жёстко вписанном адресе.
-    const providerName = providerId === 'grok' ? 'Grok (xAI)' : 'OpenAI Codex';
-    bodyHtml = `
-      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
-        Шаг 2 из 3: Авторизация ${providerName} по коду устройства
-      </div>
-      <div id="device-auth-box" style="background:var(--surface-muted); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
-        <div style="color:var(--text-secondary);">Запрашиваем код у провайдера…</div>
       </div>
     `;
-    setTimeout(() => startDeviceAuth(providerId), 0);
-  } else if (providerId === 'antigravity' || providerId === 'claude') {
-    // Раньше здесь стояла заглушка: «авторизация через веб-интерфейс
-    // невозможна», со ссылкой на SSH и перенос каталога профилей. Это было
-    // неверно — сервер умеет принять вставленное вручную значение, поэтому
-    // браузер нужен ГДЕ УГОДНО, а не на машине с Hub.
-    const providerName = providerId === 'antigravity' ? 'Google Antigravity' : 'Claude';
-    bodyHtml = `
-      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
-        Шаг 2 из 3: Авторизация ${providerName}
-      </div>
-      <div style="margin-bottom:10px;">
-        <label style="display:block; font-weight:600; margin-bottom:4px;">Слот, в который войти:</label>
-        <select class="input-text" style="width:100%;" id="wiz-redirect-slot">${buildSlotOptions(providerId)}</select>
-        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
-          Вход в занятый слот заменит учётные данные, которые в нём сейчас.
+  }
+  leftCol.innerHTML = rolesHtml;
+
+  // Render Right Column (Available Accounts)
+  let availHtml = '';
+  const searchEl = document.getElementById('routing-account-search');
+  const q = searchEl ? searchEl.value.toLowerCase() : '';
+  
+  let count = 0;
+  for (const [pid, prof] of Object.entries(profiles)) {
+    if (q && !pid.toLowerCase().includes(q) && !(prof.provider||'').toLowerCase().includes(q)) continue;
+    count++;
+    const icon = getProviderIcon(prof.provider);
+    availHtml += `
+      <div class="available-account-card draggable-item" draggable="true" data-pid="${escapeHtml(pid)}" data-source="available">
+        <img src="/static/${icon}" style="width:24px; height:24px; border-radius:4px;" onerror="this.src='/static/llama.png'">
+        <div style="flex:1;">
+          <div style="font-weight:600; font-size:12px;">${escapeHtml(pid)}</div>
+          <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(prof.provider || '')}</div>
         </div>
-      </div>
-      <div style="margin-bottom:10px;">
-        <button class="btn btn-primary btn-sm" onclick="startRedirectAuth('${escapeHtml(providerId)}')">Получить ссылку</button>
-      </div>
-      <div id="redirect-auth-box" style="background:var(--surface-muted); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
-        <div style="color:var(--text-secondary);">Выберите слот и нажмите «Получить ссылку».</div>
+        <div style="width:40px;">
+           <div class="cell-bar-track"><div class="cell-bar-fill" style="width:80%; background:var(--status-healthy);"></div></div>
+        </div>
+        <button class="btn btn-secondary btn-sm" style="padding:2px 6px;" onclick="quickAddProfile('${escapeHtml(pid)}')"><i class="fa-solid fa-plus"></i></button>
       </div>
     `;
-  } else if (providerId === 'local' || providerId === 'local-llm' || providerId === 'llama.cpp' || providerId === 'ollama' || providerId === 'vllm') {
-    bodyHtml = `
-      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
-        Шаг 2 из 3: Настройка локального сервера (Local LLM)
-      </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block; font-weight:600; margin-bottom:4px;">URL сервера (Base URL):</label>
-        <input type="text" class="input-text" style="width:100%;" id="wiz-base-url-input" placeholder="http://127.0.0.1:8081/v1" value="http://127.0.0.1:8081/v1">
-      </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block; font-weight:600; margin-bottom:4px;">API Key (опционально):</label>
-        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="Оставьте пустым, если ключ не требуется">
-      </div>
-    `;
+  }
+  rightCol.innerHTML = availHtml;
+  const countEl = document.getElementById('available-accounts-count');
+  if (countEl) countEl.innerText = `${count} аккаунтов`;
+
+  setupDragAndDrop();
+}
+
+function quickAddProfile(pid) {
+    const routing = currentSnapshot.routing || {};
+    let role = 'manager';
+    if (!routing[role]) role = Object.keys(routing)[0];
+    if (!role) return;
+    addProfileToChain(role, pid);
+}
+
+function setupDragAndDrop() {
+  let draggedEl = null;
+  let dragPid = null;
+  let sourceRole = null;
+
+  document.querySelectorAll('.draggable-item').forEach(el => {
+    el.addEventListener('dragstart', (e) => {
+      draggedEl = el;
+      dragPid = el.dataset.pid;
+      sourceRole = el.dataset.role || null;
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', dragPid);
+      setTimeout(() => el.style.opacity = '0.5', 0);
+    });
+    el.addEventListener('dragend', (e) => {
+      el.style.opacity = '1';
+      document.querySelectorAll('.drag-over').forEach(d => d.classList.remove('drag-over'));
+      draggedEl = null;
+    });
+  });
+
+  // Drop zones (the "add to end" zones)
+  document.querySelectorAll('.drop-zone').forEach(zone => {
+    zone.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      zone.classList.add('drag-over');
+    });
+    zone.addEventListener('dragleave', (e) => {
+      zone.classList.remove('drag-over');
+    });
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      zone.classList.remove('drag-over');
+      const targetRole = zone.dataset.role;
+      if (!targetRole || !dragPid) return;
+      
+      handleDropMove(dragPid, sourceRole, targetRole, -1);
+    });
+  });
+
+  // Reordering inside role-chain-list
+  document.querySelectorAll('.account-row').forEach(row => {
+    row.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      row.classList.add('drag-over');
+    });
+    row.addEventListener('dragleave', (e) => {
+      row.classList.remove('drag-over');
+    });
+    row.addEventListener('drop', (e) => {
+      e.preventDefault();
+      row.classList.remove('drag-over');
+      const targetRole = row.dataset.role;
+      if (!targetRole || !dragPid) return;
+      
+      const list = row.parentNode;
+      const children = Array.from(list.children);
+      const insertIndex = children.indexOf(row);
+      
+      handleDropMove(dragPid, sourceRole, targetRole, insertIndex);
+    });
+  });
+}
+
+function handleDropMove(pid, sourceRole, targetRole, insertIndex) {
+  const routing = currentSnapshot.routing;
+  if (!routing || !routing[targetRole]) return;
+  
+  const targetChain = [...(routing[targetRole].preferred_chain || [])];
+  
+  if (sourceRole && sourceRole === targetRole) {
+    const oldIndex = targetChain.indexOf(pid);
+    if (oldIndex > -1) {
+      targetChain.splice(oldIndex, 1);
+    }
+    if (insertIndex === -1) {
+      targetChain.push(pid);
+    } else {
+      let idx = insertIndex;
+      if (oldIndex > -1 && oldIndex < insertIndex) idx--;
+      targetChain.splice(idx, 0, pid);
+    }
+    updateRoleChain(targetRole, targetChain);
   } else {
-    bodyHtml = `
-      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
-        Шаг 2 из 3: Ввод API ключа ${providerId}
-      </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block; font-weight:600; margin-bottom:4px;">API Key / Subscription Token:</label>
-        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="sk-...">
-      </div>
-    `;
-  }
-
-  elements.modalBody.innerHTML = `
-    <div id="modal-feedback-area"></div>
-    ${bodyHtml}
-  `;
-
-  elements.modalFooter.innerHTML = `
-    <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
-    <button class="btn btn-primary" onclick="proceedToWizardStep3('${providerId}')">Продолжить →</button>
-  `;
-}
-
-function proceedToWizardStep3(providerId) {
-  const baseInput = document.getElementById('wiz-base-url-input');
-  if (baseInput) {
-    window._wiz_base_url = baseInput.value.trim();
-  }
-  const tokenInput = document.getElementById('wiz-token-input');
-  if (tokenInput) {
-    window._wiz_token = tokenInput.value.trim();
-  }
-  showWizardStep3(providerId);
-}
-
-function showWizardStep3(providerId) {
-  elements.modalBody.innerHTML = `
-    <div id="modal-feedback-area"></div>
-    <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
-      Шаг 3 из 3: Назначение роли для нового аккаунта
-    </div>
-    <div style="margin-bottom:14px;">
-      <label style="display:block; font-weight:600; margin-bottom:4px;">Целевая роль в роутере:</label>
-      <select class="select-filter" style="width:100%;" id="wiz-target-role">
-        <option value="coder-primary">Кодер 1 (Primary Coder)</option>
-        <option value="coder-secondary">Кодер 2 (Secondary Coder)</option>
-        <option value="orchestrator">Оркестратор (Fallback Router)</option>
-        <option value="reviewer">Ревьюер кода (Reviewer)</option>
-        <option value="research">Исследователь (Researcher)</option>
-        <option value="fast">Быстрый агент (Fast / Flash)</option>
-        <option value="spare">Резервный пул (Spare Pool)</option>
-      </select>
-    </div>
-  `;
-
-  elements.modalFooter.innerHTML = `
-    <button class="btn btn-ghost" onclick="showWizardStep2('${providerId}')">← Назад</button>
-    <button class="btn btn-primary" onclick="finishAddAccount('${providerId}')">✓ Завершить подключение</button>
-  `;
-}
-
-async function finishAddAccount(providerId) {
-  const roleSelect = document.getElementById('wiz-target-role');
-  const targetRole = roleSelect ? roleSelect.value : 'coder-primary';
-
-  const feedbackArea = document.getElementById('modal-feedback-area');
-  if (feedbackArea) {
-    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение учетной записи в роутере...</div>';
-  }
-
-  const payload = {
-    provider: providerId,
-    target_role: targetRole,
-  };
-  if (window._wiz_base_url) {
-    payload.base_url = window._wiz_base_url;
-  }
-  if (window._wiz_token) {
-    payload.token = window._wiz_token;
-  }
-
-  const res = await executeAction('add_account', payload);
-
-  if (res.ok) {
-    showToast('Аккаунт успешно добавлен в маршрутизацию', 'success');
-    closeModal();
-    fetchSnapshot();
-  } else {
-    if (feedbackArea) {
-      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml(res.message || 'Не удалось завершить подключение')}</div>`;
+    if (targetChain.includes(pid)) {
+        showToast(`Аккаунт ${pid} уже есть в роли ${targetRole}`, 'warning');
+        return;
     }
+    if (insertIndex === -1) {
+      targetChain.push(pid);
+    } else {
+      targetChain.splice(insertIndex, 0, pid);
+    }
+    updateRoleChain(targetRole, targetChain);
   }
 }
 
-// ── Routing Drag & Drop Reordering (P0-1, P0-2) ──
-function handleNodeDragStart(e, roleId, index) {
-  currentDragState = { roleId, fromIndex: index };
-  e.dataTransfer.effectAllowed = 'move';
+async function updateRoleChain(roleId, newChain) {
   try {
-    e.dataTransfer.setData('text/plain', JSON.stringify(currentDragState));
-  } catch (err) {
-    // fallback
-  }
-  const chip = e.currentTarget;
-  if (chip) {
-    chip.classList.add('dragging');
-  }
-}
-
-function handleNodeDragOver(e, roleId, index) {
-  if (!currentDragState || currentDragState.roleId !== roleId) return;
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-  const chip = e.currentTarget;
-  if (chip && !chip.classList.contains('dragging')) {
-    chip.classList.add('drop-target');
+    const resp = await fetch(`/api/v1/router/roles/${encodeURIComponent(roleId)}/chain`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newChain)
+    });
+    if (!resp.ok) throw new Error(await resp.text());
+    showToast(`Цепочка для ${roleId} обновлена`, 'success');
+    await fetchSnapshot();
+  } catch (e) {
+    showToast(`Ошибка сохранения: ${e.message}`, 'error');
   }
 }
 
-function handleNodeDragLeave(e) {
-  const chip = e.currentTarget;
-  if (chip) {
-    chip.classList.remove('drop-target');
-  }
-}
-
-function handleNodeDragEnd(e) {
-  document.querySelectorAll('.pipeline-node-chip').forEach((c) => {
-    c.classList.remove('dragging', 'drop-target');
-  });
-  currentDragState = null;
-}
-
-async function handleNodeDrop(e, roleId, targetIndex) {
-  e.preventDefault();
-  document.querySelectorAll('.pipeline-node-chip').forEach((c) => {
-    c.classList.remove('dragging', 'drop-target');
-  });
-
-  if (!currentDragState || currentDragState.roleId !== roleId) {
-    currentDragState = null;
-    return;
-  }
-
-  const sourceIndex = currentDragState.fromIndex;
-  currentDragState = null;
-
-  if (sourceIndex === targetIndex) return;
-
-  const pipeline = (currentSnapshot.routing || {})[roleId];
-  if (!pipeline || !pipeline.nodes) return;
-
-  const chain = pipeline.nodes.map((n) => n.profile_id);
-  if (sourceIndex < 0 || sourceIndex >= chain.length || targetIndex < 0 || targetIndex >= chain.length) return;
-
-  const [moved] = chain.splice(sourceIndex, 1);
-  chain.splice(targetIndex, 0, moved);
-
-  showToast(`Обновление порядка цепочки '${pipeline.role_name_ru || roleId}'...`, 'info');
-  const res = await executeAction('save_chain', { role_id: roleId, chain: chain });
-  if (res.ok) {
-    showToast(`Порядок цепочки '${pipeline.role_name_ru || roleId}' сохранен`, 'success');
-    if (pipeline.nodes) {
-      const movedNode = pipeline.nodes.splice(sourceIndex, 1)[0];
-      pipeline.nodes.splice(targetIndex, 0, movedNode);
-      renderRoutingView();
+async function removeProfileFromChain(roleId, pid) {
+    const routing = currentSnapshot.routing;
+    if (!routing || !routing[roleId]) return;
+    const chain = [...(routing[roleId].preferred_chain || [])];
+    const idx = chain.indexOf(pid);
+    if (idx > -1) {
+        chain.splice(idx, 1);
+        await updateRoleChain(roleId, chain);
     }
-    fetchSnapshot();
-  } else {
-    showToast(res.message || 'Ошибка сохранения цепочки', 'error');
-  }
-}
-
-// ── Routing Node Model, Account & Chain Management ──
-async function handleNodeAccountChange(roleId, profileId, isPrimary = true) {
-  if (!roleId || !profileId) return;
-  showToast(`Назначение аккаунта '${profileId}' на роль '${roleId}'...`, 'info');
-  const res = await executeAction('assign_role', {
-    role_id: roleId,
-    profile_id: profileId,
-    is_primary: isPrimary,
-  });
-  if (res.ok) {
-    showToast(`Аккаунт '${profileId}' успешно назначен`, 'success');
-    fetchSnapshot();
-  } else {
-    showToast(res.message || 'Ошибка назначения аккаунта', 'error');
-  }
-}
-
-async function handleNodeModelChange(roleId, profileId, newModel) {
-  if (!newModel) return;
-  showToast(`Сохранение модели '${newModel}' для ${profileId}...`, 'info');
-  const res = await executeAction('set_model', { profile_id: profileId, model: newModel, role_id: roleId });
-  if (res.ok) {
-    showToast(`Модель '${newModel}' успешно сохранена`, 'success');
-    if (currentSnapshot) {
-      if (currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
-        currentSnapshot.all_profiles[profileId].preferred_models = [newModel];
-      }
-      if (currentSnapshot.routing && currentSnapshot.routing[roleId]) {
-        currentSnapshot.routing[roleId].default_model = newModel;
-        const node = (currentSnapshot.routing[roleId].nodes || []).find((n) => n.profile_id === profileId);
-        if (node) node.model = newModel;
-      }
-    }
-    renderCurrentView();
-  } else {
-    showToast(res.message || 'Ошибка сохранения модели', 'error');
-  }
-}
-
-async function handleRemoveNodeFromChain(roleId, profileId) {
-  const pipeline = (currentSnapshot.routing || {})[roleId];
-  if (!pipeline || !pipeline.nodes) return;
-
-  const chain = pipeline.nodes.map((n) => n.profile_id).filter((p) => p !== profileId);
-  showToast(`Удаление профиля ${profileId} из цепочки...`, 'info');
-  const res = await executeAction('save_chain', { role_id: roleId, chain: chain });
-  if (res.ok) {
-    showToast(`Профиль удален из цепочки '${pipeline.role_name_ru || roleId}'`, 'success');
-    pipeline.nodes = pipeline.nodes.filter((n) => n.profile_id !== profileId);
-    renderRoutingView();
-    fetchSnapshot();
-  } else {
-    showToast(res.message || 'Ошибка обновления цепочки', 'error');
-  }
 }
 
 function openAddNodeToChainModal(roleId) {

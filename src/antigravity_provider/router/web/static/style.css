@@ -1,33 +1,7 @@
-/* Hermes Hub Web Client — Dark Theme & Cockpit Design System */
 
+/* Theme definitions according to A29 Design System "Крона" */
 :root {
-  --bg-base: #061916;
-  --bg-sidebar: #08221E;
-  --bg-header: #071B18;
-  --bg-statusbar: #061512;
-  --bg-modal-backdrop: rgba(2, 11, 9, 0.85);
-
-  --surface: #0B2520;
-  --surface-hover: #12342C;
-  --surface-active: #194535;
-  --surface-selected: #173B2E;
-  --surface-muted: #091E1A;
-
-  --border: #36513B;
-  --border-subtle: #203A2D;
-  --border-accent: #B78525;
-  --border-hover: #537456;
-
-  --text-primary: #F8F0DC;
-  --text-secondary: #D1C7AE;
-  --text-muted: #8FA395;
-  --text-accent: #E0B84E;
-
-  --accent: #C89A2B;
-  --accent-hover: #E0B84E;
-  --accent-pressed: #A9781E;
-  --accent-dim: rgba(200, 154, 43, 0.15);
-
+  /* Common variables */
   --status-healthy: #72C943;
   --status-warning: #E1A62B;
   --status-error: #E45C4F;
@@ -44,13 +18,106 @@
   --radius-md: 6px;
   --radius-lg: 8px;
 
-  --font-ui: "Segoe UI", -apple-system, BlinkMacSystemFont, Roboto, sans-serif;
-  --font-title: "Cinzel", "Segoe UI", serif, sans-serif;
+  --font-ui: 'Inter', "Segoe UI", -apple-system, sans-serif;
+  --font-title: "Cinzel", "Cinzel Decorative", "Segoe UI", serif;
   --font-mono: "Consolas", "Courier New", monospace;
 
   --header-height: 58px;
   --sidebar-width: 230px;
 }
+
+/* Default DARK theme */
+:root, body[data-theme="dark"] {
+  --bg-base: #101510;
+  --bg-sidebar: #0D120D;
+  --bg-header: #0D120D;
+  --bg-statusbar: #0D120D;
+  --bg-modal-backdrop: rgba(16, 21, 16, 0.85);
+
+  --surface: #1A2A1F;
+  --surface-hover: #2F4A36;
+  --surface-active: #3C5C44;
+  --surface-selected: #28402F;
+  --surface-muted: #152219;
+
+  --border: #36513B;
+  --border-subtle: #203A2D;
+  --border-accent: #CDAA64;
+  --border-hover: #537456;
+
+  --text-primary: #F7F1E3;
+  --text-secondary: #B0B8B2;
+  --text-muted: #8FA395;
+  --text-accent: #CDAA64;
+
+  --accent: #CDAA64;
+  --accent-hover: #E0B84E;
+  --accent-pressed: #A9781E;
+  --accent-dim: rgba(205, 170, 100, 0.15);
+}
+
+/* MEDIUM theme (cream cards on green canvas) */
+body[data-theme="medium"] {
+  --bg-base: #1A2A1F;
+  --bg-sidebar: #152219;
+  --bg-header: #152219;
+  --bg-statusbar: #152219;
+  --bg-modal-backdrop: rgba(26, 42, 31, 0.85);
+
+  --surface: #F7F1E3;
+  --surface-hover: #F0EAD6;
+  --surface-active: #E6DFCB;
+  --surface-selected: #EAE3CF;
+  --surface-muted: #2F4A36;
+
+  --border: #D1C7AE;
+  --border-subtle: #E0D7BF;
+  --border-accent: #CDAA64;
+  --border-hover: #B7A88D;
+
+  --text-primary: #101510;
+  --text-secondary: #2F4A36;
+  --text-muted: #537456;
+  --text-accent: #B78525;
+
+  --accent: #B78525;
+  --accent-hover: #CDAA64;
+  --accent-pressed: #9A6F1D;
+  --accent-dim: rgba(183, 133, 37, 0.15);
+}
+
+/* LIGHT theme */
+body[data-theme="light"] {
+  --bg-base: #F7F1E3;
+  --bg-sidebar: #F0EAD6;
+  --bg-header: #F0EAD6;
+  --bg-statusbar: #E6DFCB;
+  --bg-modal-backdrop: rgba(247, 241, 227, 0.85);
+
+  --surface: #FFFFFF;
+  --surface-hover: #FDFBF7;
+  --surface-active: #F4EEDF;
+  --surface-selected: #FAF7F0;
+  --surface-muted: #F0EAD6;
+
+  --border: #D1C7AE;
+  --border-subtle: #EAE3CF;
+  --border-accent: #CDAA64;
+  --border-hover: #C5BAA1;
+
+  --text-primary: #101510;
+  --text-secondary: #2F4A36;
+  --text-muted: #537456;
+  --text-accent: #B78525;
+
+  --accent: #B78525;
+  --accent-hover: #CDAA64;
+  --accent-pressed: #9A6F1D;
+  --accent-dim: rgba(183, 133, 37, 0.15);
+}
+/* Hermes Hub Web Client — Dark Theme & Cockpit Design System */
+
+
 
 * {
   box-sizing: border-box;
@@ -1559,20 +1626,114 @@ body {
 }
 
 /* ── Light Theme Override ── */
-body[data-theme="light"], body.theme-light {
-  --bg-base: #F4F6F8;
-  --bg-sidebar: #E9ECEF;
-  --bg-header: #FFFFFF;
-  --bg-statusbar: #DEE2E6;
-  --surface: #FFFFFF;
-  --surface-hover: #F1F3F5;
-  --surface-active: #E9ECEF;
-  --surface-selected: #E2E6EA;
-  --surface-muted: #F8F9FA;
-  --border: #CED4DA;
-  --border-subtle: #DEE2E6;
-  --border-accent: #B78525;
-  --text-primary: #212529;
-  --text-secondary: #495057;
-  --text-muted: #6C757D;
+
+
+/* Drag and Drop Styles */
+.draggable-item {
+  cursor: grab;
+  user-select: none;
+}
+.draggable-item:active {
+  cursor: grabbing;
+}
+.drop-zone {
+  min-height: 40px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: var(--text-muted);
+  transition: all 0.2s;
+  margin-top: 8px;
+}
+.drop-zone.drag-over {
+  border-color: var(--accent);
+  background-color: var(--accent-dim);
+  color: var(--accent);
+}
+.role-section {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  display: flex;
+  flex-direction: column;
+}
+.role-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.role-header h4 {
+  font-family: var(--font-title);
+  color: var(--text-primary);
+  font-size: 14px;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.role-badge {
+  font-size: 10px;
+  background-color: var(--accent-dim);
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-family: var(--font-ui);
+}
+.account-row {
+  display: grid;
+  grid-template-columns: 24px 20px 200px 120px 120px 150px 80px 80px 24px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--surface);
+  font-size: 12px;
+}
+.account-row:last-child {
+  border-bottom: none;
+}
+.account-row.drag-over {
+  border-top: 2px solid var(--accent);
+}
+.drag-handle {
+  color: var(--text-muted);
+  cursor: grab;
+  text-align: center;
+}
+.provider-logo-sm {
+  width: 16px;
+  height: 16px;
+  border-radius: 2px;
+}
+.available-account-card {
+  background-color: var(--surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  padding: 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: grab;
+}
+.available-account-card:hover {
+  border-color: var(--border);
+  background-color: var(--surface-hover);
+}
+.grid-header {
+  display: grid;
+  grid-template-columns: 24px 20px 200px 120px 120px 150px 80px 80px 24px;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 10px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--surface-muted);
 }
