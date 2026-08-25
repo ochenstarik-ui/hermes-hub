@@ -96,6 +96,15 @@ if [ -d "$REPO_ROOT/assets" ]; then
     cp -r "$REPO_ROOT/assets/"* "$HERMES_HOME/plugins/antigravity-provider/assets/" 2>/dev/null || true
 fi
 
+# Deploy helper scripts. Они лежат в поставке, но раньше не разворачивались,
+# поэтому вспомогательных инструментов (например открытия хаба в домашнюю сеть)
+# на установленной машине просто не оказывалось.
+if [ -d "$REPO_ROOT/scripts" ]; then
+    mkdir -p "$HERMES_HOME/scripts"
+    cp -r "$REPO_ROOT/scripts/"*.py "$HERMES_HOME/scripts/" 2>/dev/null || true
+    cp -r "$REPO_ROOT/scripts/"*.sh "$HERMES_HOME/scripts/" 2>/dev/null || true
+fi
+
 # 4. Write Deployment Manifest
 echo "[4/6] Writing deployment manifest..."
 MANIFEST_FILE="$HERMES_HOME/plugins/antigravity-provider/deployment_manifest.json"
