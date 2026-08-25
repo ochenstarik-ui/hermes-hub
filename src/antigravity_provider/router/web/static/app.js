@@ -198,18 +198,17 @@ async function fetchSnapshot() {
     setSourceIndicator(true, 'Live API (/api/snapshot)');
     applySnapshot(data);
   } catch (err) {
-    console.warn('Live API unavailable, attempting snapshot.example.json fallback:', err);
-    try {
-      const fallbackRes = await fetch('snapshot.example.json');
-      if (fallbackRes.ok) {
-        const fallbackData = await fallbackRes.json();
-        setSourceIndicator(true, 'Фикстура (fallback)');
-        applySnapshot(fallbackData);
-        return;
-      }
-    } catch (e) {}
-
+    // Раньше здесь при недоступном API молча подставлялась
+    // snapshot.example.json — 63 чужих профиля с почтами user@example.test —
+    // и индикатор ставился в зелёное. Экран выглядел здоровой панелью,
+    // которая не имеет отношения к этому серверу: при работе через SSH-туннель
+    // достаточно промахнуться портом или потерять туннель, чтобы принять
+    // пример за свои данные. Осознанная работа с фикстурой осталась —
+    // ?fixture=1 и открытие файлом, — но подставлять её вместо ответа сервера
+    // нельзя: отсутствие данных должно читаться как отсутствие данных.
+    console.warn('Live API unavailable:', err);
     setSourceIndicator(false, 'Сервер недоступен');
+    showToast('Сервер не отвечает. Данные на экране могут быть устаревшими.', 'error');
   }
 }
 
