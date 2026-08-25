@@ -236,6 +236,27 @@ def do_set_model(profile_id: str, model: str, role_id: Optional[str] = None) -> 
     return False, "Не удалось сохранить файл конфигурации"
 
 
+# Подключённый аккаунт обязан появиться в списке сразу.
+#
+# Учётные данные сохраняются на диск, но состояние профилей берётся из кэша
+# UnifiedHealthService, а фоновый цикл веб-сервера обновляет снапшот с
+# force_scan=False, то есть кэш не трогает. Проверено исполнением: после входа
+# профиль оставался not_configured и при обычном refresh, и переходил в
+# not_tested только при force_scan=True. Владелец видел «аккаунт подключён» и
+# пустой список аккаунтов.
+#
+# Функция объявлена на уровне модуля намеренно: как вложенная она была видна
+# не всем точкам завершения входа, и device-flow получал NameError внутри
+# обработки успеха.
+def _rescan_after_auth() -> None:
+    try:
+        from antigravity_provider.router.state_store import HubStateStore
+
+        HubStateStore.get().refresh(force_scan=True)
+    except Exception as exc:  # пересбор не должен ронять сам вход
+        logger.warning("Не удалось пересобрать снапшот после входа: %s", exc)
+
+
 class ActionExecutor:
     """Shared execution layer for Desktop and Web actions."""
     
@@ -310,6 +331,7 @@ class ActionExecutor:
 
             status = getattr(session, 'status', 'unknown')
             if status == 'completed':
+                _rescan_after_auth()
                 return {'ok': True, 'message': 'Аккаунт подключён', 'data': {'status': status}}
             if status in ('failed', 'timeout'):
                 reason = getattr(session, 'error_msg', None) or 'Авторизация не завершена'
@@ -402,6 +424,8 @@ class ActionExecutor:
                 if not session:
                     return {'ok': False, 'message': 'Сессия авторизации не найдена или уже завершена'}
                 ok, msg = session.handle_auth_code(raw_value)
+                if ok:
+                    _rescan_after_auth()
             else:
                 from antigravity_provider.router.profile_oauth import get_oauth_session
 
@@ -409,6 +433,8 @@ class ActionExecutor:
                 if not session:
                     return {'ok': False, 'message': 'Сессия авторизации не найдена или уже завершена'}
                 ok, msg = session.handle_manual_callback_url(raw_value)
+            if ok:
+                _rescan_after_auth()
             return {'ok': ok, 'message': msg}
 
         if action == 'poll_redirect_auth':
@@ -420,6 +446,7 @@ class ActionExecutor:
                 return {'ok': False, 'message': 'Сессия авторизации не найдена'}
             status = getattr(session, 'status', 'unknown')
             if status == 'completed':
+                _rescan_after_auth()
                 return {'ok': True, 'message': 'Аккаунт подключён', 'data': {'status': 'completed'}}
             if status in ('failed', 'cancelled'):
                 return {'ok': False, 'message': session.error_msg or 'Авторизация не удалась'}
