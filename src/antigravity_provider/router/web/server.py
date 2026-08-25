@@ -26,15 +26,48 @@ from antigravity_provider.updater.update_manager import get_installed_commit, Up
 
 logger = logging.getLogger("hermes.router.web")
 
+def _bootstrap_settings() -> Dict[str, Any]:
+    """Настройки, нужные до объявления _web_settings (список источников CORS)."""
+    try:
+        from antigravity_provider.router.settings_service import get_hub_settings
+
+        return get_hub_settings() or {}
+    except Exception:
+        return {}
+
+
 app = FastAPI(title="Hermes Hub Web API", version="1.0.0")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Межсайтовые запросы запрещены по умолчанию.
+#
+# Стояло allow_origins=["*"] вместе с allow_credentials=True. FastAPI в таком
+# сочетании отражает любой присланный Origin обратно, поэтому проверено
+# запросом: страница с https://evil.example.com получала
+#   access-control-allow-origin: https://evil.example.com
+#   access-control-allow-credentials: true
+# на 200 от /api/snapshot.
+#
+# Опаснее всего это на localhost: там токен не требуется вовсе (см.
+# get_auth_token), а значит ЛЮБОЙ сайт, открытый во вкладке рядом, мог читать
+# снапшот со всеми аккаунтами и почтами и вызывать /api/action — удалять
+# учётные данные, менять маршрутизацию, запускать входы OAuth.
+#
+# Собственному интерфейсу CORS не нужен: он отдаётся тем же сервером. Список
+# разрешённых источников оставлен настройкой — он понадобится, когда одна
+# панель будет смотреть на несколько хабов.
+_cors_origins = [
+    o.strip()
+    for o in str(_bootstrap_settings().get("web_api_allowed_origins", "")).split(",")
+    if o.strip()
+]
+if _cors_origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["X-Hub-Token", "Content-Type"],
+    )
 
 
 def _web_settings() -> Dict[str, Any]:
