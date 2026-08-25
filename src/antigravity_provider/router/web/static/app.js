@@ -184,6 +184,10 @@ async function fetchSnapshot() {
     if (authToken) headers['X-Hub-Token'] = authToken;
 
     const res = await fetch('/api/snapshot', { headers });
+    if (res.status === 401) {
+      handleUnauthorized();
+      return;
+    }
     if (!res.ok) {
       if (res.status === 404 || res.status === 502 || res.status === 503) {
         throw new Error(`Server returned ${res.status}`);
@@ -286,6 +290,98 @@ function startPolling() {
   }
 }
 
+// ── ЗАПРОС ТОКЕНА ПРИ 401 ──
+//
+// Сервер, привязанный не к localhost, требует X-Hub-Token. Раньше клиент этого
+// случая не знал вовсе: 401 попадал в общую ветку ошибок и превращался в
+// красный тост «Ошибка сервера: 401», который повторялся на каждом опросе.
+// Владелец видел пустую панель и не имел ни одной подсказки, что нужен токен
+// и где его взять. Теперь спрашиваем прямо, один раз.
+let _tokenPromptOpen = false;
+
+function handleUnauthorized() {
+  if (_tokenPromptOpen) return;
+  _tokenPromptOpen = true;
+  // Опрос останавливаем, иначе окно ввода будет перекрываться новыми 401
+  // каждые несколько секунд. Отдельной stopPolling в клиенте нет — таймер
+  // гасится напрямую, как это делает startPolling перед перезапуском.
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  setSourceIndicator(false, 'Требуется токен доступа');
+
+  elements.modalTitle.textContent = 'Требуется токен доступа';
+  elements.modalBody.innerHTML = `
+    <div class="modal-feedback info" style="margin-bottom:14px;">
+      Этот хаб открыт по сети, поэтому запросы к нему требуют токен.
+      Он был показан при выполнении <code>enable_lan_access.py</code> и хранится
+      на сервере в <code>~/.hermes/hub_settings.json</code>.
+    </div>
+    <label style="display:block; font-weight:600; margin-bottom:4px;">Токен доступа:</label>
+    <input type="password" class="input-text" style="width:100%;" id="auth-token-input"
+           placeholder="Вставьте токен" autocomplete="off">
+    <div id="auth-token-feedback" style="font-size:12px; color:var(--text-muted); margin-top:8px;">
+      Токен сохранится в этом браузере и больше спрашиваться не будет.
+    </div>
+  `;
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-primary" onclick="saveAuthTokenFromPrompt()">Сохранить и продолжить</button>
+  `;
+  showModal();
+  setTimeout(() => {
+    const el = document.getElementById('auth-token-input');
+    if (el) el.focus();
+  }, 50);
+}
+
+async function saveAuthTokenFromPrompt() {
+  const input = document.getElementById('auth-token-input');
+  const feedback = document.getElementById('auth-token-feedback');
+  if (!input) return;
+  const value = (input.value || '').trim();
+  if (!value) {
+    feedback.innerHTML = '<span style="color:var(--status-warning);">Поле пустое.</span>';
+    return;
+  }
+
+  // Заголовки HTTP переносят только ASCII. Без этой проверки fetch бросает
+  // TypeError и обработчик умирает целиком, не показав ничего: так бывает,
+  // если вместе с токеном скопировали русский текст или лишний символ.
+  if (!/^[!-~]+$/.test(value)) {
+    feedback.innerHTML = '<span style="color:var(--status-error);">В токене посторонние символы. Скопируйте только сам токен, без кавычек, пробелов и текста вокруг.</span>';
+    return;
+  }
+
+  feedback.textContent = 'Проверяем…';
+  let res;
+  try {
+    res = await fetch('/api/snapshot', { headers: { 'X-Hub-Token': value } });
+  } catch (err) {
+    feedback.innerHTML = `<span style="color:var(--status-error);">Не удалось обратиться к серверу: ${escapeHtml(err.message)}</span>`;
+    return;
+  }
+  if (res.status === 401) {
+    feedback.innerHTML = '<span style="color:var(--status-error);">Токен не подошёл. Проверьте, что скопирован целиком.</span>';
+    return;
+  }
+  if (!res.ok) {
+    feedback.innerHTML = `<span style="color:var(--status-error);">Сервер ответил ${res.status}.</span>`;
+    return;
+  }
+
+  authToken = value;
+  localStorage.setItem('hermes_hub_token', authToken);
+  const tokenInput = document.getElementById('setting-client-token-input');
+  if (tokenInput) tokenInput.value = authToken;
+
+  _tokenPromptOpen = false;
+  closeModal();
+  showToast('Токен принят', 'success');
+  startPolling();
+  fetchSnapshot();
+}
+
 // ── ACTIONS EXECUTION (POST /api/action) ──
 async function executeAction(actionName, actionData = {}) {
   showToast(`Выполняется «${actionName}»...`, 'info');
@@ -298,6 +394,11 @@ async function executeAction(actionName, actionData = {}) {
       headers,
       body: JSON.stringify({ action: actionName, data: actionData }),
     });
+
+    if (res.status === 401) {
+      handleUnauthorized();
+      return { ok: false, message: 'Требуется токен доступа' };
+    }
 
     const result = await res.json().catch(() => ({ ok: false, message: `Ошибка парсинга ответа (${res.status})` }));
 
