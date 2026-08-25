@@ -22,6 +22,8 @@ from antigravity_provider.router.state_store import HubStateStore
 from antigravity_provider.router.action_handler import ActionExecutor
 from antigravity_provider.router.router_config import load_router_config
 
+from antigravity_provider.updater.update_manager import get_installed_commit, UpdateManager
+
 logger = logging.getLogger("hermes.router.web")
 
 app = FastAPI(title="Hermes Hub Web API", version="1.0.0")
@@ -67,6 +69,7 @@ def health_check():
     return {
         "ok": True,
         "version": __version__,
+        "commit": get_installed_commit(),
         # Antigravity и Claude раньше стояли здесь как supported: False с
         # советом идти в десктоп или пробрасывать порты. Это было неверно:
         # ProfileOAuthSession.handle_manual_callback_url и
@@ -171,6 +174,7 @@ def get_settings(authorized: bool = Depends(get_auth_token)):
     """Return current server and hub settings without exposing raw auth tokens."""
     raw = _web_settings()
     has_token = bool(raw.get("web_api_token"))
+    last_check = UpdateManager.get_last_check_result()
     settings_out: Dict[str, Any] = {
         "web_api_host": raw.get("web_api_host", "127.0.0.1"),
         "web_api_port": raw.get("web_api_port", 5800),
@@ -180,6 +184,9 @@ def get_settings(authorized: bool = Depends(get_auth_token)):
         "hermes_home": str(paths.get_hermes_home()),
         "config_dir": str(paths.get_config_dir()),
         "log_file": str(paths.get_log_file()),
+        "installed_commit": get_installed_commit(),
+        "version": __version__,
+        "last_update_check": last_check.to_dict() if last_check else None,
     }
     for k, v in raw.items():
         if k not in settings_out and not any(secret in k.lower() for secret in ['token', 'secret', 'key', 'password', 'jwt']):
@@ -273,6 +280,13 @@ def _background_refresh_loop() -> None:
         logger.info("Quota cache warmed on startup")
     except Exception as exc:
         logger.warning("Quota warm-up failed: %s", exc)
+
+    # Initial quiet update check in background
+    try:
+        UpdateManager().check_for_updates()
+        logger.info("Initial update check completed in background")
+    except Exception as exc:
+        logger.debug("Initial background update check skipped: %s", exc)
 
     while True:
         try:

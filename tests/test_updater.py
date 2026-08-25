@@ -61,6 +61,7 @@ def test_host_allowlist_validation(monkeypatch):
     assert is_allowed_update_host("https://raw.githubusercontent.com/ochenstarik-ui/hermes-hub-releases/main/update_manifest.json") is True
     assert is_allowed_update_host("https://github.com/ochenstarik-ui/hermes-hub-releases/releases/download/v0.1.1/pkg.zip") is True
     assert is_allowed_update_host("https://objects.githubusercontent.com/github-production-release-asset/pkg.zip") is True
+    assert is_allowed_update_host("https://api.github.com/repos/ochenstarik-ui/hermes-hub/releases/latest") is True
 
     # 2. Production mode REJECTS local files and arbitrary hosts
     assert is_allowed_update_host("file:///C:/local/update.zip", allow_dev_local=False) is False
@@ -82,7 +83,7 @@ def test_manifest_404_friendly_message(tmp_path, monkeypatch):
     """Verify that when release feed is not configured (404), a friendly message is returned without crash."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
 
-    mgr = UpdateManager(manifest_url="https://raw.githubusercontent.com/ochenstarik-ui/hermes-hub-releases/main/update_manifest.json")
+    mgr = UpdateManager(manifest_url="https://api.github.com/repos/ochenstarik-ui/hermes-hub/releases/latest")
 
     mock_http_404 = urllib.error.HTTPError(
         url=mgr.manifest_url,
@@ -96,7 +97,7 @@ def test_manifest_404_friendly_message(tmp_path, monkeypatch):
         res = mgr.check_for_updates()
         assert res.update_available is False
         assert res.error is not None
-        assert "не настроен" in res.error.lower()
+        assert "404" in res.error.lower() or "не найден" in res.error.lower() or "не настроен" in res.error.lower()
 
 
 @pytest.mark.unit

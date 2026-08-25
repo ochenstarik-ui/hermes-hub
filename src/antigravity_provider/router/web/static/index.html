@@ -57,6 +57,7 @@
           <span class="source-text" id="source-text">Загрузка данных...</span>
         </div>
         <div class="version-tag" id="version-tag">Hermes Hub Web v0.1.1</div>
+        <div class="commit-tag" id="commit-tag" style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono); margin-top:2px;">—</div>
       </div>
     </aside>
 
@@ -70,6 +71,10 @@
             <span class="status-dot"></span>
             <span id="header-readiness-text">Инициализация...</span>
           </span>
+          <button class="header-update-badge hidden" id="header-update-badge" title="Нажмите, чтобы посмотреть детали обновления">
+            <span class="status-dot warning"></span>
+            <span id="header-update-text">Доступно обновление</span>
+          </button>
         </div>
         <div class="header-actions">
           <button class="btn btn-secondary" id="btn-refresh-all" title="Обновить квоты всех профилей">
@@ -376,6 +381,35 @@
             </div>
             <div class="settings-actions">
               <button class="btn btn-primary" id="btn-save-hub-settings">Сохранить настройки сервера</button>
+            </div>
+          </div>
+
+          <!-- Hub Updates -->
+          <div class="settings-card" style="margin-top:16px;" id="settings-updates-card">
+            <h2 class="settings-group-title">Обновление Hermes Hub</h2>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Текущая версия и сборка</div>
+                <div class="setting-desc" id="update-installed-info">Hermes Hub v0.1.1</div>
+              </div>
+              <div class="setting-control" style="display:flex; align-items:center; gap:8px;">
+                <span id="update-status-badge" class="badge healthy">Актуально</span>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Проверка обновлений</div>
+                <div class="setting-desc" id="update-last-checked-desc">Последняя проверка: еще не выполнялась</div>
+              </div>
+              <div class="setting-control" style="display:flex; gap:8px;">
+                <button class="btn btn-secondary btn-sm" id="btn-check-updates">Проверить обновления</button>
+                <button class="btn btn-primary btn-sm" id="btn-apply-update" disabled>Установить обновление</button>
+              </div>
+            </div>
+            <div id="update-details-block" class="update-details-box hidden" style="margin-top:12px; padding:12px; background:var(--surface-muted); border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+              <div id="update-release-title" style="font-weight:600; font-size:13px; margin-bottom:4px;"></div>
+              <div id="update-release-meta" style="font-size:12px; color:var(--text-muted); margin-bottom:8px;"></div>
+              <div id="update-release-notes" style="font-size:12px; max-height:160px; overflow-y:auto; white-space:pre-wrap; background:var(--surface-card); padding:8px; border-radius:4px; border:1px solid var(--border-subtle); font-family:var(--font-mono);"></div>
             </div>
           </div>
 

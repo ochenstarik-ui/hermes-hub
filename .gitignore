@@ -83,3 +83,4 @@ scratch/
 *.obj
 *.pdb
 *.ilk
+artifacts/

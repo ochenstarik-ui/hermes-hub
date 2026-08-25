@@ -19,6 +19,7 @@ let authToken = localStorage.getItem('hermes_hub_token') || '';
 let cachedEvents = [];
 let currentSettings = {};
 let currentDragState = null;
+let latestUpdateInfo = null;
 
 const CANONICAL_ROLE_DESCRIPTIONS = {
   orchestrator: 'Главный оркестратор команды и маршрутизатор запросов',
@@ -72,6 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSettings();
   fetchSnapshot();
   startPolling();
+  checkUpdates(true);
 });
 
 // ── NAVIGATION ──
@@ -163,6 +165,22 @@ function initEventListeners() {
     themeSel.addEventListener('change', () => {
       applyTheme(themeSel.value);
     });
+  }
+
+  // Updates event listeners
+  const btnHeaderUpdate = document.getElementById('header-update-badge');
+  if (btnHeaderUpdate) {
+    btnHeaderUpdate.addEventListener('click', () => openUpdateModal());
+  }
+
+  const btnCheckUpdates = document.getElementById('btn-check-updates');
+  if (btnCheckUpdates) {
+    btnCheckUpdates.addEventListener('click', () => checkUpdates(false));
+  }
+
+  const btnApplyUpdate = document.getElementById('btn-apply-update');
+  if (btnApplyUpdate) {
+    btnApplyUpdate.addEventListener('click', () => applyUpdate());
   }
 }
 
@@ -1500,6 +1518,11 @@ function populateSettingsForm(s) {
   if (pathHome) pathHome.textContent = s.hermes_home || '~/.hermes';
   if (pathConfig) pathConfig.textContent = s.config_dir || '~/.hermes/config';
   if (pathLog) pathLog.textContent = s.log_file || '~/.hermes/logs/hermes-hub.log';
+
+  if (s.last_update_check && !latestUpdateInfo) {
+    latestUpdateInfo = s.last_update_check;
+  }
+  renderUpdateUI();
 }
 
 function applyTheme(theme) {
@@ -1514,6 +1537,7 @@ function applyTheme(theme) {
 
 function renderSettingsView() {
   loadServerSettings();
+  renderUpdateUI();
 }
 
 async function saveHubServerSettings() {
@@ -1544,6 +1568,195 @@ async function saveHubServerSettings() {
     showToast('Настройки сервера успешно сохранены', 'success');
     if (tokenInput) tokenInput.value = '';
     loadServerSettings();
+  }
+}
+
+// ── IN-APP UPDATES (P0-1 — P0-4) ──
+async function checkUpdates(silent = false) {
+  if (!silent) {
+    showToast('Проверка обновлений...', 'info');
+  }
+  try {
+    const res = await executeAction('check_updates', {});
+    if (res.ok && res.data) {
+      latestUpdateInfo = res.data;
+      renderUpdateUI();
+      if (!silent) {
+        if (res.data.update_available) {
+          const c = res.data.latest_commit ? res.data.latest_commit.slice(0, 7) : (res.data.release_tag || 'new');
+          showToast(`Доступно обновление (сборка ${c})`, 'info');
+        } else {
+          showToast(res.data.message || 'Установлена последняя сборка', 'success');
+        }
+      }
+    } else {
+      if (res.data) {
+        latestUpdateInfo = res.data;
+        renderUpdateUI();
+      }
+      if (!silent) {
+        showToast(res.message || 'Ошибка проверки обновлений', 'error');
+      }
+    }
+  } catch (err) {
+    if (!silent) {
+      showToast(`Ошибка проверки обновлений: ${err.message}`, 'error');
+    }
+  }
+}
+
+function renderUpdateUI() {
+  const badge = document.getElementById('header-update-badge');
+  const badgeText = document.getElementById('header-update-text');
+  const commitTag = document.getElementById('commit-tag');
+
+  const installedCommit = (latestUpdateInfo && latestUpdateInfo.installed_commit && latestUpdateInfo.installed_commit !== 'unknown')
+    ? latestUpdateInfo.installed_commit
+    : (currentSettings && currentSettings.installed_commit ? currentSettings.installed_commit : '');
+
+  if (commitTag) {
+    commitTag.textContent = installedCommit ? `Сборка: ${installedCommit.slice(0, 7)}` : 'Сборка: —';
+  }
+
+  if (badge && badgeText) {
+    if (latestUpdateInfo && latestUpdateInfo.update_available) {
+      badge.classList.remove('hidden');
+      const c = latestUpdateInfo.latest_commit ? latestUpdateInfo.latest_commit.slice(0, 7) : (latestUpdateInfo.release_tag || 'new');
+      badgeText.textContent = `Доступно обновление (${c})`;
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+
+  // Populate settings view updates block if elements exist
+  const updateInfoDesc = document.getElementById('update-installed-info');
+  const statusBadge = document.getElementById('update-status-badge');
+  const lastCheckedDesc = document.getElementById('update-last-checked-desc');
+  const btnApply = document.getElementById('btn-apply-update');
+  const detailsBlock = document.getElementById('update-details-block');
+  const releaseTitle = document.getElementById('update-release-title');
+  const releaseMeta = document.getElementById('update-release-meta');
+  const releaseNotes = document.getElementById('update-release-notes');
+
+  const curVer = (latestUpdateInfo && latestUpdateInfo.current_version) || (currentSettings && currentSettings.version) || '0.1.1';
+  const cDisplay = installedCommit ? installedCommit.slice(0, 7) : 'неизвестно';
+  if (updateInfoDesc) {
+    updateInfoDesc.textContent = `Hermes Hub v${curVer} (сборка: ${cDisplay})`;
+  }
+
+  if (statusBadge) {
+    if (latestUpdateInfo && latestUpdateInfo.error) {
+      statusBadge.textContent = 'Ошибка проверки';
+      statusBadge.className = 'badge badge-status warning';
+      statusBadge.title = latestUpdateInfo.error;
+    } else if (latestUpdateInfo && latestUpdateInfo.update_available) {
+      statusBadge.textContent = 'Доступно обновление';
+      statusBadge.className = 'badge badge-status warning';
+      statusBadge.title = '';
+    } else if (latestUpdateInfo && latestUpdateInfo.checked_at > 0) {
+      statusBadge.textContent = 'Актуально';
+      statusBadge.className = 'badge healthy';
+      statusBadge.title = '';
+    } else {
+      statusBadge.textContent = 'Не проверялось';
+      statusBadge.className = 'badge';
+      statusBadge.title = '';
+    }
+  }
+
+  if (lastCheckedDesc) {
+    if (latestUpdateInfo && latestUpdateInfo.checked_at > 0) {
+      const tStr = new Date(latestUpdateInfo.checked_at * 1000).toLocaleTimeString('ru-RU');
+      const errNote = latestUpdateInfo.error ? ` — Ошибка: ${latestUpdateInfo.error}` : '';
+      lastCheckedDesc.textContent = `Последняя проверка: сегодня в ${tStr}${errNote}`;
+    } else {
+      lastCheckedDesc.textContent = 'Последняя проверка: еще не выполнялась';
+    }
+  }
+
+  if (btnApply) {
+    btnApply.disabled = !(latestUpdateInfo && latestUpdateInfo.update_available);
+  }
+
+  if (detailsBlock && releaseTitle && releaseMeta && releaseNotes) {
+    if (latestUpdateInfo && latestUpdateInfo.update_available) {
+      detailsBlock.classList.remove('hidden');
+      const latC = latestUpdateInfo.latest_commit ? latestUpdateInfo.latest_commit.slice(0, 7) : '—';
+      releaseTitle.textContent = `Релиз: ${latestUpdateInfo.release_tag || latestUpdateInfo.latest_version || 'Новая сборка'} (коммит: ${latC})`;
+      releaseMeta.textContent = latestUpdateInfo.published_at ? `Опубликован: ${latestUpdateInfo.published_at}` : '';
+      releaseNotes.textContent = latestUpdateInfo.changelog || latestUpdateInfo.release_notes || 'Описание изменений отсутствует.';
+    } else {
+      detailsBlock.classList.add('hidden');
+    }
+  }
+}
+
+function openUpdateModal() {
+  if (!latestUpdateInfo) {
+    checkUpdates(false);
+    return;
+  }
+
+  const instC = (latestUpdateInfo.installed_commit && latestUpdateInfo.installed_commit !== 'unknown')
+    ? latestUpdateInfo.installed_commit.slice(0, 7)
+    : 'неизвестно';
+  const latC = latestUpdateInfo.latest_commit ? latestUpdateInfo.latest_commit.slice(0, 7) : (latestUpdateInfo.release_tag || '—');
+
+  if (elements.modalTitle) elements.modalTitle.textContent = 'Обновление Hermes Hub';
+  if (elements.modalBody) {
+    elements.modalBody.innerHTML = `
+      <div class="update-modal-body">
+        <div style="display:flex; justify-content:space-between; margin-bottom:12px; padding:10px; background:var(--surface-muted); border-radius:var(--radius-sm);">
+          <div>
+            <div style="font-size:11px; color:var(--text-muted);">Текущая сборка:</div>
+            <div style="font-weight:600; font-family:var(--font-mono); font-size:13px;">${escapeHtml(instC)}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px; color:var(--text-muted);">Новая сборка:</div>
+            <div style="font-weight:600; font-family:var(--font-mono); font-size:13px; color:var(--status-warning);">${escapeHtml(latC)}</div>
+          </div>
+        </div>
+        <div style="margin-bottom:8px; font-size:12px; color:var(--text-muted);">
+          Тег: <strong>${escapeHtml(latestUpdateInfo.release_tag || latestUpdateInfo.latest_version || '—')}</strong>
+          ${latestUpdateInfo.published_at ? ` &bull; Дата: ${escapeHtml(latestUpdateInfo.published_at)}` : ''}
+        </div>
+        <div style="font-weight:600; font-size:12px; margin-bottom:4px;">Список изменений (Release Notes):</div>
+        <div style="max-height:200px; overflow-y:auto; font-size:12px; line-height:1.4; white-space:pre-wrap; background:var(--surface-muted); padding:10px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); font-family:var(--font-mono);">
+          ${escapeHtml(latestUpdateInfo.changelog || latestUpdateInfo.release_notes || 'Описание изменений отсутствует.')}
+        </div>
+      </div>
+    `;
+  }
+  if (elements.modalFooter) {
+    elements.modalFooter.innerHTML = `
+      <button class="btn btn-secondary" onclick="closeModal()">Закрыть</button>
+      <button class="btn btn-primary" id="btn-modal-install-update" onclick="handleInstallUpdateFromModal()">Установить обновление</button>
+    `;
+  }
+  showModal();
+}
+
+async function handleInstallUpdateFromModal() {
+  const btn = document.getElementById('btn-modal-install-update');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Установка...';
+  }
+  await applyUpdate();
+  closeModal();
+}
+
+async function applyUpdate() {
+  showToast('Загрузка и запуск обновления...', 'info');
+  try {
+    const res = await executeAction('apply_update', {});
+    if (res.ok) {
+      showToast(res.message || 'Обновление запущено успешно!', 'success');
+    } else {
+      showToast(res.message || 'Ошибка установки обновления', 'error');
+    }
+  } catch (err) {
+    showToast(`Ошибка установки: ${err.message}`, 'error');
   }
 }
 
