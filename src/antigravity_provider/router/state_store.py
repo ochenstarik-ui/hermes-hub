@@ -55,6 +55,7 @@ class HubSnapshot:
     quotas: Dict[str, Any]
     metrics: Dict[str, Any] = field(default_factory=dict)
     is_stale: bool = False
+    workflow: Dict[str, Any] = field(default_factory=dict)
 
     def get_profile(self, profile_id: str) -> Optional[ProfileViewModel]:
         return self.all_profiles.get(profile_id)
@@ -107,6 +108,24 @@ class HubStateStore:
             if self._current_snapshot is not None:
                 if (time.time() - self._current_snapshot.timestamp > 300.0) and not self._current_snapshot.is_stale:
                     self._current_snapshot = replace(self._current_snapshot, is_stale=True)
+                # Provider/account scans are intentionally cached, while LIVE
+                # workflow checkpoints are small local state and must never lag
+                # behind an action until the next expensive provider refresh.
+                try:
+                    from .workflow_service import WorkflowService
+
+                    live_workflow = WorkflowService.get().snapshot()
+                    role_views = {agent.role_id: agent for agent in self._current_snapshot.agents}
+                    for workflow_agent in live_workflow.get("agents", []):
+                        role_view = role_views.get(workflow_agent.get("role"))
+                        generic_name = str(workflow_agent.get("role") or "").replace("-", " ").title()
+                        if role_view and workflow_agent.get("name") == generic_name:
+                            workflow_agent["name"] = role_view.role_name_ru
+                        if role_view and not workflow_agent.get("description"):
+                            workflow_agent["description"] = role_view.role_description_ru
+                    self._current_snapshot = replace(self._current_snapshot, workflow=live_workflow)
+                except Exception:
+                    pass
                 return self._current_snapshot
         return self.refresh(force_scan=False)
 
@@ -196,6 +215,27 @@ class HubStateStore:
                 "active_calls_total": active_leases_total,
                 "active_calls_by_profile": active_leases_by_profile,
             }
+            try:
+                from .workflow_service import WorkflowService
+
+                workflow_data = WorkflowService.get().snapshot()
+                role_views = {agent.role_id: agent for agent in agents}
+                for workflow_agent in workflow_data.get("agents", []):
+                    role_view = role_views.get(workflow_agent.get("role"))
+                    generic_name = str(workflow_agent.get("role") or "").replace("-", " ").title()
+                    if role_view and workflow_agent.get("name") == generic_name:
+                        workflow_agent["name"] = role_view.role_name_ru
+                    if role_view and not workflow_agent.get("description"):
+                        workflow_agent["description"] = role_view.role_description_ru
+            except Exception as exc:
+                workflow_data = {
+                    "agents": [],
+                    "definition": {},
+                    "run": {"status": "unavailable"},
+                    "events": [],
+                    "is_loading": False,
+                    "unavailable_reason": f"Workflow state unavailable: {exc}",
+                }
             snapshot = HubSnapshot(
                 generation=gen,
                 seq=request_seq,
@@ -209,6 +249,7 @@ class HubStateStore:
                 quotas=quotas_map,
                 metrics=metrics,
                 is_stale=False,
+                workflow=workflow_data,
             )
             self._current_snapshot = snapshot
 
@@ -263,6 +304,13 @@ class HubStateStore:
                 "active_calls_by_profile": {},
             },
             is_stale=True,
+            workflow={
+                "agents": [],
+                "definition": {},
+                "run": {"status": "loading"},
+                "events": [],
+                "is_loading": True,
+            },
         )
 
     def _apply_profile_delta(self, profile: ProfileViewModel) -> HubSnapshot:

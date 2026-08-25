@@ -90,6 +90,24 @@ readiness, agents, providers, routing, quotas, metrics, is_stale
 
 Имена действий берутся **ровно** из общего слоя `action_handler.py`:
 
+Действия Agent Manager и Workflow (A30):
+
+| Action | Назначение | Обязательные данные |
+|---|---|---|
+| `create_agent` | Создать логического агента, роль маршрутизатора и Agent File | `name`, `role`; опционально `profile_id`, `model`, настройки исполнения |
+| `update_agent` | Изменить свойства и назначение Provider → Account → Model | `agent_id`; назначение задаётся `provider`, `profile_id`, `model` |
+| `delete_agent` | Удалить агента; при ссылках сначала возвращает `confirmation_required` | `agent_id`; после подтверждения `force: true` |
+| `read_agent_file` | Прочитать реальный Markdown Agent File | `agent_id` |
+| `save_agent_file` | Атомарно сохранить Agent File для последующих запусков | `agent_id`, `content` |
+| `save_workflow` | Валидировать и сохранить узлы, рёбра, layout и предел итераций | `edges`, `agents`, `max_iterations` |
+| `start_workflow` | Запустить реальную задачу через RouterEngine | `task` |
+| `stop_workflow` | Запросить остановку текущего запуска | — |
+
+Состояние графа и LIVE-журнал приходят в поле `workflow` ответа
+`GET /api/snapshot`. `workflow.run.status=loading` означает загрузку;
+`unavailable_reason` означает отсутствие данных с явной причиной. Показатели
+workflow нельзя подменять фикстурой при недоступности API.
+
 ```
 account_details   add_account       agent_settings    apply_update
 assign_role       auto_assign_all   check_updates     delete_credentials
