@@ -341,6 +341,98 @@ class ActionExecutor:
         # A25 внёс их в этот список, но в A24 они выполняют настоящую работу —
         # сохранение цепочки и назначение роли — обработчики ниже. Проглотив их
         # здесь, мы бы молча сломали перестановку блоков в маршрутизации.
+        # ── Вход по localhost-redirect (Antigravity) ──────────────────
+        # Раньше веб-мастер писал «авторизация через веб-интерфейс
+        # невозможна» и отправлял в консоль по SSH. Это неверно:
+        # ProfileOAuthSession.handle_manual_callback_url принимает адрес
+        # возврата, вставленный руками, и завершает обмен кода на токены.
+        # Значит браузер нужен ГДЕ УГОДНО, а не на той же машине: владелец
+        # открывает ссылку у себя, а адрес из строки браузера возвращает в Hub.
+        if action == 'start_redirect_auth':
+            provider = (data.get('provider') or '').strip().lower()
+            if provider in ('google-antigravity',):
+                provider = 'antigravity'
+            if provider not in ('antigravity', 'claude'):
+                return {'ok': False, 'message': f'Провайдер {provider} не использует вход по ссылке'}
+            slot = data.get('profile_id') or AutoAssigner.find_free_slot(provider)
+            if not slot:
+                return {'ok': False, 'message': f'Нет свободного слота для провайдера {provider}'}
+            try:
+                if provider == 'antigravity':
+                    from antigravity_provider.router.profile_oauth import (
+                        get_oauth_session,
+                        start_profile_oauth,
+                    )
+
+                    session_id, url, port = start_profile_oauth(slot)
+                    redirect_uri = getattr(get_oauth_session(session_id), 'redirect_uri', '')
+                else:
+                    from antigravity_provider.router.claude_oauth import start_claude_oauth
+
+                    session_id, url = start_claude_oauth(slot)
+                    port, redirect_uri = 0, ''
+            except Exception as exc:
+                return {'ok': False, 'message': f'Не удалось начать авторизацию: {exc}'}
+
+            return {
+                'ok': True,
+                'message': 'Ссылка авторизации получена',
+                'data': {
+                    'session_id': session_id,
+                    'url': url,
+                    'port': port,
+                    'redirect_uri': redirect_uri,
+                    'profile_id': slot,
+                    'provider': provider,
+                    # Antigravity возвращает код в адресной строке, Claude
+                    # показывает его на странице — подсказка в интерфейсе
+                    # должна отличаться, иначе владелец ищет не то.
+                    'paste_kind': 'url' if provider == 'antigravity' else 'code',
+                },
+            }
+
+        if action == 'submit_redirect_callback':
+            session_id = data.get('session_id') or ''
+            raw_value = data.get('callback_url') or data.get('url') or data.get('code') or ''
+            provider = (data.get('provider') or 'antigravity').strip().lower()
+            if provider == 'claude':
+                from antigravity_provider.router.claude_oauth import get_claude_oauth_session
+
+                session = get_claude_oauth_session(session_id)
+                if not session:
+                    return {'ok': False, 'message': 'Сессия авторизации не найдена или уже завершена'}
+                ok, msg = session.handle_auth_code(raw_value)
+            else:
+                from antigravity_provider.router.profile_oauth import get_oauth_session
+
+                session = get_oauth_session(session_id)
+                if not session:
+                    return {'ok': False, 'message': 'Сессия авторизации не найдена или уже завершена'}
+                ok, msg = session.handle_manual_callback_url(raw_value)
+            return {'ok': ok, 'message': msg}
+
+        if action == 'poll_redirect_auth':
+            session_id = data.get('session_id') or ''
+            from antigravity_provider.router.profile_oauth import get_oauth_session
+
+            session = get_oauth_session(session_id)
+            if not session:
+                return {'ok': False, 'message': 'Сессия авторизации не найдена'}
+            status = getattr(session, 'status', 'unknown')
+            if status == 'completed':
+                return {'ok': True, 'message': 'Аккаунт подключён', 'data': {'status': 'completed'}}
+            if status in ('failed', 'cancelled'):
+                return {'ok': False, 'message': session.error_msg or 'Авторизация не удалась'}
+            # timeout закрывает только слушатель: вставленный вручную адрес
+            # по-прежнему принимается, поэтому это не конечный отказ.
+            return {'ok': True, 'message': 'Ожидание подтверждения', 'data': {'status': 'pending'}}
+
+        if action == 'cancel_redirect_auth':
+            from antigravity_provider.router.profile_oauth import cancel_oauth_session
+
+            cancel_oauth_session(data.get('session_id') or '')
+            return {'ok': True, 'message': 'Авторизация отменена'}
+
         if action in ['oauth', 'account_details', 'agent_settings', 'open_routing']:
             return {'ok': True, 'message': 'Навигация'}
 

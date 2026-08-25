@@ -105,6 +105,13 @@ class _ProfileOAuthServer(HTTPServer):
         super().__init__(server_address, _ProfileOAuthCallbackHandler)
 
 
+# Окно жизни слушателя. Прежние 5 минут рассчитаны на браузер той же машины.
+# При входе с другого ПК владелец успевает только открыть ссылку: надо войти в
+# аккаунт, подтвердить доступ и перенести адрес обратно. 20 минут — значение,
+# проверенное на практике при входе по слотам.
+_LISTENER_TTL_SEC = 1200
+
+
 class ProfileOAuthSession:
     """Manages a single interactive OAuth flow for linking an Antigravity profile."""
 
@@ -161,7 +168,7 @@ class ProfileOAuthSession:
 
         def _serve():
             try:
-                while self.status == "pending" and time.time() - self.created_at < 300:
+                while self.status == "pending" and time.time() - self.created_at < _LISTENER_TTL_SEC:
                     if self.server:
                         try:
                             self.server.handle_request()
@@ -172,7 +179,7 @@ class ProfileOAuthSession:
 
                 if self.status == "pending" and not self._is_completed:
                     self.status = "timeout"
-                    self.error_msg = "Срок действия ссылки авторизации истёк (таймаут 5 минут)"
+                    self.error_msg = "Слушатель закрыт по таймауту; адрес возврата всё ещё можно вставить вручную"
                     logger.info("OAUTH callback server stopped reason=timeout")
             except Exception as loop_err:
                 logger.error("OAUTH listener exception: %s: %s", type(loop_err).__name__, loop_err)
@@ -211,17 +218,28 @@ class ProfileOAuthSession:
                 logger.warning("OAuth error from provider (source=%s, error=%s)", source, error)
                 return False, self.error_msg
 
+            # Ошибки разбора при ручной вставке НЕ завершают сессию: владелец
+            # переносит адрес между машинами и легко промахивается — скопировал
+            # не ту вкладку, обрезал строку. Прежде первая же опечатка ставила
+            # status="failed", и вход приходилось начинать заново, хотя ссылка
+            # оставалась годной. Отказ провайдера ниже по-прежнему конечный.
+            _recoverable = source == "manual"
+
             if not code:
-                self.status = "failed"
-                self.error_msg = "Код авторизации отсутствует в callback URL"
+                msg = "Код авторизации отсутствует в адресе. Скопируйте строку целиком из адресной строки браузера."
+                if not _recoverable:
+                    self.status = "failed"
+                    self.error_msg = msg
                 logger.warning("OAuth code missing in callback (source=%s)", source)
-                return False, self.error_msg
+                return False, msg
 
             if state != self.state:
-                self.status = "failed"
-                self.error_msg = "Несовпадение параметра state. Callback относится к другой или устаревшей сессии."
+                msg = "Адрес относится к другой или устаревшей сессии входа. Возьмите адрес из вкладки, открытой по текущей ссылке."
+                if not _recoverable:
+                    self.status = "failed"
+                    self.error_msg = msg
                 logger.warning("OAuth state validation failed (source=%s)", source)
-                return False, self.error_msg
+                return False, msg
 
             logger.info("OAuth state validated (source=%s)", source)
 

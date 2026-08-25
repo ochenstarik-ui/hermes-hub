@@ -1612,39 +1612,28 @@ function showWizardStep2(providerId) {
       </div>
     `;
     setTimeout(() => startDeviceAuth(providerId), 0);
-  } else if (providerId === 'antigravity') {
+  } else if (providerId === 'antigravity' || providerId === 'claude') {
+    // Раньше здесь стояла заглушка: «авторизация через веб-интерфейс
+    // невозможна», со ссылкой на SSH и перенос каталога профилей. Это было
+    // неверно — сервер умеет принять вставленное вручную значение, поэтому
+    // браузер нужен ГДЕ УГОДНО, а не на машине с Hub.
+    const providerName = providerId === 'antigravity' ? 'Google Antigravity' : 'Claude';
     bodyHtml = `
       <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
-        Шаг 2 из 3: Авторизация Google Antigravity
+        Шаг 2 из 3: Авторизация ${providerName}
       </div>
-      <div class="modal-feedback info" style="margin-bottom:14px;">
-        <strong>Для серверов (Headless режим):</strong><br>
-        Провайдер Antigravity требует интерактивного входа через консоль <code>agy</code>. Авторизация напрямую через веб-интерфейс невозможна.
-        <div style="margin-top:6px;">
-          <strong>Что делать:</strong><br>
-          1. Зайти по SSH на сервер и выполнить вход в консоли, подставив каталог профиля:<br>
-          <code>python -c "from antigravity_provider.agy_subprocess import launch_native_agy_login as L; L('ag-w1').wait()"</code><br>
-          2. ИЛИ авторизоваться на локальном ПК и перенести директорию <code>~/.hermes/agy_profiles</code> на сервер.
+      <div style="margin-bottom:10px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">Слот, в который войти:</label>
+        <select class="input-text" style="width:100%;" id="wiz-redirect-slot">${buildSlotOptions(providerId)}</select>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+          Вход в занятый слот заменит учётные данные, которые в нём сейчас.
         </div>
       </div>
-    `;
-  } else if (providerId === 'claude') {
-    bodyHtml = `
-      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
-        Шаг 2 из 3: Авторизация Claude
+      <div style="margin-bottom:10px;">
+        <button class="btn btn-primary btn-sm" onclick="startRedirectAuth('${escapeHtml(providerId)}')">Получить ссылку</button>
       </div>
-      <div class="modal-feedback info" style="margin-bottom:14px;">
-        <strong>Для серверов (Headless режим):</strong><br>
-        Провайдер Claude использует локальный OAuth redirect (localhost). На сервере без браузера редирект придёт на локальную машину.
-        <div style="margin-top:6px;">
-          <strong>Альтернативные действия:</strong><br>
-          1. Использовать API Key напрямую.<br>
-          2. Пробросить порт через SSH: <code>ssh -L 8085:localhost:8085 user@server</code>
-        </div>
-      </div>
-      <div style="margin-bottom:12px;">
-        <label style="display:block; font-weight:600; margin-bottom:4px;">Впишите API Key / Сгенерированный токен:</label>
-        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="Вставьте токен или нажмите Далее...">
+      <div id="redirect-auth-box" style="background:var(--surface-muted); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+        <div style="color:var(--text-secondary);">Выберите слот и нажмите «Получить ссылку».</div>
       </div>
     `;
   } else if (providerId === 'local' || providerId === 'local-llm' || providerId === 'llama.cpp' || providerId === 'ollama' || providerId === 'vllm') {
@@ -1974,6 +1963,8 @@ function showModal() {
 function closeModal() {
   _openAccountModalProfile = null;
   stopDeviceAuthPolling();
+  // Опрос входа по ссылке иначе продолжал бы стучать в закрытое окно.
+  stopRedirectAuthPolling();
   if (elements.modalBackdrop) elements.modalBackdrop.classList.add('hidden');
 }
 
@@ -2092,6 +2083,164 @@ async function pollDeviceAuth(providerId) {
   if (!res.ok) {
     // Отказ и просроченный код — конечные исходы, а не ожидание.
     stopDeviceAuthPolling();
+    status.innerHTML = `<span style="color:var(--status-error); font-weight:600;">${escapeHtml(res.message || 'Авторизация не завершена')}</span>`;
+  }
+}
+
+// Список слотов провайдера из снимка: занятые помечены, свободные идут первыми.
+function buildSlotOptions(providerId) {
+  const profiles = ((currentSnapshot || {}).profiles_by_provider || {})[providerId] || [];
+  if (!profiles.length) {
+    return '<option value="">Список слотов ещё не получен</option>';
+  }
+  const free = [];
+  const used = [];
+  profiles.forEach((p) => {
+    const isFree = p.health_state === 'not_configured';
+    const who = p.email || p.account_identity || '';
+    const label = isFree
+      ? `${p.profile_id} — свободен`
+      : `${p.profile_id} — занят${who ? ': ' + who : ''}`;
+    (isFree ? free : used).push(
+      `<option value="${escapeHtml(p.profile_id)}">${escapeHtml(label)}</option>`
+    );
+  });
+  return free.concat(used).join('');
+}
+
+let _redirectAuthTimer = null;
+
+function stopRedirectAuthPolling() {
+  if (_redirectAuthTimer) {
+    clearInterval(_redirectAuthTimer);
+    _redirectAuthTimer = null;
+  }
+}
+
+// Вход по ссылке для Antigravity и Claude.
+//
+// Смысл: браузер не обязан быть на той машине, где работает Hub. Владелец
+// открывает ссылку у себя, подтверждает доступ и возвращает результат сюда.
+// Antigravity кладёт код в адресную строку (браузер при этом покажет ошибку
+// соединения, если слушатель на другой машине — это нормально, адрес всё
+// равно годен). Claude показывает код прямо на странице.
+async function startRedirectAuth(providerId) {
+  stopRedirectAuthPolling();
+  const box = document.getElementById('redirect-auth-box');
+  if (!box) return;
+
+  // Слот выбирает владелец, а не догадка сервера.
+  //
+  // find_free_slot определяет занятость по файлу учётных данных, но agy на
+  // Windows хранит их в keyring — файла нет ни у одного слота, поэтому все
+  // десять считаются свободными и всегда возвращается первый, ag-orch-fallback.
+  // Вход в него затёр бы работающий аккаунт. Список ниже строится из снимка,
+  // который знает настоящее состояние, и показывает, что занято.
+  const slot = document.getElementById('wiz-redirect-slot');
+  const chosen = slot ? slot.value : '';
+
+  const res = await executeAction('start_redirect_auth', {
+    provider: providerId,
+    profile_id: chosen || undefined,
+  });
+  if (!res || !res.ok) {
+    box.innerHTML = `<div class="modal-feedback error">${escapeHtml((res && res.message) || 'Не удалось начать авторизацию')}</div>`;
+    return;
+  }
+
+  const d = res.data || {};
+  window._wiz_redirect_session = d.session_id;
+  window._wiz_redirect_provider = providerId;
+
+  const pastesUrl = d.paste_kind !== 'code';
+  const label = pastesUrl
+    ? 'Вставьте адрес из адресной строки браузера целиком:'
+    : 'Вставьте код, показанный на странице:';
+  const placeholder = pastesUrl ? 'http://127.0.0.1:…/oauth-callback?code=…' : 'Код со страницы провайдера';
+
+  const localNote = pastesUrl && d.redirect_uri
+    ? `<div style="font-size:12px; color:var(--text-muted); margin-top:8px;">
+         После подтверждения браузер уйдёт на <code>${escapeHtml(d.redirect_uri)}</code>.
+         Если Hub работает на другой машине, страница не откроется — это ожидаемо.
+         Нужен сам адрес из строки браузера, а не содержимое страницы.
+       </div>`
+    : '';
+
+  box.innerHTML = `
+    <div style="font-weight:700; margin-bottom:6px;">1. Откройте ссылку — на любой машине, где есть браузер:</div>
+    <div style="display:flex; gap:8px; margin-bottom:12px;">
+      <input type="text" class="input-text" style="flex:1;" id="wiz-redirect-url" value="${escapeHtml(d.url || '')}" readonly>
+      <button class="btn btn-secondary btn-sm" onclick="window.open(document.getElementById('wiz-redirect-url').value, '_blank')">Открыть</button>
+      <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('wiz-redirect-url').value); showToast('Ссылка скопирована', 'success');">Копировать</button>
+    </div>
+    <div style="font-weight:700; margin-bottom:6px;">2. ${escapeHtml(label)}</div>
+    <div style="display:flex; gap:8px; margin-bottom:6px;">
+      <input type="text" class="input-text" style="flex:1;" id="wiz-redirect-paste" placeholder="${escapeHtml(placeholder)}">
+      <button class="btn btn-primary btn-sm" onclick="submitRedirectCallback()">Завершить вход</button>
+    </div>
+    ${localNote}
+    <div id="redirect-auth-status" style="font-size:12px; color:var(--text-muted); margin-top:10px;">
+      Слот: ${escapeHtml(d.profile_id || '—')}. Ссылка действует 20 минут.
+    </div>
+  `;
+
+  // Если браузер открыт на этой же машине, слушатель поймает возврат сам —
+  // тогда вставлять ничего не придётся.
+  _redirectAuthTimer = setInterval(pollRedirectAuth, 3000);
+}
+
+async function submitRedirectCallback() {
+  const input = document.getElementById('wiz-redirect-paste');
+  const status = document.getElementById('redirect-auth-status');
+  if (!input || !status) return;
+
+  const value = (input.value || '').trim();
+  if (!value) {
+    status.innerHTML = '<span style="color:var(--status-warning);">Поле пустое — вставьте значение из браузера.</span>';
+    return;
+  }
+
+  status.innerHTML = 'Проверяем…';
+  const res = await executeAction('submit_redirect_callback', {
+    session_id: window._wiz_redirect_session,
+    provider: window._wiz_redirect_provider,
+    callback_url: value,
+  });
+
+  if (res && res.ok) {
+    stopRedirectAuthPolling();
+    status.innerHTML = '<span style="color:var(--status-healthy); font-weight:600;">Аккаунт подключён</span>';
+    showToast('Аккаунт подключён', 'success');
+    fetchSnapshot();
+    return;
+  }
+  // Промах при вставке не заканчивает сессию: ссылка ещё годна, можно
+  // вставить снова. Поэтому опрос не останавливаем.
+  status.innerHTML = `<span style="color:var(--status-error);">${escapeHtml((res && res.message) || 'Не удалось завершить вход')}</span>`;
+}
+
+async function pollRedirectAuth() {
+  const status = document.getElementById('redirect-auth-status');
+  if (!status) {
+    stopRedirectAuthPolling();
+    return;
+  }
+  const res = await executeAction('poll_redirect_auth', {
+    session_id: window._wiz_redirect_session,
+    provider: window._wiz_redirect_provider,
+  });
+  if (!res) return;
+
+  if (res.ok && (res.data || {}).status === 'completed') {
+    stopRedirectAuthPolling();
+    status.innerHTML = '<span style="color:var(--status-healthy); font-weight:600;">Аккаунт подключён</span>';
+    showToast('Аккаунт подключён', 'success');
+    fetchSnapshot();
+    return;
+  }
+  if (!res.ok) {
+    // Конечный отказ провайдера — например, доступ отклонён.
+    stopRedirectAuthPolling();
     status.innerHTML = `<span style="color:var(--status-error); font-weight:600;">${escapeHtml(res.message || 'Авторизация не завершена')}</span>`;
   }
 }

@@ -66,12 +66,25 @@ def health_check():
     return {
         "ok": True,
         "version": __version__,
+        # Antigravity и Claude раньше стояли здесь как supported: False с
+        # советом идти в десктоп или пробрасывать порты. Это было неверно:
+        # ProfileOAuthSession.handle_manual_callback_url и
+        # ClaudeOAuthSession.handle_auth_code принимают вставленное вручную
+        # значение, поэтому браузер нужен где угодно, а не на машине с Hub.
         "auth_flows": {
             "openai-codex": {"supported": True, "reason": "device-code"},
             "grok": {"supported": True, "reason": "device-code"},
             "opencode-go": {"supported": True, "reason": "token"},
-            "antigravity": {"supported": False, "reason": "Требует redirect на localhost; используйте десктоп или проброс портов"},
-            "claude": {"supported": False, "reason": "Требует redirect на localhost; используйте десктоп или проброс портов"}
+            "antigravity": {
+                "supported": True,
+                "reason": "redirect-url-paste",
+                "hint": "Откройте ссылку в любом браузере и верните адрес из адресной строки",
+            },
+            "claude": {
+                "supported": True,
+                "reason": "code-paste",
+                "hint": "Откройте ссылку в любом браузере и верните показанный код",
+            },
         }
     }
 

@@ -125,10 +125,22 @@ def test_c_state_mismatch(tmp_path, monkeypatch):
         pasted_url = f"http://127.0.0.1:{port}/oauth-callback?state=wrong_mismatched_state&code=mock_code"
         ok, msg = session.handle_manual_callback_url(pasted_url)
 
+        # Главное — свойство безопасности: чужой state отвергнут и обмена
+        # кода на токены не произошло.
         assert ok is False
-        assert "Несовпадение" in msg or "state" in msg
-        assert session.status == "failed"
+        assert "сессии" in msg or "state" in msg
         assert mock_exchange.call_count == 0
+
+        # А вот сессию промах завершать НЕ должен. Владелец переносит адрес
+        # между машинами руками и легко берёт не ту вкладку; прежде первая же
+        # ошибка ставила status="failed", и вход приходилось начинать заново,
+        # хотя ссылка оставалась годной. Проверяем, что после промаха верная
+        # вставка по-прежнему доходит до обмена кода.
+        assert session.status == "pending"
+
+        good_url = f"http://127.0.0.1:{port}/oauth-callback?state={session.state}&code=mock_code"
+        session.handle_manual_callback_url(good_url)
+        assert mock_exchange.call_count == 1
 
 
 @pytest.mark.unit
