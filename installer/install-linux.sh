@@ -99,7 +99,16 @@ fi
 # 4. Write Deployment Manifest
 echo "[4/6] Writing deployment manifest..."
 MANIFEST_FILE="$HERMES_HOME/plugins/antigravity-provider/deployment_manifest.json"
-GIT_COMMIT="$(cd "$REPO_ROOT" 2>/dev/null && git rev-parse --short HEAD 2>/dev/null || echo 'fb23bff')"
+# Коммит берётся из BUILD_COMMIT (кладёт сборщик самораспаковывающегося
+# установщика, где git недоступен), иначе — из репозитория. Запасного
+# литерала нет намеренно: неизвестный коммит должен читаться как неизвестный,
+# а не как чужой чужой номер сборки.
+if [ -f "$REPO_ROOT/BUILD_COMMIT" ]; then
+    GIT_COMMIT="$(tr -d ' 	
+' < "$REPO_ROOT/BUILD_COMMIT")"
+else
+    GIT_COMMIT="$(cd "$REPO_ROOT" 2>/dev/null && git rev-parse --short HEAD 2>/dev/null || echo 'не определён')"
+fi
 TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ" 2>/dev/null || date -u)"
 
 cat <<EOF > "$MANIFEST_FILE"
