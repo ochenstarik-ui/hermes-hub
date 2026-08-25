@@ -297,6 +297,28 @@ function startPolling() {
   }
 }
 
+// Подключён ли профиль на самом деле.
+//
+// A26 определял это как «health_state не равен not_configured», а поле
+// authenticated в модели вообще отсутствует, поэтому первая половина условия
+// была мертва. Через фильтр проходили холодный резерв (health_state
+// "disabled") и непроверенные пустые слоты: при нуле настоящих аккаунтов
+// страница показывала три карточки «Холодный резерв», а «Обзор» предлагал
+// назначать роли на пустые слоты — то самое мышление слотами, ради отмены
+// которого задание и делалось.
+//
+// Authoritative признак — auth_state: у подключённого AUTHENTICATED, у
+// пустого слота и у холодного резерва NOT_CONFIGURED. Состояния
+// AUTH_REQUIRED и AUTH_EXPIRED означают подключённый аккаунт, которому нужен
+// повторный вход, — их показываем.
+function isConnectedProfile(p) {
+  if (!p) return false;
+  const st = String(p.auth_state || '').toUpperCase();
+  if (st) return st !== 'NOT_CONFIGURED';
+  // Запасной путь, если поле не пришло: судим по наличию опознанного аккаунта.
+  return Boolean(p.email);
+}
+
 // ── КОПИРОВАНИЕ В БУФЕР ──
 //
 // navigator.clipboard существует только в защищённом контексте: HTTPS или
@@ -472,7 +494,7 @@ function updateGlobalHeader() {
   const readiness = currentSnapshot.readiness || {};
   const allProfiles = Object.values(currentSnapshot.all_profiles || {});
   const connectedAccounts = readiness.accounts_connected_count ?? allProfiles.filter(
-    (p) => p.authenticated === true || (p.health_state && p.health_state !== 'not_configured')
+    (p) => isConnectedProfile(p)
   ).length;
 
   if (elements.navAccountsCount) elements.navAccountsCount.textContent = connectedAccounts;
@@ -544,7 +566,7 @@ function renderAccountsView() {
 
   const allProfiles = Object.values(currentSnapshot.all_profiles || {});
   const totalConnectedInSystem = allProfiles.filter(
-    (p) => p.authenticated === true || (p.health_state && p.health_state !== 'not_configured')
+    (p) => isConnectedProfile(p)
   ).length;
 
   if (totalConnectedInSystem === 0) {
@@ -588,7 +610,7 @@ function renderAccountsView() {
     if (providerFilter !== 'all' && providerFilter !== providerId) continue;
 
     const filtered = profiles.filter((p) => {
-      const isConnected = p.authenticated === true || (p.health_state && p.health_state !== 'not_configured');
+      const isConnected = isConnectedProfile(p);
       if (!isConnected) return false;
 
       totalProfiles++;
@@ -825,7 +847,7 @@ function renderOverviewView() {
   if (diagramBox) {
     const roles = currentSnapshot.routing || {};
     const allConnectedProfiles = Object.values(currentSnapshot.all_profiles || {}).filter(
-      (p) => p.authenticated === true || (p.health_state && p.health_state !== 'not_configured')
+      (p) => isConnectedProfile(p)
     );
     let diagramHtml = '';
 
@@ -847,7 +869,7 @@ function renderOverviewView() {
             if (allConnectedProfiles.length > 0) {
               accountControlHtml = `
                 <select class="diagram-account-select" title="Сменить назначенный аккаунт" onchange="handleNodeAccountChange('${escapeHtml(roleId)}', this.value, ${idx === 0})">
-                  ${allConnectedProfiles.map((p) => `<option value="${escapeHtml(p.profile_id)}" ${p.profile_id === node.profile_id ? 'selected' : ''}>${escapeHtml(p.display_name || p.profile_id)} (${escapeHtml(p.provider)})</option>`).join('')}
+                  ${allConnectedProfiles.map((p) => `<option value="${escapeHtml(p.profile_id)}" ${p.profile_id === node.profile_id ? 'selected' : ''}>${escapeHtml(p.email || p.account_identity || p.display_name || p.profile_id)} (${escapeHtml(p.provider)})</option>`).join('')}
                   ${!hasCurrentInConnected && node.profile_id ? `<option value="${escapeHtml(node.profile_id)}" selected>${escapeHtml(node.display_name || node.profile_id)}</option>` : ''}
                 </select>
               `;
