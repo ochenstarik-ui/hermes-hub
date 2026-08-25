@@ -299,6 +299,38 @@ class ProfileOAuthSession:
             return False, "Пожалуйста, вставьте полный URL из адресной строки браузера."
 
         try:
+            # Голый код без адреса. Браузер после подтверждения уходит на
+            # 127.0.0.1:<порт>, и если хаб на другой машине, страница не
+            # открывается: адрес приходится доставать со страницы ошибки, где
+            # он часто обрезан. Значение code= владелец видит и может взять
+            # только его. Собственный state подставляем сознательно — вставка
+            # ручная, в рамках уже открытой сессии этого же владельца.
+            # Признак адреса — "?" или "://", но НЕ слэш: коды Google сами
+            # содержат его и начинаются с "4/0A...". Вставка без протокола
+            # (127.0.0.1:49725/oauth-callback?code=...) всё равно несёт "?".
+            if "://" not in raw_url and "?" not in raw_url:
+                # Не всё, что не адрес, — код. Без проверки правдоподобия
+                # произвольный текст уходил бы на обмен, давая невнятную
+                # ошибку от провайдера вместо понятной подсказки.
+                looks_like_code = (
+                    len(raw_url) >= 10
+                    and not any(ch.isspace() for ch in raw_url)
+                    and all(33 <= ord(ch) <= 126 for ch in raw_url)
+                )
+                if not looks_like_code:
+                    return False, (
+                        "Это не похоже ни на адрес возврата, ни на код. "
+                        "Вставьте адрес из строки браузера целиком либо только "
+                        "значение code= из него."
+                    )
+                logger.info("OAuth manual input looks like a bare code")
+                return self.handle_callback(
+                    code=raw_url,
+                    state=self.state,
+                    error=None,
+                    source="manual",
+                )
+
             # Handle potential protocol-less paste (e.g. 127.0.0.1:49725/oauth-callback?...)
             if not raw_url.startswith("http://") and not raw_url.startswith("https://"):
                 raw_url = "http://" + raw_url

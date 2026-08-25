@@ -290,6 +290,47 @@ function startPolling() {
   }
 }
 
+// ── КОПИРОВАНИЕ В БУФЕР ──
+//
+// navigator.clipboard существует только в защищённом контексте: HTTPS или
+// localhost. Когда хаб открыт по сети (http://192.168.1.81:5800), его нет
+// вовсе, и кнопки «Копировать» молча не работали — хуже того, показывали
+// «Ссылка скопирована», потому что промис никто не проверял.
+// Запасной путь — execCommand('copy'), он работает и по HTTP.
+async function copyToClipboard(text, okMessage) {
+  try {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      showToast(okMessage || 'Скопировано', 'success');
+      return true;
+    }
+  } catch (err) {
+    console.warn('clipboard API недоступен:', err);
+  }
+
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    ta.style.position = 'fixed';
+    ta.style.top = '-1000px';
+    document.body.appendChild(ta);
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    if (ok) {
+      showToast(okMessage || 'Скопировано', 'success');
+      return true;
+    }
+  } catch (err) {
+    console.warn('execCommand copy не сработал:', err);
+  }
+
+  // Молчать нельзя: владелец решит, что скопировалось, и вставит старое.
+  showToast('Скопировать не удалось — выделите текст в поле и нажмите Ctrl+C', 'warning');
+  return false;
+}
+
 // ── ЗАПРОС ТОКЕНА ПРИ 401 ──
 //
 // Сервер, привязанный не к localhost, требует X-Hub-Token. Раньше клиент этого
@@ -2143,12 +2184,12 @@ async function startDeviceAuth(providerId) {
     <div style="display:flex; gap:8px; margin-bottom:12px;">
       <input type="text" class="input-text" style="flex:1;" id="wiz-auth-url" value="${escapeHtml(d.url || '')}" readonly>
       <button class="btn btn-secondary btn-sm" onclick="window.open(document.getElementById('wiz-auth-url').value, '_blank')">Открыть</button>
-      <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('wiz-auth-url').value); showToast('Ссылка скопирована', 'success');">Копировать</button>
+      <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(document.getElementById('wiz-auth-url').value, 'Ссылка скопирована')">Копировать</button>
     </div>
     <div style="font-weight:700; margin-bottom:6px;">2. Введите код:</div>
     <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px;">
       <div style="font-family:var(--font-mono); font-size:22px; font-weight:700; color:var(--text-accent); letter-spacing:2px;" id="wiz-auth-code">${escapeHtml(d.code || '')}</div>
-      <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('wiz-auth-code').innerText); showToast('Код скопирован', 'success');">Копировать код</button>
+      <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(document.getElementById('wiz-auth-code').innerText, 'Код скопирован')">Копировать код</button>
     </div>
     <div id="device-auth-status" style="font-size:12px; color:var(--text-muted);">
       3. Подтвердите доступ — окно обновится само. Код живёт недолго, не откладывайте.
@@ -2258,11 +2299,37 @@ async function startRedirectAuth(providerId) {
     : 'Вставьте код, показанный на странице:';
   const placeholder = pastesUrl ? 'http://127.0.0.1:…/oauth-callback?code=…' : 'Код со страницы провайдера';
 
+  // Если хаб открыт не с этой же машины, браузер после подтверждения уйдёт на
+  // 127.0.0.1:<порт> СВОЕЙ машины, где никто не слушает: получается тупик,
+  // из которого адрес с кодом ещё надо как-то выковырять. Проброс этого порта
+  // убирает проблему целиком — возврат попадает прямо в слушатель хаба и вход
+  // завершается сам. Показываем готовую команду, а вставку оставляем запасным
+  // путём.
+  const host = window.location.hostname;
+  const isRemote = host !== '127.0.0.1' && host !== 'localhost' && host !== '';
+  const cbPort = d.port || 0;
+
+  const tunnelNote = pastesUrl && isRemote && cbPort
+    ? `<div class="modal-feedback info" style="margin-top:10px; font-size:12px;">
+         <strong>Проще всего — пробросить порт возврата.</strong> Выполните у себя
+         в терминале, до подтверждения доступа:
+         <div style="display:flex; gap:6px; margin:6px 0;">
+           <input type="text" class="input-text" style="flex:1; font-family:var(--font-mono); font-size:11px;"
+                  id="wiz-redirect-tunnel" readonly
+                  value="ssh -L ${cbPort}:127.0.0.1:${cbPort} ${escapeHtml(host)}">
+           <button class="btn btn-secondary btn-sm"
+                   onclick="copyToClipboard(document.getElementById('wiz-redirect-tunnel').value, 'Команда скопирована')">Копировать</button>
+         </div>
+         Тогда вход завершится сам и вставлять ничего не придётся.
+       </div>`
+    : '';
+
   const localNote = pastesUrl && d.redirect_uri
     ? `<div style="font-size:12px; color:var(--text-muted); margin-top:8px;">
-         После подтверждения браузер уйдёт на <code>${escapeHtml(d.redirect_uri)}</code>.
-         Если Hub работает на другой машине, страница не откроется — это ожидаемо.
-         Нужен сам адрес из строки браузера, а не содержимое страницы.
+         Без проброса браузер после подтверждения уйдёт на <code>${escapeHtml(d.redirect_uri)}</code>
+         и покажет «страница недоступна» — это ожидаемо, хаб на другой машине.
+         Скопируйте из адресной строки весь адрес целиком либо только значение
+         <code>code=</code> — принимается и то, и другое.
        </div>`
     : '';
 
@@ -2271,13 +2338,14 @@ async function startRedirectAuth(providerId) {
     <div style="display:flex; gap:8px; margin-bottom:12px;">
       <input type="text" class="input-text" style="flex:1;" id="wiz-redirect-url" value="${escapeHtml(d.url || '')}" readonly>
       <button class="btn btn-secondary btn-sm" onclick="window.open(document.getElementById('wiz-redirect-url').value, '_blank')">Открыть</button>
-      <button class="btn btn-secondary btn-sm" onclick="navigator.clipboard.writeText(document.getElementById('wiz-redirect-url').value); showToast('Ссылка скопирована', 'success');">Копировать</button>
+      <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(document.getElementById('wiz-redirect-url').value, 'Ссылка скопирована')">Копировать</button>
     </div>
     <div style="font-weight:700; margin-bottom:6px;">2. ${escapeHtml(label)}</div>
     <div style="display:flex; gap:8px; margin-bottom:6px;">
       <input type="text" class="input-text" style="flex:1;" id="wiz-redirect-paste" placeholder="${escapeHtml(placeholder)}">
       <button class="btn btn-primary btn-sm" onclick="submitRedirectCallback()">Завершить вход</button>
     </div>
+    ${tunnelNote}
     ${localNote}
     <div id="redirect-auth-status" style="font-size:12px; color:var(--text-muted); margin-top:10px;">
       Слот: ${escapeHtml(d.profile_id || '—')}. Ссылка действует 20 минут.
