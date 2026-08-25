@@ -111,9 +111,14 @@
           </div>
 
           <div class="section-card">
-            <div class="section-card-header">
-              <div class="section-card-title">Схема маршрутизации запросов</div>
-              <div class="section-card-subtitle">Распределение агентов и цепочки отказоустойчивости</div>
+            <div class="section-card-header" style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <div class="section-card-title">Схема маршрутизации запросов</div>
+                <div class="section-card-subtitle">Распределение агентов и цепочки отказоустойчивости</div>
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btn-auto-assign" title="Автоматическое распределение аккаунтов по ролям">
+                Авто-распределение
+              </button>
             </div>
             <div class="route-diagram-container" id="overview-route-diagram">
               <!-- Rendered by app.js -->
@@ -326,6 +331,33 @@
                   <option value="120">120 секунд (2 мин)</option>
                   <option value="300">300 секунд (5 мин — стандарт)</option>
                   <option value="600">600 секунд (10 мин)</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Порог остатка квоты</div>
+                <div class="setting-desc">Уровень остатка квоты аккаунта, при котором срабатывает действие</div>
+              </div>
+              <div class="setting-control">
+                <select id="setting-quota-threshold-percent" class="select-filter">
+                  <option value="5">5%</option>
+                  <option value="10" selected>10% (по умолчанию)</option>
+                  <option value="15">15%</option>
+                  <option value="20">20%</option>
+                  <option value="25">25%</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Действие при низком остатке квоты</div>
+                <div class="setting-desc">Оповещение в журнале и готовности или автоматическое переключение на резервный аккаунт</div>
+              </div>
+              <div class="setting-control">
+                <select id="setting-quota-threshold-action" class="select-filter">
+                  <option value="notify" selected>Оповещение (notify)</option>
+                  <option value="switch">Переключение на резерв (switch)</option>
                 </select>
               </div>
             </div>

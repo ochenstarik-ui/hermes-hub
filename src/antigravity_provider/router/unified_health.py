@@ -590,6 +590,24 @@ class UnifiedHealthService:
                     dead_roles += 1
                     warnings.append(f"Роль '{rname}' не имеет рабочих аккаунтов (все исчерпаны).")
 
+        # Quota threshold warnings (P0-5)
+        try:
+            from antigravity_provider.router.quota_collector import AccountQuotaService
+            from antigravity_provider.router.settings_service import get_hub_settings
+            settings = get_hub_settings()
+            threshold = float(settings.get("quota_threshold_percent", 10.0))
+            for profile in configured_profiles:
+                if profile.auth_state == "AUTHENTICATED":
+                    snap = AccountQuotaService.get().get_snapshot(profile.provider, profile.profile_id)
+                    if snap and snap.buckets:
+                        for b in snap.buckets:
+                            if b.remaining_percent is not None and b.remaining_percent <= threshold:
+                                warnings.append(
+                                    f"Квота аккаунта {profile.profile_id} ({b.display_name or profile.provider}) ниже порога {threshold:.1f}%: {b.remaining_percent:.1f}%."
+                                )
+        except Exception:
+            pass
+
         # Determine overall state
         if dead_roles > 0:
             state = READINESS_CRITICAL

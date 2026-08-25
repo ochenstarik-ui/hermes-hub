@@ -129,6 +129,13 @@ function initEventListeners() {
     });
   }
 
+  const btnAutoAssign = document.getElementById('btn-auto-assign');
+  if (btnAutoAssign) {
+    btnAutoAssign.addEventListener('click', () => {
+      executeAction('auto_assign_all', {});
+    });
+  }
+
   if (elements.modalCloseBtn) elements.modalCloseBtn.addEventListener('click', closeModal);
   if (elements.modalBackdrop) {
     elements.modalBackdrop.addEventListener('click', (e) => {
@@ -462,10 +469,14 @@ async function executeAction(actionName, actionData = {}) {
 function updateGlobalHeader() {
   if (!currentSnapshot) return;
 
-  const totalAccounts = Object.keys(currentSnapshot.all_profiles || {}).length;
-  if (elements.navAccountsCount) elements.navAccountsCount.textContent = totalAccounts;
-
   const readiness = currentSnapshot.readiness || {};
+  const allProfiles = Object.values(currentSnapshot.all_profiles || {});
+  const connectedAccounts = readiness.accounts_connected_count ?? allProfiles.filter(
+    (p) => p.authenticated === true || (p.health_state && p.health_state !== 'not_configured')
+  ).length;
+
+  if (elements.navAccountsCount) elements.navAccountsCount.textContent = connectedAccounts;
+
   const isHealthy = readiness.state === 'healthy';
   const readyRoles = readiness.roles_ready_count || 0;
   const totalRoles = readiness.total_roles || 6;
@@ -489,8 +500,8 @@ function updateGlobalHeader() {
 
   if (kpiReadiness) kpiReadiness.textContent = readiness.title_ru || 'Работает';
   if (kpiSummary) kpiSummary.textContent = readiness.summary_ru || 'Все маршруты доступны';
-  if (kpiTotalAccounts) kpiTotalAccounts.textContent = totalAccounts;
-  if (kpiAccountsSub) kpiAccountsSub.textContent = `Подключено: ${readiness.accounts_connected_count || totalAccounts}`;
+  if (kpiTotalAccounts) kpiTotalAccounts.textContent = connectedAccounts;
+  if (kpiAccountsSub) kpiAccountsSub.textContent = `Подключено: ${connectedAccounts}`;
   if (kpiReadyRoles) kpiReadyRoles.textContent = `${readyRoles}/${totalRoles}`;
   if (kpiRolesSub) kpiRolesSub.textContent = `${readyRoles} из ${totalRoles} ролей маршрутизации активны`;
   if (kpiProvidersCount) kpiProvidersCount.textContent = (currentSnapshot.providers || []).length || 5;
@@ -525,11 +536,31 @@ function renderCurrentView() {
 }
 
 // ═══════════════════════════════════════════════════════════════
-//  1. ACCOUNTS VIEW (Compact Fixed-Height Cards & Quotas)
+//  1. ACCOUNTS VIEW (P0-2 Only Connected Accounts & Empty State)
 // ═══════════════════════════════════════════════════════════════
 function renderAccountsView() {
   const container = elements.accountsContainer;
   if (!container || !currentSnapshot) return;
+
+  const allProfiles = Object.values(currentSnapshot.all_profiles || {});
+  const totalConnectedInSystem = allProfiles.filter(
+    (p) => p.authenticated === true || (p.health_state && p.health_state !== 'not_configured')
+  ).length;
+
+  if (totalConnectedInSystem === 0) {
+    container.innerHTML = `
+      <div class="accounts-empty-state">
+        <div class="empty-state-icon">👥</div>
+        <h3>Нет подключённых аккаунтов</h3>
+        <p>Подключите ваш первый аккаунт провайдера ИИ для распределения ролей и работы с Hermes Hub.</p>
+        <button class="btn btn-primary" onclick="openAddAccountWizard()">+ Подключить аккаунт</button>
+      </div>
+    `;
+    if (elements.accountsStatsSummary) {
+      elements.accountsStatsSummary.innerHTML = 'Показано: <strong>0</strong> из <strong>0</strong> подключённых аккаунтов';
+    }
+    return;
+  }
 
   const searchQuery = (elements.accountsSearch ? elements.accountsSearch.value : '').trim().toLowerCase();
   const providerFilter = elements.filterProvider ? elements.filterProvider.value : 'all';
@@ -557,6 +588,9 @@ function renderAccountsView() {
     if (providerFilter !== 'all' && providerFilter !== providerId) continue;
 
     const filtered = profiles.filter((p) => {
+      const isConnected = p.authenticated === true || (p.health_state && p.health_state !== 'not_configured');
+      if (!isConnected) return false;
+
       totalProfiles++;
       const matchesSearch =
         !searchQuery ||
@@ -575,9 +609,6 @@ function renderAccountsView() {
       return matchesSearch && matchesHealth;
     });
 
-    // Подключённые аккаунты идут первыми: владелец жаловался, что рабочие
-    // карточки разбросаны между пустыми слотами и их приходится выискивать.
-    // Пустые слоты ('не подключён') — всегда в конце группы.
     filtered.sort((a, b) => {
       const rank = (p) => {
         if (p.health_state === 'not_configured') return 5;
@@ -613,7 +644,7 @@ function renderAccountsView() {
 
   container.innerHTML = html || '<div class="view-header-note">Аккаунты по заданным фильтрам не найдены.</div>';
   if (elements.accountsStatsSummary) {
-    elements.accountsStatsSummary.innerHTML = `Показано: <strong>${visibleProfiles}</strong> из <strong>${totalProfiles}</strong> аккаунтов`;
+    elements.accountsStatsSummary.innerHTML = `Показано: <strong>${visibleProfiles}</strong> из <strong>${totalProfiles}</strong> подключённых аккаунтов`;
   }
 
   container.querySelectorAll('.account-card').forEach((card) => {
@@ -793,6 +824,9 @@ function renderOverviewView() {
   const diagramBox = document.getElementById('overview-route-diagram');
   if (diagramBox) {
     const roles = currentSnapshot.routing || {};
+    const allConnectedProfiles = Object.values(currentSnapshot.all_profiles || {}).filter(
+      (p) => p.authenticated === true || (p.health_state && p.health_state !== 'not_configured')
+    );
     let diagramHtml = '';
 
     for (const [roleId, pipeline] of Object.entries(roles)) {
@@ -807,6 +841,17 @@ function renderOverviewView() {
             const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === provId || p.provider_name === node.provider);
             const discoveredModels = (provSummary && provSummary.discovered_models && provSummary.discovered_models.length > 0) ? provSummary.discovered_models : [];
             const currentModel = node.model || (profile && profile.preferred_models && profile.preferred_models[0]) || '';
+
+            const hasCurrentInConnected = allConnectedProfiles.some((p) => p.profile_id === node.profile_id);
+            let accountControlHtml = '';
+            if (allConnectedProfiles.length > 0) {
+              accountControlHtml = `
+                <select class="diagram-account-select" title="Сменить назначенный аккаунт" onchange="handleNodeAccountChange('${escapeHtml(roleId)}', this.value, ${idx === 0})">
+                  ${allConnectedProfiles.map((p) => `<option value="${escapeHtml(p.profile_id)}" ${p.profile_id === node.profile_id ? 'selected' : ''}>${escapeHtml(p.display_name || p.profile_id)} (${escapeHtml(p.provider)})</option>`).join('')}
+                  ${!hasCurrentInConnected && node.profile_id ? `<option value="${escapeHtml(node.profile_id)}" selected>${escapeHtml(node.display_name || node.profile_id)}</option>` : ''}
+                </select>
+              `;
+            }
 
             let modelControlHtml = '';
             if (discoveredModels.length > 0) {
@@ -832,6 +877,7 @@ function renderOverviewView() {
                 </div>
                 <div style="font-size:12px; font-weight:700; margin-top:2px;">${escapeHtml(node.account_identity && node.account_identity !== 'Аккаунт не добавлен' ? node.account_identity : (node.display_name || node.profile_id))}</div>
                 <div style="font-size:10px; color:var(--text-secondary); margin-bottom:4px;">${escapeHtml(node.display_name || node.profile_id)} (${escapeHtml(node.provider)})</div>
+                ${accountControlHtml}
                 ${modelControlHtml}
               </div>
             `;
@@ -1401,6 +1447,8 @@ function populateSettingsForm(s) {
   const portInput = document.getElementById('setting-server-port');
   const tokenBadge = document.getElementById('setting-token-status-badge');
   const quotaSel = document.getElementById('setting-quota-interval');
+  const quotaThresholdSel = document.getElementById('setting-quota-threshold-percent');
+  const quotaActionSel = document.getElementById('setting-quota-threshold-action');
   const themeSel = document.getElementById('setting-theme');
 
   const pathHome = document.getElementById('path-hermes-home');
@@ -1415,6 +1463,12 @@ function populateSettingsForm(s) {
   }
   if (quotaSel && s.quota_refresh_interval_sec) {
     quotaSel.value = String(s.quota_refresh_interval_sec);
+  }
+  if (quotaThresholdSel && s.quota_threshold_percent !== undefined) {
+    quotaThresholdSel.value = String(Math.round(s.quota_threshold_percent));
+  }
+  if (quotaActionSel && s.quota_threshold_action) {
+    quotaActionSel.value = s.quota_threshold_action;
   }
   if (themeSel && s.theme) {
     themeSel.value = s.theme;
@@ -1445,12 +1499,16 @@ async function saveHubServerSettings() {
   const portInput = document.getElementById('setting-server-port');
   const tokenInput = document.getElementById('setting-server-token-input');
   const quotaSel = document.getElementById('setting-quota-interval');
+  const quotaThresholdSel = document.getElementById('setting-quota-threshold-percent');
+  const quotaActionSel = document.getElementById('setting-quota-threshold-action');
   const themeSel = document.getElementById('setting-theme');
 
   const payload = {
     web_api_host: hostInput ? hostInput.value.trim() : '127.0.0.1',
     web_api_port: portInput ? parseInt(portInput.value, 10) || 5800 : 5800,
     quota_refresh_interval_sec: quotaSel ? parseInt(quotaSel.value, 10) || 300 : 300,
+    quota_threshold_percent: quotaThresholdSel ? parseFloat(quotaThresholdSel.value) || 10.0 : 10.0,
+    quota_threshold_action: quotaActionSel ? quotaActionSel.value : 'notify',
     theme: themeSel ? themeSel.value : 'system',
   };
 
@@ -1964,7 +2022,23 @@ async function handleNodeDrop(e, roleId, targetIndex) {
   }
 }
 
-// ── Routing Node Model & Chain Management ──
+// ── Routing Node Model, Account & Chain Management ──
+async function handleNodeAccountChange(roleId, profileId, isPrimary = true) {
+  if (!roleId || !profileId) return;
+  showToast(`Назначение аккаунта '${profileId}' на роль '${roleId}'...`, 'info');
+  const res = await executeAction('assign_role', {
+    role_id: roleId,
+    profile_id: profileId,
+    is_primary: isPrimary,
+  });
+  if (res.ok) {
+    showToast(`Аккаунт '${profileId}' успешно назначен`, 'success');
+    fetchSnapshot();
+  } else {
+    showToast(res.message || 'Ошибка назначения аккаунта', 'error');
+  }
+}
+
 async function handleNodeModelChange(roleId, profileId, newModel) {
   if (!newModel) return;
   showToast(`Сохранение модели '${newModel}' для ${profileId}...`, 'info');
