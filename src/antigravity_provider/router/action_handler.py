@@ -580,19 +580,24 @@ class ActionExecutor:
             return {'ok': ok, 'message': msg}
             
         elif action == 'check_updates':
-            mgr = UpdateManager()
-            if async_runner:
-                async_runner(lambda: mgr.check_for_updates(), 'CheckUpdates')
-                return {'ok': True, 'message': 'Проверка обновлений запущена'}
-            else:
-                res = mgr.check_for_updates()
-                if res.error:
-                    return {'ok': False, 'message': res.error, 'data': res.to_dict()}
-                return {
-                    'ok': True,
-                    'message': res.message or ('Доступно обновление' if res.update_available else 'Установлена последняя сборка'),
-                    'data': res.to_dict(),
-                }
+            # Проверка выполняется СИНХРОННО и всегда возвращает данные.
+            #
+            # В фоновом режиме действие отвечало «запущено» с пустым data, и
+            # результат до интерфейса не доходил вообще: проверено запросом,
+            # ответ был {"ok":true,"message":"запущено","data":{}}. Кнопка
+            # обновления при этом не могла появиться никогда.
+            #
+            # Это один HTTP-запрос к API релизов с таймаутом 10 секунд, а не
+            # многоминутная установка, поэтому ждать его допустимо. Установка
+            # (apply_update) по-прежнему уходит в фон.
+            res = UpdateManager().check_for_updates()
+            if res.error:
+                return {'ok': False, 'message': res.error, 'data': res.to_dict()}
+            return {
+                'ok': True,
+                'message': res.message or ('Доступно обновление' if res.update_available else 'Установлена последняя сборка'),
+                'data': res.to_dict(),
+            }
 
         elif action == 'apply_update':
             mgr = UpdateManager()

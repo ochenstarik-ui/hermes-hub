@@ -17,6 +17,7 @@ import os
 import re
 import shutil
 import subprocess
+import threading
 import sys
 import time
 import urllib.error
@@ -571,7 +572,20 @@ class UpdateManager:
         if not expected_sha and check_result.manifest and check_result.manifest.sha256:
             expected_sha = check_result.manifest.sha256.lower()
 
-        if expected_sha and calc_sha != expected_sha:
+        # Отсутствие суммы — не разрешение. Раньше при недоступном checksums.txt
+        # expected_sha оставался пустым, проверка молча пропускалась и скачанный
+        # файл всё равно запускался. Здесь запускается загруженный из сети
+        # исполняемый код, поэтому непроверенный файл не запускаем вовсе.
+        if not expected_sha:
+            dest_file.unlink(missing_ok=True)
+            return (
+                False,
+                f"Не удалось получить контрольную сумму для {chosen_asset_name}: "
+                "в релизе нет checksums.txt или файл не скачался. "
+                "Установка отменена — непроверенный файл не запускается."
+            )
+
+        if calc_sha != expected_sha:
             dest_file.unlink(missing_ok=True)
             return (
                 False,
@@ -592,21 +606,89 @@ class UpdateManager:
                 creation_flags = 0
                 if hasattr(subprocess, "DETACHED_PROCESS") and hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
                     creation_flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-                subprocess.Popen(cmd, creationflags=creation_flags)
-                return True, "Установщик запущен в фоновом режиме. Hermes Hub будет перезапущен."
+                proc = subprocess.Popen(cmd, creationflags=creation_flags)
+                try:
+                    rc = proc.wait(timeout=600)
+                except subprocess.TimeoutExpired:
+                    return False, "Установщик не завершился за 10 минут. Проверьте состояние вручную."
+                if rc != 0:
+                    return False, f"Установщик завершился с кодом {rc}. Обновление не применено."
+                ok_r, msg_r = self.schedule_restart()
+                if not ok_r:
+                    return True, f"Обновление установлено. {msg_r}"
+                return True, "Обновление установлено, Hermes Hub перезапускается."
             except Exception as exc:
                 return False, f"Не удалось запустить установщик: {exc}"
 
         elif chosen_asset_name.endswith(".sh"):
             try:
                 os.chmod(dest_file, 0o755)
-                cmd = ["bash", str(dest_file), "--silent"]
-                subprocess.Popen(cmd)
-                return True, "Скрипт установки запущен. Hermes Hub будет перезапущен."
+                # Ждём завершения: без этого перезапуск начался бы прямо во
+                # время распаковки, а владелец получил бы обещание перезапуска
+                # при неизвестном исходе установки.
+                res_i = subprocess.run(
+                    ["bash", str(dest_file)],
+                    capture_output=True, text=True, timeout=600,
+                )
+                if res_i.returncode != 0:
+                    tail = (res_i.stderr or res_i.stdout or "").strip().splitlines()[-3:]
+                    return False, "Установка не удалась: " + " / ".join(tail)
+                ok_r, msg_r = self.schedule_restart()
+                if not ok_r:
+                    return True, f"Обновление установлено. {msg_r}"
+                return True, "Обновление установлено, Hermes Hub перезапускается."
             except Exception as exc:
                 return False, f"Не удалось запустить скрипт установки: {exc}"
 
         return True, "Файл обновления загружен и проверен"
+
+
+    def schedule_restart(self, delay_sec: float = 3.0) -> Tuple[bool, str]:
+        """Перезапустить веб-хаб после установки обновления.
+
+        Ни install-linux.sh, ни виндовый установщик в тихом режиме приложение не
+        поднимают, а сообщение обещало перезапуск. Владелец оставался со старым
+        процессом, продолжавшим отдавать старый код, и делал вывод, что
+        обновление не сработало.
+
+        Порядок именно такой: сначала отсоединённый помощник, потом выход
+        текущего процесса. Лаунчер считает хаб работающим, если порт отвечает,
+        поэтому поднимать новый, не освободив порт, бесполезно.
+        """
+        home = paths.get_hermes_home()
+        if sys.platform == "win32":
+            launcher = home / "HermesHubWeb.exe"
+        else:
+            launcher = Path.home() / ".local" / "bin" / "hermes-hub-web"
+
+        if not launcher.exists():
+            return False, f"Лаунчер не найден: {launcher}. Запустите Hermes Hub вручную."
+
+        try:
+            if sys.platform == "win32":
+                flags = 0
+                if hasattr(subprocess, "DETACHED_PROCESS") and hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
+                    flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
+                subprocess.Popen(
+                    ["cmd", "/c", f"timeout /t {int(delay_sec)} >nul & \"{launcher}\""],
+                    creationflags=flags,
+                )
+            else:
+                subprocess.Popen(
+                    ["nohup", "sh", "-c", f"sleep {delay_sec}; exec '{launcher}'"],
+                    start_new_session=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
+        except Exception as exc:
+            return False, f"Не удалось запланировать перезапуск: {exc}. Запустите Hermes Hub вручную."
+
+        def _exit_soon() -> None:
+            time.sleep(max(0.5, delay_sec - 1.5))
+            os._exit(0)
+
+        threading.Thread(target=_exit_soon, daemon=True, name="hub-restart").start()
+        return True, "Перезапуск запланирован"
 
     def apply_update_sync(self, package_zip: Path, target_dir: Optional[Path] = None) -> Tuple[bool, str]:
         """Apply update package with automatic backup and rollback on failure."""

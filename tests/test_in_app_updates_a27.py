@@ -218,14 +218,24 @@ def test_action_executor_update_actions(monkeypatch, tmp_path):
         assert "data" in res
         assert res["data"]["update_available"] is False
 
-    # 2. check_updates async
+    # 2. check_updates ВСЕГДА синхронна и всегда возвращает данные.
+    #
+    # Здесь раньше требовалось обратное — чтобы действие уходило в фон. Это
+    # закрепляло дефект: веб-сервер передаёт async_runner всегда, фоновая ветка
+    # отвечала «Проверка обновлений запущена» без data, и результат до
+    # интерфейса не доходил вовсе. Проверено запросом: кнопка обновления не
+    # могла появиться никогда. Проверка — один HTTP-запрос с таймаутом 10
+    # секунд, ждать её допустимо; в фон уходит только установка.
     dispatched = []
     def mock_runner(fn, name):
         dispatched.append(name)
 
     res_async = ActionExecutor.execute("check_updates", {}, async_runner=mock_runner)
     assert res_async["ok"] is True
-    assert "CheckUpdates" in dispatched
+    assert "CheckUpdates" not in dispatched, "проверка обновлений не должна уходить в фон без данных"
+    # Значение здесь не проверяем: вызов вне заглушки и ходит в сеть по-настоящему.
+    # Важно ровно одно — данные пришли, а не пустой ответ «запущено».
+    assert res_async.get("data"), "ответ без данных: интерфейс не узнает о наличии обновления"
 
     # 3. apply_update async
     res_apply_async = ActionExecutor.execute("apply_update", {}, async_runner=mock_runner)
