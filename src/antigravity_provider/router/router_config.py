@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from antigravity_provider.router.role_registry import RoleRegistry
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 import yaml
@@ -272,51 +273,7 @@ def get_default_router_config() -> RouterConfig:
         ),
     }
 
-    roles: dict[str, RolePolicy] = {
-        "orchestrator": RolePolicy(
-            role_name="orchestrator",
-            preferred_chain=["codex-orch", "ag-orch-fallback", "opengo-3"],
-            fallback_capabilities=["orchestrator", "reasoning"],
-            max_failover_attempts=3,
-            session_affinity_enabled=True,
-            default_model="gemini-3.7-flash",
-        ),
-        "coder-primary": RolePolicy(
-            role_name="coder-primary",
-            preferred_chain=["codex-worker-1", "ag-w1", "opengo-3"],
-            fallback_capabilities=["coding"],
-            max_failover_attempts=3,
-            session_affinity_enabled=True,
-        ),
-        "coder-secondary": RolePolicy(
-            role_name="coder-secondary",
-            preferred_chain=["codex-worker-2", "ag-w2", "opengo-2"],
-            fallback_capabilities=["coding", "reviewer"],
-            max_failover_attempts=3,
-            session_affinity_enabled=True,
-        ),
-        "reviewer": RolePolicy(
-            role_name="reviewer",
-            preferred_chain=["codex-worker-2", "opengo-2", "ag-w2"],
-            fallback_capabilities=["reviewer", "coding"],
-            max_failover_attempts=3,
-            session_affinity_enabled=True,
-        ),
-        "research": RolePolicy(
-            role_name="research",
-            preferred_chain=["opengo-1", "ag-w3", "ag-w4"],
-            fallback_capabilities=["research", "search"],
-            max_failover_attempts=3,
-            session_affinity_enabled=True,
-        ),
-        "fast": RolePolicy(
-            role_name="fast",
-            preferred_chain=["opengo-1", "ag-w4", "ag-spare-1"],
-            fallback_capabilities=["fast"],
-            max_failover_attempts=3,
-            session_affinity_enabled=True,
-        ),
-    }
+    roles = RoleRegistry.get_default_role_policies()
 
     return RouterConfig(
         enabled=True,

@@ -91,7 +91,7 @@ def test_event_bus_pub_sub():
 
     # UI thread dispatch with root.after mock
     mock_root = MagicMock()
-    bus.publish_to_ui(mock_root, EVENT_ROUTING_UPDATED, {"role": "coder-primary"})
+    bus.publish_to_ui(mock_root, EVENT_ROUTING_UPDATED, {"role": "developer-1"})
     assert mock_root.after.called
 
 
@@ -124,16 +124,16 @@ def test_refresh_scheduler_dedup_and_delays():
 def test_session_affinity_ttl_and_lru():
     tracker = SessionAffinityTracker(ttl_seconds=2, max_entries=3)
 
-    tracker.set_affinity("s1", "coder-primary", "ag-w1", "gemini-2.5-pro")
-    tracker.set_affinity("s2", "coder-primary", "ag-w2", "gemini-2.5-pro")
-    tracker.set_affinity("s3", "reviewer", "codex-w1", "gpt-4o")
+    tracker.set_affinity("s1", "developer-1", "ag-w1", "gemini-2.5-pro")
+    tracker.set_affinity("s2", "developer-1", "ag-w2", "gemini-2.5-pro")
+    tracker.set_affinity("s3", "code-reviewer", "codex-w1", "gpt-4o")
 
     assert tracker.get_affinity("s1") is not None
     assert tracker.get_affinity("s2") is not None
     assert tracker.get_affinity("s3") is not None
 
     # Exceed capacity -> triggers LRU eviction
-    tracker.set_affinity("s4", "fast", "ag-w3", "gemini-2.5-flash")
+    tracker.set_affinity("s4", "tester", "ag-w3", "gemini-2.5-flash")
     assert len(tracker._sessions) <= 3
 
     # Test TTL expiration
@@ -154,7 +154,7 @@ def test_model_registry_capability_filtering():
     assert m_gemini_flash is not None
 
     # Reviewer requires security_analysis and coding
-    req_reviewer = reg.get_role_requirements("reviewer")
+    req_reviewer = reg.get_role_requirements("code-reviewer")
     ok_pro, score_pro, _ = reg.evaluate_model_score(m_gemini_pro, req_reviewer)
     ok_flash, score_flash, reason_flash = reg.evaluate_model_score(m_gemini_flash, req_reviewer)
 
@@ -163,7 +163,7 @@ def test_model_registry_capability_filtering():
     assert ok_flash is False
 
     # Fast role prioritizes latency
-    req_fast = reg.get_role_requirements("fast")
+    req_fast = reg.get_role_requirements("tester")
     ok_f_flash, score_f_flash, _ = reg.evaluate_model_score(m_gemini_flash, req_fast)
     ok_f_pro, score_f_pro, _ = reg.evaluate_model_score(m_gemini_pro, req_fast)
 
@@ -174,7 +174,7 @@ def test_model_registry_capability_filtering():
 # ── TEST 6: RouterEngine Dynamic Selection Trace & Same-Account Fallback ──
 def test_router_engine_selection_trace_and_same_account_fallback():
     cfg = RouterConfig(
-        default_role="coder-primary",
+        default_role="developer-1",
         profiles={
             "ag-w1": RouterProfileConfig(
                 profile_id="ag-w1",
@@ -190,8 +190,8 @@ def test_router_engine_selection_trace_and_same_account_fallback():
             ),
         },
         roles={
-            "coder-primary": RolePolicy(
-                role_name="coder-primary",
+            "developer-1": RolePolicy(
+                role_name="developer-1",
                 preferred_chain=["ag-w1", "codex-w1"],
             ),
         },
@@ -205,10 +205,10 @@ def test_router_engine_selection_trace_and_same_account_fallback():
         mock_adapter.invoke.return_value = {"content": "code generated", "model": "google-antigravity/gemini-2.5-pro"}
         mock_adapter_getter.return_value = mock_adapter
 
-        res = engine.route_request({"messages": [{"role": "user", "content": "hello"}]}, role="coder-primary")
+        res = engine.route_request({"messages": [{"role": "user", "content": "hello"}]}, role="developer-1")
         assert "router_metadata" in res
         meta = res["router_metadata"]
-        assert meta["role"] == "coder-primary"
+        assert meta["role"] == "developer-1"
         assert meta["profile_id"] == "ag-w1"
         assert "selection_trace" in meta
         assert meta["selection_trace"]["selected_model"] == "google-antigravity/gemini-2.5-pro"

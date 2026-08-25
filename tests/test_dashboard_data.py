@@ -69,7 +69,7 @@ def test_provider_call_share_calculation(clean_services):
     # 2. Record 45 antigravity calls, 35 codex calls, 20 opencode calls (Total 100)
     for _ in range(45):
         ts.record_call(
-            role="orchestrator",
+            role="manager",
             profile_id="ag-orch",
             provider="antigravity",
             model="gemini-2.5-pro",
@@ -81,7 +81,7 @@ def test_provider_call_share_calculation(clean_services):
 
     for _ in range(35):
         ts.record_call(
-            role="coder-primary",
+            role="developer-1",
             profile_id="codex-w1",
             provider="openai-codex",
             model="gpt-4o",
@@ -93,7 +93,7 @@ def test_provider_call_share_calculation(clean_services):
 
     for _ in range(20):
         ts.record_call(
-            role="fast",
+            role="tester",
             profile_id="opengo-1",
             provider="opencode-go",
             model="deepseek-v4-flash",
@@ -122,9 +122,9 @@ def test_provider_call_share_calculation(clean_services):
     assert breakdown["by_provider"]["antigravity"]["call_share"] == 0.45
     assert breakdown["by_provider"]["openai-codex"]["call_share"] == 0.35
     assert breakdown["by_provider"]["opencode-go"]["call_share"] == 0.20
-    assert breakdown["by_role"]["orchestrator"]["total_calls"] == 45
-    assert breakdown["by_role"]["coder-primary"]["total_calls"] == 35
-    assert breakdown["by_role"]["fast"]["total_calls"] == 20
+    assert breakdown["by_role"]["manager"]["total_calls"] == 45
+    assert breakdown["by_role"]["developer-1"]["total_calls"] == 35
+    assert breakdown["by_role"]["tester"]["total_calls"] == 20
 
 
 @pytest.mark.unit
@@ -211,8 +211,8 @@ def test_active_calls_and_hub_snapshot_integration(clean_services, tmp_path, mon
             ),
         },
         roles={
-            "orchestrator": RolePolicy(
-                role_name="orchestrator",
+            "manager": RolePolicy(
+                role_name="manager",
                 preferred_chain=["ag-w1"],
             )
         }
@@ -227,7 +227,7 @@ def test_active_calls_and_hub_snapshot_integration(clean_services, tmp_path, mon
 
     # Record 1 call
     ts.record_call(
-        role="orchestrator",
+        role="manager",
         profile_id="ag-w1",
         provider="antigravity",
         model="gemini-2.5-pro",

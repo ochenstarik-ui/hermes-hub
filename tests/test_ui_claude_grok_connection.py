@@ -34,7 +34,7 @@ def test_grok_wizard_definition_and_routing_flow():
     """Verify Grok profile definition and routing pipeline addition."""
     config = RouterConfig(
         profiles={},
-        roles={"coder-primary": RolePolicy(role_name="coder-primary", preferred_chain=[])},
+        roles={"developer-1": RolePolicy(role_name="developer-1", preferred_chain=[])},
     )
     with patch("antigravity_provider.router.auto_assigner.load_router_config", return_value=config), \
          patch("antigravity_provider.router.auto_assigner.save_router_config", return_value=True), \
@@ -47,7 +47,7 @@ def test_grok_wizard_definition_and_routing_flow():
 
         ok_route, msg_route = ensure_profile_in_routing("grok-worker-1")
         assert ok_route, f"Routing failed: {msg_route}"
-        assert "grok-worker-1" in config.roles["coder-primary"].preferred_chain
+        assert "grok-worker-1" in config.roles["developer-1"].preferred_chain
 
 
 @pytest.mark.unit
@@ -55,7 +55,7 @@ def test_claude_wizard_definition_and_routing_flow():
     """Verify Claude profile definition and routing pipeline addition."""
     config = RouterConfig(
         profiles={},
-        roles={"orchestrator": RolePolicy(role_name="orchestrator", preferred_chain=[])},
+        roles={"manager": RolePolicy(role_name="manager", preferred_chain=[])},
     )
     with patch("antigravity_provider.router.auto_assigner.load_router_config", return_value=config), \
          patch("antigravity_provider.router.auto_assigner.save_router_config", return_value=True), \
@@ -68,7 +68,7 @@ def test_claude_wizard_definition_and_routing_flow():
 
         ok_route, msg_route = ensure_profile_in_routing("claude-orch")
         assert ok_route, f"Routing failed: {msg_route}"
-        assert "claude-orch" in config.roles["orchestrator"].preferred_chain
+        assert "claude-orch" in config.roles["manager"].preferred_chain
 
 
 @pytest.mark.unit

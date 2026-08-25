@@ -34,7 +34,7 @@ def isolated_env(tmp_path, monkeypatch):
 def test_auth_required_skipped_in_routing(isolated_env):
     tmp_path, ht = isolated_env
 
-    # Configure 2 profiles for role 'orchestrator'
+    # Configure 2 profiles for role 'manager'
     cfg = RouterConfig(
         profiles={
             "ag-orch-1": RouterProfileConfig(
@@ -49,12 +49,12 @@ def test_auth_required_skipped_in_routing(isolated_env):
             ),
         },
         roles={
-            "orchestrator": RolePolicy(
-                role_name="orchestrator",
+            "manager": RolePolicy(
+                role_name="manager",
                 preferred_chain=["ag-orch-1", "ag-orch-2"],
             ),
         },
-        default_role="orchestrator",
+        default_role="manager",
     )
 
     engine = RouterEngine(config=cfg, health=ht)
@@ -64,7 +64,7 @@ def test_auth_required_skipped_in_routing(isolated_env):
 
     # Initial state: ag-orch-1 is healthy and selected
     with patch.object(AntigravityAdapter, "invoke", side_effect=_mock_invoke):
-        res = engine.route_request({"prompt": "hi"}, role="orchestrator")
+        res = engine.route_request({"prompt": "hi"}, role="manager")
         assert res.get("router_metadata", {}).get("profile_id") == "ag-orch-1"
 
     # Mark ag-orch-1 as AUTH_REQUIRED
@@ -73,7 +73,7 @@ def test_auth_required_skipped_in_routing(isolated_env):
 
     # Routing should skip ag-orch-1 and route to ag-orch-2
     with patch.object(AntigravityAdapter, "invoke", side_effect=_mock_invoke):
-        res = engine.route_request({"prompt": "hi"}, role="orchestrator")
+        res = engine.route_request({"prompt": "hi"}, role="manager")
         assert res.get("router_metadata", {}).get("profile_id") == "ag-orch-2"
 
 
@@ -94,12 +94,12 @@ def test_save_profile_auth_auto_recovery(isolated_env):
             ),
         },
         roles={
-            "orchestrator": RolePolicy(
-                role_name="orchestrator",
+            "manager": RolePolicy(
+                role_name="manager",
                 preferred_chain=["ag-orch-1", "ag-orch-2"],
             ),
         },
-        default_role="orchestrator",
+        default_role="manager",
     )
     engine = RouterEngine(config=cfg, health=ht)
 
@@ -128,7 +128,7 @@ def test_save_profile_auth_auto_recovery(isolated_env):
 
     # Router now routes back to primary profile ag-orch-1
     with patch.object(AntigravityAdapter, "invoke", side_effect=_mock_invoke):
-        res = engine.route_request({"prompt": "hi"}, role="orchestrator")
+        res = engine.route_request({"prompt": "hi"}, role="manager")
         assert res.get("router_metadata", {}).get("profile_id") == "ag-orch-1"
 
 

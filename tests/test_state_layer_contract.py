@@ -159,7 +159,7 @@ def test_single_scheduler_refresh_waits_for_quota_before_delta(monkeypatch: pyte
 def test_model_score_rejects_exhausted_pool_and_prefers_more_quota() -> None:
     registry = ModelRegistry.get()
     descriptor = registry.get_model("gemini-2.5-pro")
-    requirements = registry.get_role_requirements("research")
+    requirements = registry.get_role_requirements("researcher")
     assert descriptor is not None
 
     ok_empty, _, reason = registry.evaluate_model_score(

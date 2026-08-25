@@ -164,8 +164,8 @@ def test_provider_selection_explanation_and_candidate_matrix(tmp_path, monkeypat
             "ag-healthy": RouterProfileConfig(profile_id="ag-healthy", provider="antigravity", enabled=True, preferred_models=["gemini-2.5-pro"]),
         },
         roles={
-            "orchestrator": RolePolicy(
-                role_name="orchestrator",
+            "manager": RolePolicy(
+                role_name="manager",
                 preferred_chain=["ag-disabled", "ag-unauth", "ag-healthy"],
                 max_failover_attempts=3,
             )
@@ -188,7 +188,7 @@ def test_provider_selection_explanation_and_candidate_matrix(tmp_path, monkeypat
 
     with patch.object(AntigravityAdapter, "invoke", side_effect=mock_invoke):
 
-        res = engine.route_request({"messages": [{"role": "user", "content": "explain"}]}, role="orchestrator")
+        res = engine.route_request({"messages": [{"role": "user", "content": "explain"}]}, role="manager")
 
         assert "router_metadata" in res
         meta = res["router_metadata"]
@@ -227,8 +227,8 @@ def test_failover_exhaustion_includes_selection_trace(tmp_path, monkeypatch):
             "ag-w1": RouterProfileConfig(profile_id="ag-w1", provider="antigravity", enabled=True, preferred_models=["gemini-2.5-pro"]),
         },
         roles={
-            "orchestrator": RolePolicy(
-                role_name="orchestrator",
+            "manager": RolePolicy(
+                role_name="manager",
                 preferred_chain=["ag-w1"],
                 max_failover_attempts=1,
             )
@@ -246,7 +246,7 @@ def test_failover_exhaustion_includes_selection_trace(tmp_path, monkeypatch):
     with patch.object(ProfileAuthManager, "get_profile_status", return_value={"authenticated": True, "auth_state": "AUTHENTICATED"}), \
          patch.object(AntigravityAdapter, "invoke", side_effect=mock_invoke_fail):
 
-        res = engine.route_request({"messages": [{"role": "user", "content": "hello"}]}, role="orchestrator")
+        res = engine.route_request({"messages": [{"role": "user", "content": "hello"}]}, role="manager")
 
         assert res.get("router_error") is True
         assert "selection_trace" in res

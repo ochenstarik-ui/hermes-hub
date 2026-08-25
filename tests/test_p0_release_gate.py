@@ -126,7 +126,7 @@ def test_p0_4_auto_assign_all(tmp_path, monkeypatch):
     # Verify only canonical roles exist in config
     cfg = load_router_config()
     for rname in cfg.roles:
-        assert rname in {"orchestrator", "coder-primary", "coder-secondary", "reviewer", "research", "fast"}
+        assert rname in {"manager", "developer-1", "developer-2", "code-reviewer", "researcher", "tester"}
 
 
 @pytest.mark.unit
@@ -148,8 +148,8 @@ def test_p0_5_antigravity_failover_on_quota(tmp_path, monkeypatch):
             ),
         },
         roles={
-            "orchestrator": RolePolicy(
-                role_name="orchestrator",
+            "manager": RolePolicy(
+                role_name="manager",
                 preferred_chain=["ag-orch-primary", "codex-orch-fallback"],
                 max_failover_attempts=2,
             )
@@ -175,7 +175,7 @@ def test_p0_5_antigravity_failover_on_quota(tmp_path, monkeypatch):
     with patch.object(AntigravityAdapter, "invoke", side_effect=mock_agy_invoke), \
          patch.object(CodexAdapter, "invoke", side_effect=mock_codex_invoke):
 
-        res = engine.route_request({"messages": [{"role": "user", "content": "Hello"}]}, role="orchestrator")
+        res = engine.route_request({"messages": [{"role": "user", "content": "Hello"}]}, role="manager")
 
         # Must receive fallback response, NOT error text as message content!
         assert "choices" in res
@@ -236,18 +236,18 @@ def test_p0_7_assign_role_action(tmp_path, monkeypatch):
     config = get_default_router_config()
     save_router_config(config)
 
-    # 1. Assign "coder" -> must update "coder-primary"
+    # 1. Assign "coder" -> must update "developer-1"
     ok, msg = AutoAssigner.assign_profile_to_role("ag-w1", "coder", is_primary=True)
     assert ok is True
     reloaded = load_router_config()
-    assert reloaded.roles["coder-primary"].preferred_chain[0] == "ag-w1"
+    assert reloaded.roles["developer-1"].preferred_chain[0] == "ag-w1"
     assert "coder" not in reloaded.roles  # Must NOT create a non-canonical role
 
-    # 2. Assign "researcher" -> must update "research"
+    # 2. Assign "researcher" -> must update "researcher"
     ok, msg = AutoAssigner.assign_profile_to_role("ag-w2", "researcher", is_primary=True)
     assert ok is True
     reloaded = load_router_config()
-    assert reloaded.roles["research"].preferred_chain[0] == "ag-w2"
+    assert reloaded.roles["researcher"].preferred_chain[0] == "ag-w2"
 
     # 3. Unknown role -> must return False and reject
     ok, msg = AutoAssigner.assign_profile_to_role("ag-w1", "completely_unknown_role_xyz")
@@ -262,7 +262,7 @@ def test_n1_spare_assignment_mode(tmp_path, monkeypatch):
 
     config = get_default_router_config()
     # Put ag-w1 in coder-primary
-    config.roles["coder-primary"].preferred_chain = ["ag-w1", "ag-w2"]
+    config.roles["developer-1"].preferred_chain = ["ag-w1", "ag-w2"]
     save_router_config(config)
 
     # Assign ag-w1 to spare
@@ -271,7 +271,7 @@ def test_n1_spare_assignment_mode(tmp_path, monkeypatch):
     assert "резерв" in msg.lower() or "spare" in msg.lower()
 
     reloaded = load_router_config()
-    assert "ag-w1" not in reloaded.roles["coder-primary"].preferred_chain
+    assert "ag-w1" not in reloaded.roles["developer-1"].preferred_chain
     assert "spare" not in reloaded.roles  # Canonical role set unchanged
     assert reloaded.profiles["ag-w1"].enabled is True
 
@@ -303,12 +303,12 @@ def test_p0_8_wizard_role_application(tmp_path, monkeypatch):
     save_router_config(config)
 
     # Apply role
-    ok, msg = AutoAssigner.assign_profile_to_role("codex-worker-1", "reviewer", is_primary=True)
+    ok, msg = AutoAssigner.assign_profile_to_role("codex-worker-1", "code-reviewer", is_primary=True)
     assert ok is True
 
     reloaded = load_router_config()
-    assert "codex-worker-1" in reloaded.roles["reviewer"].preferred_chain
-    assert reloaded.roles["reviewer"].preferred_chain[0] == "codex-worker-1"
+    assert "codex-worker-1" in reloaded.roles["code-reviewer"].preferred_chain
+    assert reloaded.roles["code-reviewer"].preferred_chain[0] == "codex-worker-1"
 
 
 @pytest.mark.unit
@@ -392,8 +392,8 @@ def test_r4_settings_runtime_influence(tmp_path, monkeypatch):
             "codex-orch-fallback": RouterProfileConfig(profile_id="codex-orch-fallback", provider="openai-codex", enabled=True),
         },
         roles={
-            "orchestrator": RolePolicy(
-                role_name="orchestrator",
+            "manager": RolePolicy(
+                role_name="manager",
                 preferred_chain=["ag-orch-primary", "codex-orch-fallback"],
                 max_failover_attempts=2,
             )
@@ -413,7 +413,7 @@ def test_r4_settings_runtime_influence(tmp_path, monkeypatch):
     with patch.object(AntigravityAdapter, "invoke", side_effect=mock_agy_quota), \
          patch.object(CodexAdapter, "invoke", mock_codex):
 
-        res = engine.route_request({"messages": [{"role": "user", "content": "Hello"}]}, role="orchestrator")
+        res = engine.route_request({"messages": [{"role": "user", "content": "Hello"}]}, role="manager")
         assert "error" in res or "choices" in res
         # Codex fallback must NOT have been called because auto_failover was False!
         assert mock_codex.call_count == 0
@@ -425,7 +425,7 @@ def test_r4_settings_runtime_influence(tmp_path, monkeypatch):
     with patch.object(AntigravityAdapter, "invoke", side_effect=mock_agy_quota), \
          patch.object(CodexAdapter, "invoke", mock_codex):
 
-        res = engine.route_request({"messages": [{"role": "user", "content": "Hello"}]}, role="orchestrator")
+        res = engine.route_request({"messages": [{"role": "user", "content": "Hello"}]}, role="manager")
         assert res["choices"][0]["message"]["content"] == "Fallback OK"
         assert mock_codex.call_count == 1
 

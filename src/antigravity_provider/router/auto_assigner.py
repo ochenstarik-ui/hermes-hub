@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from antigravity_provider.router.profile_manager import ProfileAuthManager, mask_email, mask_id
+from antigravity_provider.router.role_registry import RoleRegistry
 from antigravity_provider.router.router_config import (
     RolePolicy,
     RouterConfig,
@@ -25,19 +26,7 @@ from antigravity_provider.router.router_config import (
 
 logger = logging.getLogger("hermes.router.auto_assigner")
 
-HUMAN_ROLE_LABELS = {
-    "orchestrator_primary": "Главный оркестратор",
-    "orchestrator_fallback": "Резервный оркестратор",
-    "coder_1": "Кодер 1",
-    "coder_2": "Кодер 2",
-    "reviewer": "Ревьюер",
-    "researcher": "Исследователь",
-    "fast_agent": "Быстрый агент",
-    "universal_subagent": "Универсальный субагент",
-    "spare_1": "Резерв 1",
-    "spare_2": "Резерв 2",
-    "cold_spare": "Холодный резерв",
-}
+HUMAN_ROLE_LABELS = RoleRegistry.get_human_role_labels()
 
 DEFAULT_SLOT_ROLES = {
     "codex-orch": ("Главный оркестратор", "orchestrator", "primary"),
@@ -67,35 +56,7 @@ DEFAULT_SLOT_ROLES = {
 }
 
 
-CANONICAL_ROLE_MAP = {
-    "orchestrator": "orchestrator",
-    "orchestrator_primary": "orchestrator",
-    "orchestrator_fallback": "orchestrator",
-    "главный оркестратор": "orchestrator",
-    "резервный оркестратор": "orchestrator",
-    "coder": "coder-primary",
-    "coder_1": "coder-primary",
-    "coder-1": "coder-primary",
-    "coder-primary": "coder-primary",
-    "кодер 1": "coder-primary",
-    "coder_2": "coder-secondary",
-    "coder-2": "coder-secondary",
-    "coder-secondary": "coder-secondary",
-    "кодер 2": "coder-secondary",
-    "reviewer": "reviewer",
-    "ревьюер": "reviewer",
-    "research": "research",
-    "researcher": "research",
-    "исследователь": "research",
-    "fast": "fast",
-    "fast_agent": "fast",
-    "быстрый агент": "fast",
-    "general": "fast",
-    "universal_subagent": "fast",
-    "универсальный субагент": "fast",
-    "tester": "fast",
-    "тестировщик": "fast",
-}
+CANONICAL_ROLE_MAP = RoleRegistry.get_canonical_role_map()
 
 
 class AutoAssigner:
@@ -172,7 +133,7 @@ class AutoAssigner:
         candidates = list(provider_slots.get(provider_norm, []))
 
         # Priority based on requested role
-        if requested_role == "orchestrator":
+        if requested_role == "manager":
             if provider_norm in ("openai-codex", "codex") and "codex-orch" in candidates:
                 candidates.remove("codex-orch")
                 candidates.insert(0, "codex-orch")
@@ -368,7 +329,7 @@ class AutoAssigner:
                 "changes": [],
             }
 
-        canonical_roles = ["orchestrator", "coder-primary", "coder-secondary", "reviewer", "research", "fast"]
+        canonical_roles = [r for r in RoleRegistry.get_role_ids() if RoleRegistry.is_role_implemented(r)]
         changes: List[Dict[str, Any]] = []
 
         # Ensure canonical roles exist in config
@@ -418,12 +379,12 @@ class AutoAssigner:
         else:
             # Case 3: Multiple providers connected -> distribute by role provider preferences
             role_provider_preferences = {
-                "orchestrator": ["codex", "antigravity", "opencode", "claude", "grok", "local"],
-                "coder-primary": ["codex", "antigravity", "opencode", "claude", "grok", "local"],
-                "coder-secondary": ["codex", "antigravity", "opencode", "claude", "grok", "local"],
-                "reviewer": ["codex", "opencode", "antigravity", "claude", "grok", "local"],
-                "research": ["opencode", "antigravity", "grok", "claude", "codex", "local"],
-                "fast": ["opencode", "antigravity", "local", "grok", "codex", "claude"],
+                "manager": ["codex", "antigravity", "opencode", "claude", "grok", "local"],
+                "developer-1": ["codex", "antigravity", "opencode", "claude", "grok", "local"],
+                "developer-2": ["codex", "antigravity", "opencode", "claude", "grok", "local"],
+                "code-reviewer": ["codex", "opencode", "antigravity", "claude", "grok", "local"],
+                "researcher": ["opencode", "antigravity", "grok", "claude", "codex", "local"],
+                "tester": ["opencode", "antigravity", "local", "grok", "codex", "claude"],
             }
 
             by_prov: Dict[str, List[str]] = {}
@@ -503,7 +464,7 @@ class AutoAssigner:
         main_codex = ProfileAuthManager.get_main_profile("openai-codex")
 
         team = {
-            "orchestrator": [],
+            "manager": [],
             "subagents": [],
             "spares": [],
             "summary": {

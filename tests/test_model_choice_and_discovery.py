@@ -54,7 +54,7 @@ def test_set_model_success_and_config_persistence(temp_models_cache):
     res = ActionExecutor.execute("set_model", {
         "profile_id": profile_id,
         "model": target_model,
-        "role_id": "coder-primary",
+        "role_id": "developer-1",
     })
 
     assert res["ok"] is True
@@ -63,7 +63,7 @@ def test_set_model_success_and_config_persistence(temp_models_cache):
     # Verify persistence on disk
     reloaded = load_router_config()
     assert reloaded.profiles[profile_id].preferred_models[0] == target_model
-    assert reloaded.roles["coder-primary"].default_model == target_model
+    assert reloaded.roles["developer-1"].default_model == target_model
 
 
 def test_set_model_rejects_nonexistent_model(temp_models_cache):

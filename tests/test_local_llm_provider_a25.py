@@ -254,14 +254,14 @@ class TestLocalLLMConfigAndAutoAssigner:
 
         p1 = cfg.profiles["local-1"]
         assert p1.provider == "local"
-        assert "reviewer" in p1.capabilities
+        assert "code-reviewer" in p1.capabilities
         assert "coding" in p1.capabilities
         assert "Qwen3.8-27B-Q4_K_M.gguf" in p1.preferred_models
         assert p1.max_concurrency == 1
 
         p2 = cfg.profiles["local-2"]
         assert p2.provider == "local"
-        assert "fast" in p2.capabilities
+        assert "tester" in p2.capabilities
         assert "Qwen3-4B-Instruct-2507-Q4_K_M.gguf" in p2.preferred_models
         assert p2.max_concurrency == 1
 
@@ -277,7 +277,7 @@ class TestLocalLLMConfigAndAutoAssigner:
             }
             legacy_cfg = RouterConfig(
                 enabled=True,
-                default_role="orchestrator",
+                default_role="manager",
                 roles=get_default_router_config().roles,
                 profiles=legacy_profiles,
             )

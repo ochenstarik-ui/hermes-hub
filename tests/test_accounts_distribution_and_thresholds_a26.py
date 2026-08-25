@@ -89,7 +89,8 @@ def test_single_account_assigned_to_all_six_roles_p0_3():
     """P0-3: A single account can be assigned as primary across all 6 canonical roles without error."""
     ProfileAuthManager.save_profile_auth("antigravity", "ag-w1", {"tokens": {"access_token": "token-1"}})
 
-    canonical_roles = ["orchestrator", "coder-primary", "coder-secondary", "reviewer", "research", "fast"]
+    from antigravity_provider.router.role_registry import RoleRegistry
+    canonical_roles = list(RoleRegistry.get_role_ids())
 
     for rname in canonical_roles:
         ok, msg = AutoAssigner.assign_profile_to_role("ag-w1", rname, is_primary=True)
@@ -101,7 +102,7 @@ def test_single_account_assigned_to_all_six_roles_p0_3():
         assert cfg.roles[rname].preferred_chain[0] == "ag-w1"
 
     # Verify action executor handles assign_role cleanly
-    res = ActionExecutor.execute("assign_role", {"role_id": "orchestrator", "profile_id": "ag-w1", "is_primary": True})
+    res = ActionExecutor.execute("assign_role", {"role_id": "manager", "profile_id": "ag-w1", "is_primary": True})
     assert res.get("ok") is True
 
 
@@ -115,9 +116,11 @@ def test_auto_assign_all_single_account_p0_4():
     assert result["total_authenticated"] == 1
 
     cfg = load_router_config()
-    canonical_roles = ["orchestrator", "coder-primary", "coder-secondary", "reviewer", "research", "fast"]
+    from antigravity_provider.router.role_registry import RoleRegistry
+    canonical_roles = list(RoleRegistry.get_role_ids())
     for rname in canonical_roles:
-        assert cfg.roles[rname].preferred_chain == ["ag-w1"]
+        if RoleRegistry.is_role_implemented(rname):
+            assert cfg.roles[rname].preferred_chain == ["ag-w1"]
 
 
 @pytest.mark.unit
@@ -132,11 +135,11 @@ def test_auto_assign_all_two_accounts_same_provider_p0_4():
 
     cfg = load_router_config()
     # Primary accounts should alternate between ag-w1 and ag-w2
-    primaries = [cfg.roles[r].preferred_chain[0] for r in ["orchestrator", "coder-primary", "coder-secondary", "reviewer", "research", "fast"]]
+    primaries = [cfg.roles[r].preferred_chain[0] for r in ["manager", "developer-1", "developer-2", "code-reviewer", "researcher", "tester"]]
     assert "ag-w1" in primaries
     assert "ag-w2" in primaries
     # Fallback chains should contain the alternate account
-    for r in ["orchestrator", "coder-primary", "coder-secondary", "reviewer", "research", "fast"]:
+    for r in ["manager", "developer-1", "developer-2", "code-reviewer", "researcher", "tester"]:
         chain = cfg.roles[r].preferred_chain
         assert len(chain) == 2
         assert set(chain) == {"ag-w1", "ag-w2"}
@@ -155,10 +158,10 @@ def test_auto_assign_all_multi_provider_preferences_p0_4():
 
     cfg = load_router_config()
     # Orchestrator prefers codex
-    assert cfg.roles["orchestrator"].preferred_chain[0] == "codex-orch"
+    assert cfg.roles["manager"].preferred_chain[0] == "codex-orch"
     # Research / fast prefers opencode
-    assert cfg.roles["research"].preferred_chain[0] == "opengo-1"
-    assert cfg.roles["fast"].preferred_chain[0] == "opengo-1"
+    assert cfg.roles["researcher"].preferred_chain[0] == "opengo-1"
+    assert cfg.roles["tester"].preferred_chain[0] == "opengo-1"
 
 
 @pytest.mark.unit
