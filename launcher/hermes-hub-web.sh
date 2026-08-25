@@ -95,16 +95,48 @@ if ! check_health; then
 fi
 
 # 4. Headless Server Check (SSH / No Graphical Display)
+#
+# Текст здесь раньше был зашит: он всегда советовал пробрасывать порт и
+# показывал 127.0.0.1, даже когда хаб уже привязан к сети и доступен напрямую.
+# Инструкция, не совпадающая с настройками, хуже отсутствующей — владелец
+# поднимал туннель к серверу, который и так был виден.
 if [ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ]; then
+    SETTINGS_FILE="$HERMES_HOME/hub_settings.json"
+    BIND_HOST="127.0.0.1"
+    if [ -f "$SETTINGS_FILE" ]; then
+        BIND_HOST="$("$PYTHON_BIN" - "$SETTINGS_FILE" <<'PYEOF' 2>/dev/null || echo "127.0.0.1"
+import json, sys
+try:
+    print(json.load(open(sys.argv[1], encoding="utf-8")).get("web_api_host", "127.0.0.1"))
+except Exception:
+    print("127.0.0.1")
+PYEOF
+)"
+    fi
+
     echo "======================================================================"
-    echo "  Hermes Hub Web Server is running (Headless Mode)"
-    echo "  Web Interface URL: $TARGET_URL"
+    echo "  Hermes Hub Web Server is running (no graphical display)"
     echo ""
-    echo "  To access the interface from your local computer, forward the port:"
-    echo "    ssh -L $PORT:127.0.0.1:$PORT user@server"
-    echo ""
-    echo "  Then open in your browser:"
-    echo "    $TARGET_URL"
+    if [ "$BIND_HOST" = "127.0.0.1" ] || [ -z "$BIND_HOST" ]; then
+        echo "  Listening on 127.0.0.1:$PORT — reachable from this machine only."
+        echo ""
+        echo "  To open it from another computer, forward the port:"
+        echo "    ssh -L $PORT:127.0.0.1:$PORT <user>@<this-host>"
+        echo "  then open http://127.0.0.1:$PORT/ there."
+        echo ""
+        echo "  To expose it on the local network instead:"
+        echo "    python3 $HERMES_HOME/scripts/enable_lan_access.py"
+    else
+        LAN_IP="$(hostname -I 2>/dev/null | awk '{print $1}')"
+        [ -n "$LAN_IP" ] || LAN_IP="<address of this host>"
+        echo "  Listening on $BIND_HOST:$PORT — reachable over the network."
+        echo ""
+        echo "  Open from another computer:"
+        echo "    http://$LAN_IP:$PORT/"
+        echo ""
+        echo "  A token is required: paste it in Settings on first open."
+        echo "  No port forwarding needed."
+    fi
     echo "======================================================================"
     exit 0
 fi

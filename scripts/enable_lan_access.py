@@ -1,7 +1,8 @@
 """Открыть веб-хаб в домашнюю сеть: привязка к 0.0.0.0 плюс обязательный токен.
 
-    python3 scripts/enable_lan_access.py            # показать, что будет сделано
-    python3 scripts/enable_lan_access.py --yes      # применить
+    python3 scripts/enable_lan_access.py              # показать, что будет сделано
+    python3 scripts/enable_lan_access.py --yes        # применить
+    python3 scripts/enable_lan_access.py --yes --rotate   # сменить токен
 
 Почему подтверждение обязательно. Каталог берётся из HERMES_HOME, а эта
 переменная часто задана в окружении незаметно для запускающего. При отладке
@@ -20,6 +21,7 @@ from pathlib import Path
 
 def main() -> int:
     apply = "--yes" in sys.argv
+    rotate = "--rotate" in sys.argv
     env_home = os.environ.get("HERMES_HOME")
     home = Path(env_home) if env_home else (Path.home() / ".hermes")
     target = home / "hub_settings.json"
@@ -37,10 +39,16 @@ def main() -> int:
             print(f"\nОТКАЗ: {target} повреждён. Разберитесь вручную — перезаписывать не буду.")
             return 1
 
-    existing = data.get("web_api_token")
+    existing = None if rotate else data.get("web_api_token")
     keep = sorted(k for k in data if not k.startswith("web_api"))
     print(f"Будут сохранены: {', '.join(keep) if keep else '(файл пуст)'}")
-    print(f"Токен          : {'уже задан, оставляю прежний' if existing else 'будет создан новый'}")
+    if rotate:
+        note = "БУДЕТ ЗАМЕНЁН — прежний перестанет действовать"
+    elif existing:
+        note = "уже задан, оставляю прежний"
+    else:
+        note = "будет создан новый"
+    print(f"Токен          : {note}")
 
     if not apply:
         print("\nПоказан предпросмотр. Чтобы применить, повторите с --yes")
