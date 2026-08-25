@@ -5,6 +5,7 @@ Tests adherence to docs/web-api/CONTRACT.md and A16 requirements.
 
 from __future__ import annotations
 
+import inspect
 import json
 from pathlib import Path
 import pytest
@@ -165,3 +166,18 @@ def test_client_distinguishes_loading_from_missing_data():
     assert "!unavailableReason" in app_js or "! unavailableReason" in app_js, (
         "состояние загрузки не подавляется при известной причине отказа"
     )
+
+
+def test_token_gate_is_constant_time_and_rejects_near_miss():
+    """Токен сравнивается в постоянном времени и не течёт в /api/settings.
+
+    Раздел 3 контракта требует secrets.compare_digest, но в коде стояло
+    обычное !=. Проверка появилась перед тем, как хаб выставили в сеть.
+    Сравнение идёт в БАЙТАХ: compare_digest со строками запрещает не-ASCII и
+    падает TypeError, то есть нестандартный токен давал бы 500 вместо отказа.
+    """
+    import antigravity_provider.router.web.server as web_server
+
+    src = inspect.getsource(web_server.get_auth_token)
+    assert "compare_digest" in src, "сравнение токена снова не постоянного времени"
+    assert ".encode(" in src, "сравнение не в байтах: не-ASCII токен даст 500 вместо отказа"

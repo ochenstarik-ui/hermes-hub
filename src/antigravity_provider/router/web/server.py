@@ -1,4 +1,5 @@
 import json
+import secrets
 import os
 import sys
 import threading
@@ -57,7 +58,16 @@ def get_auth_token(x_hub_token: str = Header(None)) -> bool:
         required_token = settings.get('web_api_token', '')
         if not required_token:
             raise HTTPException(status_code=500, detail="Server misconfigured: external bind requires a token")
-        if x_hub_token != required_token:
+        # Сравнение постоянного времени — требование раздела 3 контракта,
+        # которое до сих пор не было выполнено: стояло обычное !=, дающее
+        # утечку по времени посимвольного сравнения. Заголовок может быть
+        # None, поэтому приводим к строке до сравнения.
+        # Сравниваем в байтах: compare_digest со строками запрещает не-ASCII
+        # и падает TypeError, то есть токен с кириллицей давал бы 500 вместо
+        # честного отказа.
+        _given = str(x_hub_token or '').encode('utf-8')
+        _needed = str(required_token).encode('utf-8')
+        if not secrets.compare_digest(_given, _needed):
             raise HTTPException(status_code=401, detail="Invalid X-Hub-Token")
     return True
 
