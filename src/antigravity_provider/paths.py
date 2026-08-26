@@ -95,6 +95,11 @@ def get_workflow_state_path() -> Path:
     return get_config_dir() / "workflow_state.json"
 
 
+def get_workflow_run_state_path() -> Path:
+    """Return the persisted active workflow run state file."""
+    return get_config_dir() / "workflow_run_state.json"
+
+
 def get_agent_files_dir() -> Path:
     """Return the user-editable directory containing real Agent Files."""
     directory = get_hermes_home() / "agents"

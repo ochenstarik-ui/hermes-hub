@@ -22,7 +22,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "monitoring_interval_seconds": 30,
     "quota_threshold_percent": 10.0,
     "quota_threshold_action": "notify",
+    "email_masking_mode": "none",
 }
+
 
 
 _SETTINGS_CACHE: Dict[str, Any] | None = None
@@ -97,6 +99,11 @@ def get_hub_settings() -> Dict[str, Any]:
     if action not in ("notify", "switch"):
         action = "notify"
     merged["quota_threshold_action"] = action
+
+    email_mode = str(merged.get("email_masking_mode", "none")).strip().lower()
+    if email_mode not in ("none", "partial", "full"):
+        email_mode = "none"
+    merged["email_masking_mode"] = email_mode
 
     _SETTINGS_CACHE = dict(merged)
     _SETTINGS_CACHE_MTIME = current_mtime

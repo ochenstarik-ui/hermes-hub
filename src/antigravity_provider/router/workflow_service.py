@@ -35,6 +35,47 @@ def _slug(value: str) -> str:
     return result or f"agent-{uuid.uuid4().hex[:8]}"
 
 
+def sanitize_run_data(node: Any) -> Any:
+    """Recursively strip or mask any credentials or secret keys from workflow run state."""
+    secret_key_substrings = [
+        "api_key", "token", "password", "secret", "jwt", "bearer",
+        "access_token", "refresh_token", "client_secret", "authorization",
+    ]
+    if isinstance(node, dict):
+        sanitized: dict[str, Any] = {}
+        for k, v in node.items():
+            k_lower = str(k).lower()
+            if any(s in k_lower for s in secret_key_substrings) and k_lower not in ("auth_status", "author", "auth_required"):
+                sanitized[k] = "***"
+            else:
+                sanitized[k] = sanitize_run_data(v)
+        return sanitized
+    elif isinstance(node, list):
+        return [sanitize_run_data(x) for x in node]
+    elif isinstance(node, str):
+        val = node
+        val = re.sub(r'Bearer\s+[a-zA-Z0-9_\-\.]{8,}', 'Bearer ***', val, flags=re.IGNORECASE)
+        val = re.sub(r'sk-[a-zA-Z0-9_\-]{8,}', 'sk-***', val)
+        val = re.sub(r'gho_[a-zA-Z0-9_\-]{8,}', 'gho_***', val)
+        val = re.sub(r'((?:access_token|refresh_token|api_key|token|password|secret|key)=)([^\s&,"]+)', r'\g<1>***', val, flags=re.IGNORECASE)
+        return val
+    return node
+
+
+def get_last_run_state(run_state_path: Optional[Path] = None) -> Optional[dict[str, Any]]:
+    """Return the last saved workflow run state from workflow_run_state.json, if any."""
+    p = run_state_path or paths.get_workflow_run_state_path()
+    if not p.is_file():
+        return None
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        if isinstance(data, dict):
+            return sanitize_run_data(data)
+    except Exception:
+        pass
+    return None
+
+
 def _safe_agent_file(value: str, agent_id: str) -> tuple[Path, str]:
     """Resolve an Agent File below HERMES_HOME/agents and reject traversal."""
     root = paths.get_agent_files_dir().resolve()
@@ -103,8 +144,9 @@ class WorkflowService:
     _instance: Optional["WorkflowService"] = None
     _instance_lock = threading.Lock()
 
-    def __init__(self, state_path: Optional[Path] = None) -> None:
+    def __init__(self, state_path: Optional[Path] = None, run_state_path: Optional[Path] = None) -> None:
         self.state_path = state_path or paths.get_workflow_state_path()
+        self.run_state_path = run_state_path or paths.get_workflow_run_state_path()
         self._lock = threading.RLock()
         self._stop = threading.Event()
         self._thread: Optional[threading.Thread] = None
@@ -112,6 +154,7 @@ class WorkflowService:
         self.workflow = WorkflowDefinition()
         self.events: list[WorkflowEvent] = []
         self.run: dict[str, Any] = self._idle_run()
+        self._completed_steps: list[dict[str, Any]] = []
         self._load()
         self._migrate_router_roles()
 
@@ -140,6 +183,25 @@ class WorkflowService:
         }
 
     def _load(self) -> None:
+        # 1. Load run state from workflow_run_state.json
+        if self.run_state_path.is_file():
+            try:
+                run_state = json.loads(self.run_state_path.read_text(encoding="utf-8"))
+                if isinstance(run_state, dict):
+                    self._completed_steps = list(run_state.get("completed_steps", []))
+                    if run_state.get("status") in {"RUNNING", "running", "STOPPING", "stopping"}:
+                        run_state["status"] = "INTERRUPTED"
+                        run_state["interruption_reason"] = "Прогон был прерван перезапуском сервера или сбоем процесса"
+                        run_state["updated_at"] = _utc_timestamp()
+                        sanitized = sanitize_run_data(run_state)
+                        self.run_state_path.parent.mkdir(parents=True, exist_ok=True)
+                        temp = self.run_state_path.with_suffix(".tmp")
+                        temp.write_text(json.dumps(sanitized, ensure_ascii=False, indent=2), encoding="utf-8")
+                        temp.replace(self.run_state_path)
+            except Exception:
+                self._completed_steps = []
+
+        # 2. Load workflow definition and events from workflow_state.json
         if not self.state_path.is_file():
             return
         try:
@@ -163,6 +225,42 @@ class WorkflowService:
             self.workflow = WorkflowDefinition()
             self.events = []
             self.run = self._idle_run()
+
+    def _save_run_state(
+        self,
+        status: str,
+        step_index: int = 0,
+        current_agent: Optional[str] = None,
+        iteration: int = 1,
+        completed_step: Optional[dict[str, Any]] = None,
+        interruption_reason: Optional[str] = None,
+    ) -> None:
+        if completed_step:
+            self._completed_steps.append(sanitize_run_data(completed_step))
+
+        state_payload = {
+            "run_id": self.run.get("id"),
+            "status": status.upper(),
+            "started_at": self.run.get("started_at"),
+            "updated_at": _utc_timestamp(),
+            "current_step_index": step_index,
+            "current_agent_id": current_agent,
+            "iteration_count": iteration,
+            "completed_steps": list(self._completed_steps),
+            "interruption_reason": interruption_reason,
+        }
+        sanitized = sanitize_run_data(state_payload)
+        try:
+            self.run_state_path.parent.mkdir(parents=True, exist_ok=True)
+            temp = self.run_state_path.with_suffix(".tmp")
+            temp.write_text(json.dumps(sanitized, ensure_ascii=False, indent=2), encoding="utf-8")
+            temp.replace(self.run_state_path)
+        except Exception:
+            pass
+
+    def get_last_run_state(self) -> Optional[dict[str, Any]]:
+        """Return the last saved run state from workflow_run_state.json."""
+        return get_last_run_state(self.run_state_path)
 
     def _save(self) -> None:
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
@@ -425,6 +523,7 @@ class WorkflowService:
             if not start_id or start_id not in self.agents:
                 raise ValueError("В workflow нет стартового агента")
             self._stop.clear()
+            self._completed_steps = []
             self.run = self._idle_run()
             self.run.update({
                 "id": uuid.uuid4().hex,
@@ -436,6 +535,7 @@ class WorkflowService:
             })
             self._event("WORKFLOW_STARTED", "Workflow запущен", run_id=self.run["id"], iteration=1)
             self._save()
+            self._save_run_state("RUNNING", step_index=0, current_agent=start_id, iteration=1)
             self._thread = threading.Thread(target=self._execute, name="HermesWorkflow", daemon=True)
             self._thread.start()
             return dict(self.run)
@@ -448,6 +548,7 @@ class WorkflowService:
             self._stop.set()
             self._event("WORKFLOW_STOP_REQUESTED", "Запрошена остановка workflow", level="warning")
             self._save()
+            self._save_run_state("STOPPED", step_index=len(self._completed_steps), current_agent=self.run.get("current_agent_id"), iteration=self.run.get("iteration", 1), interruption_reason="Остановлено пользователем")
             return dict(self.run)
 
     def _execute(self) -> None:
@@ -466,10 +567,12 @@ class WorkflowService:
                     visited[current] = visited.get(current, 0) + 1
                     iteration = max(visited.values())
                     self.run.update({"current_agent_id": current, "iteration": iteration})
+                    step_idx = len(self._completed_steps)
                     if iteration > self.workflow.max_iterations:
                         message = f"Достигнут предел итераций: {self.workflow.max_iterations}"
                         self.run.update({"status": "failed", "error": message})
                         self._event("WORKFLOW_MAX_ITERATIONS", message, level="error", agent_id=current, iteration=iteration)
+                        self._save_run_state("FAILED", step_index=step_idx, current_agent=current, iteration=iteration, interruption_reason=message)
                         break
                     file_data = self.read_agent_file(current)
                     if not file_data["exists"]:
@@ -479,6 +582,7 @@ class WorkflowService:
                     )
                     self._event("AGENT_STARTED", f"{agent.name} начал выполнение", agent_id=current, iteration=iteration)
                     self._save()
+                    self._save_run_state("RUNNING", step_index=step_idx, current_agent=current, iteration=iteration)
                 request = {
                     "model": self._execution_config(agent).get("model"),
                     "messages": [
@@ -515,6 +619,19 @@ class WorkflowService:
                         duration_seconds=duration,
                         error=text if status == "ERROR" else None,
                     )
+                    step_summary = {
+                        "step_index": step_idx,
+                        "agent_id": current,
+                        "agent_name": agent.name,
+                        "iteration": iteration,
+                        "status": status,
+                        "duration_seconds": duration,
+                        "provider": metadata.get("provider"),
+                        "account": metadata.get("profile_id"),
+                        "model": metadata.get("selected_model") or (metadata.get("selection_trace") or {}).get("selected_model"),
+                        "error": text if status in {"ERROR", "REVIEW_FAILED"} else None,
+                        "timestamp": _utc_timestamp(),
+                    }
                     edge = next(
                         (item for item in self.workflow.edges if item.source == current and item.condition in {status, "ALWAYS"}),
                         None,
@@ -548,6 +665,14 @@ class WorkflowService:
                                 )
                             except Exception:
                                 pass
+                        self._save_run_state(
+                            "FAILED" if self.run["status"] == "failed" else "COMPLETED",
+                            step_index=step_idx + 1,
+                            current_agent=current,
+                            iteration=iteration,
+                            completed_step=step_summary,
+                            interruption_reason=self.run.get("error") if self.run["status"] == "failed" else None,
+                        )
                         break
                     self._event(
                         "WORKFLOW_TRANSITION",
@@ -562,10 +687,18 @@ class WorkflowService:
                     }, ensure_ascii=False)
                     current = edge.target
                     self._save()
+                    self._save_run_state(
+                        "RUNNING",
+                        step_index=step_idx + 1,
+                        current_agent=current,
+                        iteration=iteration,
+                        completed_step=step_summary,
+                    )
             with self._lock:
                 if self._stop.is_set():
                     self.run.update({"status": "stopped", "error": "Остановлено пользователем"})
                     self._event("WORKFLOW_STOPPED", "Workflow остановлен пользователем", level="warning")
+                    self._save_run_state("STOPPED", step_index=len(self._completed_steps), current_agent=current, iteration=iteration, interruption_reason="Остановлено пользователем")
         except Exception as exc:
             with self._lock:
                 self.run.update({"status": "failed", "error": str(exc)})
@@ -576,12 +709,14 @@ class WorkflowService:
                     EventLogService.get().log("workflow", "Ошибка выполнения workflow", details=str(exc), level="error")
                 except Exception:
                     pass
+                self._save_run_state("FAILED", step_index=len(self._completed_steps), current_agent=current, iteration=visited.get(current, 1), interruption_reason=str(exc))
         finally:
             with self._lock:
                 self.run["finished_at"] = _utc_timestamp()
                 self.run["elapsed_seconds"] = round(time.monotonic() - started, 3)
                 self.run["current_agent_id"] = current or self.run.get("current_agent_id")
                 self._save()
+
 
     @staticmethod
     def _response_text(response: Any) -> str:
@@ -644,3 +779,7 @@ def execute_workflow_action(action: str, data: dict[str, Any]) -> dict[str, Any]
         except Exception:
             pass
     return {"ok": True, "message": "Выполнено", "data": result}
+
+
+# Alias for execution service compatibility
+WorkflowExecutionService = WorkflowService

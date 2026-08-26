@@ -102,6 +102,7 @@ readiness, agents, providers, routing, quotas, metrics, is_stale
 | `save_workflow` | Валидировать и сохранить узлы, рёбра, layout и предел итераций | `edges`, `agents`, `max_iterations` |
 | `start_workflow` | Запустить реальную задачу через RouterEngine | `task` |
 | `stop_workflow` | Запросить остановку текущего запуска | — |
+| `run_preflight` | Запустить zero-quota проверку зависимостей, CLI, Python окружения и локальных серверов | — |
 
 Состояние графа и LIVE-журнал приходят в поле `workflow` ответа
 `GET /api/snapshot`. `workflow.run.status=loading` означает загрузку;
@@ -113,9 +114,10 @@ account_details   add_account       agent_settings    apply_update
 assign_role       auto_assign_all   check_updates     delete_credentials
 edit_route        get_update_status oauth             open_routing
 refresh_account   refresh_all       refresh_data      refresh_models
-reorder_chain     save_chain        save_settings     set_main
-set_model         set_orchestrator  test
+reorder_chain     run_preflight     save_chain        save_settings
+set_main          set_model         set_orchestrator  test
 ```
+
 
 Ответ:
 

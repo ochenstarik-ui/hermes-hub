@@ -31,6 +31,15 @@ MAX_FILE_BYTES = 5 * 1024 * 1024  # 5 MB
 MAX_BACKUP_FILES = 3
 
 
+def format_token_count(measured: Optional[int], estimated: Optional[int]) -> Optional[str]:
+    """Format token count distinguishing measured exact counts from estimations (~)."""
+    if measured is not None:
+        return str(measured)
+    elif estimated is not None:
+        return f"~{estimated}"
+    return None
+
+
 @dataclass
 class TelemetryRecord:
     """Immutable record of an individual router invocation attempt."""
@@ -45,6 +54,13 @@ class TelemetryRecord:
     prompt_tokens: Optional[int] = None
     completion_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
+    prompt_tokens_measured: Optional[int] = None
+    prompt_tokens_estimated: Optional[int] = None
+    completion_tokens_measured: Optional[int] = None
+    completion_tokens_estimated: Optional[int] = None
+    total_tokens_measured: Optional[int] = None
+    total_tokens_estimated: Optional[int] = None
+    is_estimated: bool = False
     cost_usd: Optional[float] = None
     failover_count: int = 0
     error_category: Optional[str] = None
@@ -69,6 +85,14 @@ class TelemetryAggregates:
     total_prompt_tokens: Optional[int] = None   # Sum of reported prompt tokens or None if no token data
     total_completion_tokens: Optional[int] = None
     total_tokens: Optional[int] = None
+    total_prompt_tokens_measured: Optional[int] = None
+    total_prompt_tokens_estimated: Optional[int] = None
+    total_completion_tokens_measured: Optional[int] = None
+    total_completion_tokens_estimated: Optional[int] = None
+    total_tokens_measured: Optional[int] = None
+    total_tokens_estimated: Optional[int] = None
+    tokens_display: Optional[str] = None
+    has_estimated_tokens: bool = False
     total_cost_usd: Optional[float] = None      # Sum of calculated costs or None if no pricing available
     failovers_count: int = 0
     failover_reasons: Dict[str, int] = field(default_factory=dict)
@@ -77,6 +101,7 @@ class TelemetryAggregates:
 
     def to_dict(self) -> Dict[str, Any]:
         return asdict(self)
+
 
 
 class TelemetryService:
@@ -176,16 +201,42 @@ class TelemetryService:
         total_tokens: Optional[int] = None,
         failover_count: int = 0,
         error_category: Optional[str] = None,
+        prompt_tokens_measured: Optional[int] = None,
+        prompt_tokens_estimated: Optional[int] = None,
+        completion_tokens_measured: Optional[int] = None,
+        completion_tokens_estimated: Optional[int] = None,
+        total_tokens_measured: Optional[int] = None,
+        total_tokens_estimated: Optional[int] = None,
+        is_estimated: bool = False,
     ) -> TelemetryRecord:
         """Record an invocation attempt into memory and rotated log."""
         now = time.time()
         iso = datetime.datetime.fromtimestamp(now, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
-        # Derive total tokens if prompt/completion available
-        if total_tokens is None and prompt_tokens is not None and completion_tokens is not None:
-            total_tokens = prompt_tokens + completion_tokens
+        if is_estimated:
+            p_est = prompt_tokens_estimated if prompt_tokens_estimated is not None else prompt_tokens
+            c_est = completion_tokens_estimated if completion_tokens_estimated is not None else completion_tokens
+            t_est = total_tokens_estimated if total_tokens_estimated is not None else total_tokens
+            if t_est is None and p_est is not None and c_est is not None:
+                t_est = p_est + c_est
+            p_meas, c_meas, t_meas = None, None, None
+            p_tok, c_tok, t_tok = p_est, c_est, t_est
+        else:
+            p_meas = prompt_tokens_measured if prompt_tokens_measured is not None else prompt_tokens
+            c_meas = completion_tokens_measured if completion_tokens_measured is not None else completion_tokens
+            t_meas = total_tokens_measured if total_tokens_measured is not None else total_tokens
+            if t_meas is None and p_meas is not None and c_meas is not None:
+                t_meas = p_meas + c_meas
+            p_est = prompt_tokens_estimated
+            c_est = completion_tokens_estimated
+            t_est = total_tokens_estimated
+            if t_est is None and p_est is not None and c_est is not None:
+                t_est = p_est + c_est
+            p_tok = p_meas if p_meas is not None else p_est
+            c_tok = c_meas if c_meas is not None else c_est
+            t_tok = t_meas if t_meas is not None else t_est
 
-        cost_usd = self.compute_cost(model, prompt_tokens, completion_tokens)
+        cost_usd = self.compute_cost(model, p_tok, c_tok)
 
         record = TelemetryRecord(
             timestamp=now,
@@ -196,9 +247,16 @@ class TelemetryService:
             model=model,
             outcome=outcome,
             latency_seconds=round(max(0.0, float(latency_seconds)), 4),
-            prompt_tokens=prompt_tokens,
-            completion_tokens=completion_tokens,
-            total_tokens=total_tokens,
+            prompt_tokens=p_tok,
+            completion_tokens=c_tok,
+            total_tokens=t_tok,
+            prompt_tokens_measured=p_meas,
+            prompt_tokens_estimated=p_est,
+            completion_tokens_measured=c_meas,
+            completion_tokens_estimated=c_est,
+            total_tokens_measured=t_meas,
+            total_tokens_estimated=t_est,
+            is_estimated=is_estimated or (p_est is not None and p_meas is None),
             cost_usd=cost_usd,
             failover_count=failover_count,
             error_category=error_category,
@@ -268,6 +326,13 @@ class TelemetryService:
                         prompt_tokens=d.get("prompt_tokens"),
                         completion_tokens=d.get("completion_tokens"),
                         total_tokens=d.get("total_tokens"),
+                        prompt_tokens_measured=d.get("prompt_tokens_measured"),
+                        prompt_tokens_estimated=d.get("prompt_tokens_estimated"),
+                        completion_tokens_measured=d.get("completion_tokens_measured"),
+                        completion_tokens_estimated=d.get("completion_tokens_estimated"),
+                        total_tokens_measured=d.get("total_tokens_measured"),
+                        total_tokens_estimated=d.get("total_tokens_estimated"),
+                        is_estimated=bool(d.get("is_estimated", False)),
                         cost_usd=d.get("cost_usd"),
                         failover_count=int(d.get("failover_count", 0)),
                         error_category=d.get("error_category"),
@@ -318,6 +383,14 @@ class TelemetryService:
                 total_prompt_tokens=None,
                 total_completion_tokens=None,
                 total_tokens=None,
+                total_prompt_tokens_measured=None,
+                total_prompt_tokens_estimated=None,
+                total_completion_tokens_measured=None,
+                total_completion_tokens_estimated=None,
+                total_tokens_measured=None,
+                total_tokens_estimated=None,
+                tokens_display=None,
+                has_estimated_tokens=False,
                 total_cost_usd=None,
                 failovers_count=0,
                 failover_reasons={},
@@ -333,6 +406,15 @@ class TelemetryService:
         prompt_tokens_sum = 0
         completion_tokens_sum = 0
         has_any_token_data = False
+        prompt_meas_sum = 0
+        prompt_est_sum = 0
+        has_meas_prompt = False
+        has_est_prompt = False
+        comp_meas_sum = 0
+        comp_est_sum = 0
+        has_meas_comp = False
+        has_est_comp = False
+        has_estimated_tokens = False
         costs_sum = 0.0
         has_any_cost_data = False
         failovers_count = 0
@@ -358,6 +440,41 @@ class TelemetryService:
                 completion_tokens_sum += r.completion_tokens
                 has_any_token_data = True
 
+            if r.prompt_tokens_measured is not None:
+                prompt_meas_sum += r.prompt_tokens_measured
+                has_meas_prompt = True
+            elif r.prompt_tokens is not None and not r.is_estimated:
+                prompt_meas_sum += r.prompt_tokens
+                has_meas_prompt = True
+
+            if r.prompt_tokens_estimated is not None:
+                prompt_est_sum += r.prompt_tokens_estimated
+                has_est_prompt = True
+                has_estimated_tokens = True
+            elif r.prompt_tokens is not None and r.is_estimated:
+                prompt_est_sum += r.prompt_tokens
+                has_est_prompt = True
+                has_estimated_tokens = True
+
+            if r.completion_tokens_measured is not None:
+                comp_meas_sum += r.completion_tokens_measured
+                has_meas_comp = True
+            elif r.completion_tokens is not None and not r.is_estimated:
+                comp_meas_sum += r.completion_tokens
+                has_meas_comp = True
+
+            if r.completion_tokens_estimated is not None:
+                comp_est_sum += r.completion_tokens_estimated
+                has_est_comp = True
+                has_estimated_tokens = True
+            elif r.completion_tokens is not None and r.is_estimated:
+                comp_est_sum += r.completion_tokens
+                has_est_comp = True
+                has_estimated_tokens = True
+
+            if r.is_estimated:
+                has_estimated_tokens = True
+
             if r.cost_usd is not None:
                 costs_sum += r.cost_usd
                 has_any_cost_data = True
@@ -369,6 +486,9 @@ class TelemetryService:
 
         error_rate = round(failed_calls / total_calls, 4) if total_calls > 0 else 0.0
         total_tokens_sum = (prompt_tokens_sum + completion_tokens_sum) if has_any_token_data else None
+        tot_meas_sum = (prompt_meas_sum + comp_meas_sum) if (has_meas_prompt or has_meas_comp) else None
+        tot_est_sum = (prompt_est_sum + comp_est_sum) if (has_est_prompt or has_est_comp) else None
+        tokens_display = format_token_count(tot_meas_sum, tot_est_sum)
 
         return TelemetryAggregates(
             window_seconds=window_seconds,
@@ -383,12 +503,21 @@ class TelemetryService:
             total_prompt_tokens=prompt_tokens_sum if has_any_token_data else None,
             total_completion_tokens=completion_tokens_sum if has_any_token_data else None,
             total_tokens=total_tokens_sum,
+            total_prompt_tokens_measured=prompt_meas_sum if has_meas_prompt else None,
+            total_prompt_tokens_estimated=prompt_est_sum if has_est_prompt else None,
+            total_completion_tokens_measured=comp_meas_sum if has_meas_comp else None,
+            total_completion_tokens_estimated=comp_est_sum if has_est_comp else None,
+            total_tokens_measured=tot_meas_sum,
+            total_tokens_estimated=tot_est_sum,
+            tokens_display=tokens_display,
+            has_estimated_tokens=has_estimated_tokens,
             total_cost_usd=round(costs_sum, 4) if has_any_cost_data else None,
             failovers_count=failovers_count,
             failover_reasons=dict(failover_reasons),
             source="own_measurement",
             has_data=True,
         )
+
 
     def get_breakdown(
         self,

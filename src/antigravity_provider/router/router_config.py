@@ -303,16 +303,20 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
         profiles_raw = data.get("profiles", {})
         profiles: dict[str, RouterProfileConfig] = {}
         for pid, pdata in profiles_raw.items():
+            provider = pdata.get("provider", "antigravity")
+            max_concurrency = int(pdata.get("max_concurrency", 1))
+            if provider == "local":
+                max_concurrency = 1
             profiles[pid] = RouterProfileConfig(
                 profile_id=pid,
-                provider=pdata.get("provider", "antigravity"),
+                provider=provider,
                 account_id=pdata.get("account_id", pid),
                 capabilities=list(pdata.get("capabilities", [])),
                 preferred_models=list(pdata.get("preferred_models", [])),
                 fallback_models=list(pdata.get("fallback_models", [])),
                 auth_config=dict(pdata.get("auth_config", {})),
                 enabled=bool(pdata.get("enabled", True)),
-                max_concurrency=int(pdata.get("max_concurrency", 1)),
+                max_concurrency=max_concurrency,
                 custom_base_url=pdata.get("custom_base_url"),
             )
 

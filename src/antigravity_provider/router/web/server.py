@@ -125,14 +125,40 @@ def health_check():
         }
     }
 
-def sanitize_snapshot(snap_dict: Any) -> Any:
+def sanitize_snapshot(snap_dict: Any, email_masking_mode: Optional[str] = None) -> Any:
     import re
+    if email_masking_mode is None:
+        try:
+            from antigravity_provider.router.settings_service import get_hub_settings
+            email_masking_mode = get_hub_settings().get("email_masking_mode", "none")
+        except Exception:
+            email_masking_mode = "none"
+
+    mode = str(email_masking_mode or "none").strip().lower()
+
     secret_patterns = [
         re.compile(r'((?:access_token|refresh_token|api_key|token|password|secret|key)=)([^\s&,"]+)', re.IGNORECASE),
         re.compile(r'(sk-[a-zA-Z0-9_\-]{8,})'),
         re.compile(r'(gho_[a-zA-Z0-9_\-]{8,})'),
         re.compile(r'(Bearer\s+)([a-zA-Z0-9_\-\.]{8,})', re.IGNORECASE),
     ]
+
+    email_pattern = re.compile(r'\b([A-Za-z0-9._%+-]+)@([A-Za-z0-9.-]+\.[A-Za-z]{2,})\b')
+
+    def _mask_email_match(match: re.Match) -> str:
+        local_part = match.group(1)
+        domain_part = match.group(2)
+        if mode == "full":
+            return "***@***.***"
+        elif mode == "partial":
+            if len(local_part) > 2:
+                masked = f"{local_part[0]}***{local_part[-1]}"
+            elif local_part:
+                masked = f"{local_part[0]}***"
+            else:
+                masked = "***"
+            return f"{masked}@{domain_part}"
+        return match.group(0)
 
     def _mask_str(val: str) -> str:
         res = val
@@ -141,6 +167,8 @@ def sanitize_snapshot(snap_dict: Any) -> Any:
                 res = pat.sub(r'\g<1>***', res)
             elif pat.groups == 1:
                 res = pat.sub(r'***', res)
+        if mode in ("partial", "full"):
+            res = email_pattern.sub(_mask_email_match, res)
         return res
 
     def _sanitize(node):
@@ -155,6 +183,7 @@ def sanitize_snapshot(snap_dict: Any) -> Any:
             return _mask_str(node)
         return node
     return _sanitize(snap_dict)
+
 
 @app.get("/api/snapshot")
 def get_snapshot(authorized: bool = Depends(get_auth_token)):

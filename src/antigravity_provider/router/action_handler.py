@@ -630,5 +630,12 @@ class ActionExecutor:
             status = mgr.get_status_dict()
             return {'ok': True, 'message': status.get('message') or 'Статус получен', 'data': status}
 
+        elif action == 'run_preflight':
+            from antigravity_provider.router.preflight_service import PreflightCheckService
+            service = PreflightCheckService.get()
+            report = service.run_all_checks()
+            msg = f"Проверка готовности: {report.passed_count} успешно, {report.failed_count} ошибок, {report.warn_count} предупреждений"
+            return {'ok': report.success, 'message': msg, 'data': report.to_dict()}
+
         else:
             return {'ok': False, 'message': f'Неизвестное действие: {action}', 'unknown': True}

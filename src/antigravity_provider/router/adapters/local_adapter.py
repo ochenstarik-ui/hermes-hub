@@ -46,6 +46,79 @@ class LocalLLMAdapter(BaseProviderAdapter):
                 return val
         return None
 
+    _context_window_cache: Dict[str, int] = {}
+
+    def get_context_window(
+        self,
+        profile: RouterProfileConfig,
+        model: Optional[str] = None,
+        query_remote: bool = False,
+    ) -> Optional[int]:
+        """Fetch actual context_window / max_context_length from profile config or /models endpoint.
+        
+        Never invents or hardcodes defaults. Returns None if unknown.
+        """
+        # 1. Profile auth_config / custom settings
+        for key in ("context_window", "context_length", "max_context_length", "max_tokens_limit", "n_ctx"):
+            if key in profile.auth_config and profile.auth_config[key]:
+                try:
+                    return int(profile.auth_config[key])
+                except (ValueError, TypeError):
+                    pass
+
+        # 2. In-memory cache from previous model discovery
+        cache_key = f"{profile.profile_id}:{model or 'default'}"
+        if cache_key in self._context_window_cache:
+            return self._context_window_cache[cache_key]
+        if f"{profile.profile_id}:all" in self._context_window_cache:
+            return self._context_window_cache[f"{profile.profile_id}:all"]
+
+        if not query_remote:
+            return None
+
+        # 3. Query /models endpoint
+        base_url = self._resolve_base_url(profile)
+        api_key = self._resolve_api_key(profile)
+        headers = {"Accept": "application/json", "User-Agent": "hermes-router/1.0"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+
+        req = urllib.request.Request(f"{base_url}/models", headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                items = data.get("data") or data.get("models") or []
+                if isinstance(items, list):
+                    for m in items:
+                        if isinstance(m, dict):
+                            m_id = str(m.get("id") or m.get("name") or "")
+                            for ck in ("context_window", "context_length", "max_model_len", "max_context_length", "n_ctx"):
+                                if ck in m and m[ck]:
+                                    try:
+                                        ctx_val = int(m[ck])
+                                        self._context_window_cache[f"{profile.profile_id}:{m_id}"] = ctx_val
+                                        self._context_window_cache[f"{profile.profile_id}:all"] = ctx_val
+                                        if not model or m_id == model or model in m_id or m_id in model or len(items) == 1:
+                                            return ctx_val
+                                    except (ValueError, TypeError):
+                                        pass
+                            meta = m.get("meta") or {}
+                            if isinstance(meta, dict):
+                                for ck in ("n_ctx", "context_length", "max_context_length"):
+                                    if ck in meta and meta[ck]:
+                                        try:
+                                            ctx_val = int(meta[ck])
+                                            self._context_window_cache[f"{profile.profile_id}:{m_id}"] = ctx_val
+                                            self._context_window_cache[f"{profile.profile_id}:all"] = ctx_val
+                                            if not model or m_id == model or model in m_id or m_id in model or len(items) == 1:
+                                                return ctx_val
+                                        except (ValueError, TypeError):
+                                            pass
+        except Exception as exc:
+            logger.debug("Failed to query context window from server for %s: %s", profile.profile_id, exc)
+
+        return None
+
     def invoke(self, profile: RouterProfileConfig, request: Dict[str, Any]) -> Dict[str, Any]:
         base_url = self._resolve_base_url(profile)
         api_key = self._resolve_api_key(profile)
@@ -54,9 +127,43 @@ class LocalLLMAdapter(BaseProviderAdapter):
         if not model or model == "default":
             model = profile.preferred_models[0] if profile.preferred_models else "default"
 
+        messages = list(request.get("messages", []))
+
+        # Context Truncation Guard: safely bound prompt if context_window is known to prevent VRAM overflow
+        context_window = self.get_context_window(profile, model, query_remote=False)
+        if context_window is not None and context_window > 0 and len(messages) > 1:
+            max_tok = int(request.get("max_tokens", 0) or 0)
+            token_budget = context_window - max_tok - 64
+            if token_budget > 100:
+                def _est_tok(msgs: list) -> int:
+                    total_chars = sum(len(str(m.get("content", ""))) for m in msgs if isinstance(m, dict))
+                    return int(total_chars / 3.5) + len(msgs) * 4
+
+                if _est_tok(messages) > token_budget:
+                    logger.warning(
+                        "Context truncation guard active for %s: prompt exceeds context window (%d). Truncating middle messages.",
+                        profile.profile_id,
+                        context_window,
+                    )
+                    system_msg = [messages[0]] if messages and messages[0].get("role") == "system" else []
+                    last_msg = messages[-1]
+                    middle = messages[1:-1] if system_msg else messages[:-1]
+
+                    while middle and _est_tok(system_msg + middle + [last_msg]) > token_budget:
+                        middle.pop(0)
+
+                    if _est_tok(system_msg + middle + [last_msg]) > token_budget:
+                        avail_chars = max(100, int(token_budget * 3.0))
+                        last_copy = dict(last_msg)
+                        last_copy["content"] = str(last_copy.get("content", ""))[-avail_chars:]
+                        messages = system_msg + middle + [last_copy]
+                    else:
+                        messages = system_msg + middle + [last_msg]
+
+
         payload: Dict[str, Any] = {
             "model": model,
-            "messages": request.get("messages", []),
+            "messages": messages,
             "temperature": request.get("temperature", 0.7),
         }
         if "tools" in request and request["tools"]:
@@ -103,6 +210,7 @@ class LocalLLMAdapter(BaseProviderAdapter):
         # оборачивался в «Transport Error», хотя транспорт отработал штатно.
         self._reject_empty_answer(data)
         return data
+
 
 
     @staticmethod

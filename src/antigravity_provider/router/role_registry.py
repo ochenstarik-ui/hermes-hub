@@ -178,6 +178,18 @@ CANONICAL_ROLES: Dict[str, RoleDefinition] = {
         max_failover_attempts=3,
         tier="expert",
     ),
+    "dependency-agent": RoleDefinition(
+        role_id="dependency-agent",
+        display_name_ru="Проверяющий готовность",
+        short_name_ru="Готовность",
+        description_ru="До начала задачи убеждается, что на месте всё необходимое — исполняемые файлы и CLI, библиотеки, учётные данные, права доступа, доступность локальных серверов. Сообщает о нехватке до запуска.",
+        is_implemented=True,
+        capabilities=["dependency-agent", "preflight", "environment", "system_checks", "fast"],
+        fallback_capabilities=["dependency-agent", "preflight"],
+        default_preferred_chain=["opengo-1", "ag-w1", "codex-worker-1"],
+        max_failover_attempts=3,
+        tier="qa_doc",
+    ),
 }
 
 _CANONICAL_ROLE_ALIASES: Dict[str, str] = {
@@ -215,6 +227,13 @@ _CANONICAL_ROLE_ALIASES: Dict[str, str] = {
     "специалист по интеграции": "integration-expert",
     "безопасность": "security-expert",
     "специалист по безопасности": "security-expert",
+    "dependency-agent": "dependency-agent",
+    "dependency_agent": "dependency-agent",
+    "preflight": "dependency-agent",
+    "проверяющий готовность": "dependency-agent",
+    "агент зависимостей": "dependency-agent",
+    "готовность": "dependency-agent",
+    "dependency": "dependency-agent",
 }
 
 class RoleRegistry:
@@ -271,6 +290,10 @@ class RoleRegistry:
             return "manager"
         clean = name_or_alias.strip().lower()
         return _CANONICAL_ROLE_ALIASES.get(clean, clean)
+
+    @classmethod
+    def resolve_role_name(cls, name_or_alias: str) -> str:
+        return cls.resolve_canonical_role(name_or_alias)
 
     @classmethod
     def get_canonical_role_map(cls) -> Dict[str, str]:

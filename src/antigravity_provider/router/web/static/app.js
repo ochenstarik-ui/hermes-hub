@@ -182,7 +182,14 @@ function initEventListeners() {
   if (btnApplyUpdate) {
     btnApplyUpdate.addEventListener('click', () => applyUpdate());
   }
+
+  // Preflight check listener
+  const btnPreflight = document.getElementById('btn-run-preflight');
+  if (btnPreflight) {
+    btnPreflight.addEventListener('click', () => runPreflightChecks());
+  }
 }
+
 
 // ── SNAPSHOT INGESTION & MONOTONIC SEQ ──
 async function fetchSnapshot() {
@@ -1313,6 +1320,7 @@ function renderSettingsView() {
 
   const quotaThresholdSel = document.getElementById('setting-quota-threshold-percent');
   const quotaActionSel = document.getElementById('setting-quota-threshold-action');
+  const emailMaskingSel = document.getElementById('setting-email-masking-mode');
   const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
 
   if (quotaThresholdSel && s.quota_threshold_percent !== undefined) {
@@ -1320,6 +1328,9 @@ function renderSettingsView() {
   }
   if (quotaActionSel && s.quota_threshold_action) {
     quotaActionSel.value = s.quota_threshold_action;
+  }
+  if (emailMaskingSel && s.email_masking_mode) {
+    emailMaskingSel.value = s.email_masking_mode;
   }
   if (monitorIntervalInput && s.monitoring_interval_seconds !== undefined) {
     monitorIntervalInput.value = s.monitoring_interval_seconds;
@@ -1329,11 +1340,13 @@ function renderSettingsView() {
 async function saveHubServerSettings() {
   const quotaThresholdSel = document.getElementById('setting-quota-threshold-percent');
   const quotaActionSel = document.getElementById('setting-quota-threshold-action');
+  const emailMaskingSel = document.getElementById('setting-email-masking-mode');
   const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
 
   const newSettings = {
     quota_threshold_percent: quotaThresholdSel ? parseFloat(quotaThresholdSel.value) || 10.0 : 10.0,
     quota_threshold_action: quotaActionSel ? quotaActionSel.value : 'notify',
+    email_masking_mode: emailMaskingSel ? emailMaskingSel.value : 'none',
     monitoring_interval_seconds: monitorIntervalInput ? parseInt(monitorIntervalInput.value, 10) || 30 : 30,
   };
 
@@ -1346,6 +1359,73 @@ async function saveHubServerSettings() {
     showToast(res.message || 'Ошибка сохранения настроек сервера', 'error');
   }
 }
+
+// ── PREFLIGHT READINESS CHECKS ──
+async function runPreflightChecks() {
+  const container = document.getElementById('preflight-results-container');
+  const btn = document.getElementById('btn-run-preflight');
+  if (btn) btn.disabled = true;
+  if (container) {
+    container.innerHTML = '<div class="loading-state" style="padding:12px; font-size:13px; color:var(--text-secondary);">⏳ Запуск zero-quota проверки зависимостей и окружения...</div>';
+  }
+  try {
+    const res = await executeAction('run_preflight', {});
+    if (!res) throw new Error('Сервер не вернул ответ');
+    const report = res.data || {};
+    renderPreflightReport(report, container);
+    showToast(res.message || 'Проверка готовности завершена', res.ok ? 'success' : 'warning');
+  } catch (err) {
+    if (container) {
+      container.innerHTML = `<div class="modal-feedback error">❌ Ошибка выполнения проверки: ${escapeHtml(err.message || String(err))}</div>`;
+    }
+    showToast('Ошибка при запуске проверки готовности', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function renderPreflightReport(report, container) {
+  if (!container) return;
+  const checks = report.checks || [];
+  const passed = report.passed_count || 0;
+  const failed = report.failed_count || 0;
+  const warn = report.warn_count || 0;
+
+  const statusBadge = `<span class="badge ${failed === 0 ? 'healthy' : 'error'}">${failed === 0 ? 'Все проверки пройдены' : `Обнаружено ошибок: ${failed}`}</span>`;
+
+  let html = `
+    <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; padding:10px 14px; background:var(--surface-muted); border-radius:var(--radius-sm);">
+      <div style="font-weight:600; font-size:13px;">Результат: ${statusBadge}</div>
+      <div style="font-size:12px; color:var(--text-muted);">
+        Пройдено: <strong style="color:var(--status-healthy);">${passed}</strong> • 
+        Ошибок: <strong style="color:var(--status-error);">${failed}</strong> • 
+        Предупреждений: <strong style="color:var(--status-warning);">${warn}</strong>
+      </div>
+    </div>
+    <div class="preflight-list" style="display:flex; flex-direction:column; gap:8px;">
+  `;
+
+  checks.forEach((item) => {
+    const badgeClass = item.status === 'PASS' ? 'healthy' : (item.status === 'WARN' ? 'warning' : 'error');
+    const icon = item.status === 'PASS' ? '✓' : (item.status === 'WARN' ? '⚠' : '✕');
+    html += `
+      <div class="preflight-item" style="padding:10px 14px; background:var(--surface-card); border:1px solid var(--border-subtle); border-radius:var(--radius-sm);">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+          <div style="font-weight:600; font-size:13px; display:flex; align-items:center; gap:8px;">
+            <span class="badge ${badgeClass}" style="padding:2px 8px; font-size:11px;">${icon} ${escapeHtml(item.status)}</span>
+            <span>${escapeHtml(item.name || item.check_id)}</span>
+          </div>
+        </div>
+        <div style="font-size:12px; color:var(--text-secondary); margin-left:4px;">${escapeHtml(item.message || '')}</div>
+        ${item.remediation ? `<div style="font-size:12px; color:var(--status-warning); margin-top:4px; margin-left:4px; font-style:italic;">💡 Рекомендация: ${escapeHtml(item.remediation)}</div>` : ''}
+      </div>
+    `;
+  });
+
+  html += '</div>';
+  container.innerHTML = html;
+}
+
 
 function initSettings() {
   const btnSave = document.getElementById('btn-save-client-settings');

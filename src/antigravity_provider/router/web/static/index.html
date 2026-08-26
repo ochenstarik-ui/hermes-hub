@@ -277,9 +277,23 @@
             <!-- Readiness state banner rendered by app.js -->
           </div>
 
+          <div class="section-card" id="health-preflight-card">
+            <div class="section-card-header" style="display:flex; justify-content:space-between; align-items:center;">
+              <div>
+                <div class="section-card-title">Проверка готовности (Preflight / Dependency Agent)</div>
+                <div class="section-card-subtitle">Zero-quota аудит окружения, зависимостей, прав доступа и локальных серверов</div>
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btn-run-preflight">Запустить проверку готовности</button>
+            </div>
+            <div id="preflight-results-container" style="padding-top:12px;">
+              <!-- Rendered by app.js -->
+            </div>
+          </div>
+
           <div class="section-card">
             <div class="section-card-header">
               <div class="section-card-title">Ресурсы хост-системы</div>
+
               <div class="section-card-subtitle">Мониторинг CPU, памяти, диска и сетевых параметров</div>
             </div>
             <div class="host-resources-grid" id="health-host-resources">
@@ -399,6 +413,19 @@
                 <select id="setting-quota-threshold-action" class="select-filter">
                   <option value="notify" selected>Оповещение (notify)</option>
                   <option value="switch">Переключение на резерв (switch)</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Маскирование почты (PII)</div>
+                <div class="setting-desc">Уровень маскирования адресов электронной почты в снапшотах и логах</div>
+              </div>
+              <div class="setting-control">
+                <select id="setting-email-masking-mode" class="select-filter">
+                  <option value="none" selected>Без маскирования (по умолчанию)</option>
+                  <option value="partial">Частичное (v***@gmail.com)</option>
+                  <option value="full">Полное (***@***.***)</option>
                 </select>
               </div>
             </div>
