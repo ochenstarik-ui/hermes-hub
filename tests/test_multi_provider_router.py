@@ -77,17 +77,17 @@ class TestRouterConfig:
 
     def test_role_policies_chains(self):
         config = get_default_router_config()
-        assert "orchestrator" in config.roles
-        orch = config.roles["orchestrator"]
+        assert "manager" in config.roles
+        orch = config.roles["manager"]
         assert orch.preferred_chain == ["codex-orch", "ag-orch-fallback", "opengo-3"]
 
-        coder = config.roles["coder-primary"]
+        coder = config.roles["developer-1"]
         assert coder.preferred_chain == ["codex-worker-1", "ag-w1", "opengo-3"]
 
-        reviewer = config.roles["reviewer"]
+        reviewer = config.roles["code-reviewer"]
         assert reviewer.preferred_chain == ["codex-worker-2", "opengo-2", "ag-w2"]
 
-        research = config.roles["research"]
+        research = config.roles["researcher"]
         assert research.preferred_chain == ["opengo-1", "ag-w3", "ag-w4"]
 
 
@@ -141,14 +141,14 @@ class TestSessionAffinityAndLeases:
         affinity = SessionAffinityTracker()
         assert affinity.get_affinity("sess-1") is None
 
-        affinity.set_affinity("sess-1", "orchestrator", "codex-orch", "gpt-4o")
+        affinity.set_affinity("sess-1", "manager", "codex-orch", "gpt-4o")
         rec = affinity.get_affinity("sess-1")
         assert rec is not None
         assert rec.profile_id == "codex-orch"
-        assert rec.role == "orchestrator"
+        assert rec.role == "manager"
 
         # Update on failover
-        affinity.set_affinity("sess-1", "orchestrator", "ag-orch-fallback", "gemini-3.7-flash")
+        affinity.set_affinity("sess-1", "manager", "ag-orch-fallback", "gemini-3.7-flash")
         rec2 = affinity.get_affinity("sess-1")
         assert rec2.profile_id == "ag-orch-fallback"
 
@@ -182,14 +182,14 @@ class TestRouterEngineFailover:
 
         # 1. Normal state: codex-orch succeeds
         with patch.object(CodexAdapter, "invoke", return_value=mock_codex_response):
-            resp = engine.route_request({"messages": [{"role": "user", "content": "hello"}]}, role="orchestrator", session_id="sess-orch-1")
+            resp = engine.route_request({"messages": [{"role": "user", "content": "hello"}]}, role="manager", session_id="sess-orch-1")
             assert resp["choices"][0]["message"]["content"] == "from-codex"
             assert resp["router_metadata"]["profile_id"] == "codex-orch"
 
         # 2. Simulate quota on codex-orch: should auto-failover to ag-orch-fallback
         engine.health.simulate_quota("codex-orch", duration=600)
         with patch.object(AntigravityAdapter, "invoke", return_value=mock_ag_response):
-            resp2 = engine.route_request({"messages": [{"role": "user", "content": "hello again"}]}, role="orchestrator", session_id="sess-orch-2")
+            resp2 = engine.route_request({"messages": [{"role": "user", "content": "hello again"}]}, role="manager", session_id="sess-orch-2")
             assert resp2["choices"][0]["message"]["content"] == "from-antigravity"
             assert resp2["router_metadata"]["profile_id"] == "ag-orch-fallback"
             assert resp2["router_metadata"]["failover_count"] == 0  # picked directly because codex-orch was marked unhealthy
@@ -197,7 +197,7 @@ class TestRouterEngineFailover:
         # 3. Simulate quota on both codex-orch and ag-orch-fallback: should failover to opengo-3
         engine.health.simulate_quota("ag-orch-fallback", duration=600)
         with patch.object(OpenCodeGoAdapter, "invoke", return_value=mock_opengo_response):
-            resp3 = engine.route_request({"messages": [{"role": "user", "content": "hello third"}]}, role="orchestrator", session_id="sess-orch-3")
+            resp3 = engine.route_request({"messages": [{"role": "user", "content": "hello third"}]}, role="manager", session_id="sess-orch-3")
             assert resp3["choices"][0]["message"]["content"] == "from-opencode"
             assert resp3["router_metadata"]["profile_id"] == "opengo-3"
 
@@ -220,13 +220,13 @@ class TestRouterEngineFailover:
         # Turn 1: codex-orch fails with quota exhaustion -> failover to ag-orch-fallback
         with patch.object(CodexAdapter, "invoke", side_effect=RuntimeError("Quota limit reached")):
             with patch.object(AntigravityAdapter, "invoke", return_value=mock_ag):
-                resp = engine.route_request({"messages": [{"role": "user", "content": "turn 1"}]}, role="orchestrator", session_id="session-user-123")
+                resp = engine.route_request({"messages": [{"role": "user", "content": "turn 1"}]}, role="manager", session_id="session-user-123")
                 assert resp["choices"][0]["message"]["content"] == "a1"
                 assert resp["router_metadata"]["profile_id"] == "ag-orch-fallback"
 
         # Turn 2: same session continues directly on ag-orch-fallback
         with patch.object(AntigravityAdapter, "invoke", return_value=mock_ag):
-            resp2 = engine.route_request({"messages": [{"role": "user", "content": "turn 2"}]}, role="orchestrator", session_id="session-user-123")
+            resp2 = engine.route_request({"messages": [{"role": "user", "content": "turn 2"}]}, role="manager", session_id="session-user-123")
             assert resp2["choices"][0]["message"]["content"] == "a1"
             assert resp2["router_metadata"]["profile_id"] == "ag-orch-fallback"
 
@@ -256,9 +256,9 @@ class TestRouterCLI:
         rc = print_routing_policy()
         assert rc == 0
         out = capsys.readouterr().out
-        assert "orchestrator" in out
-        assert "coder-primary" in out
-        assert "reviewer" in out
+        assert "manager" in out
+        assert "developer-1" in out
+        assert "code-reviewer" in out
 
     def test_simulate_quota_cli(self, capsys):
         rc = simulate_quota_cli("codex-orch", duration=300)

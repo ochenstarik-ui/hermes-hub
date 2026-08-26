@@ -62,7 +62,7 @@ class TestA9ConfigMigration(unittest.TestCase):
 
         legacy_cfg = RouterConfig(
             enabled=True,
-            default_role="orchestrator",
+            default_role="manager",
             roles=get_default_router_config().roles,
             profiles=legacy_profiles,
         )
@@ -316,9 +316,9 @@ class TestA9HermesPluginBoundary(unittest.TestCase):
     def test_resolve_role_respects_explicit_or_metadata_role(self):
         from antigravity_provider.router import get_router_engine
         engine = get_router_engine()
-        self.assertEqual(engine.resolve_role({}, explicit_role="coder-primary"), "coder-primary")
-        self.assertEqual(engine.resolve_role({"role": "reviewer"}), "reviewer")
-        self.assertEqual(engine.resolve_role({"metadata": {"role": "research"}}), "research")
+        self.assertEqual(engine.resolve_role({}, explicit_role="developer-1"), "developer-1")
+        self.assertEqual(engine.resolve_role({"role": "code-reviewer"}), "code-reviewer")
+        self.assertEqual(engine.resolve_role({"metadata": {"role": "researcher"}}), "researcher")
 
 
 class TestA9CodexOAuthTokenRefreshAndSwitching(unittest.TestCase):

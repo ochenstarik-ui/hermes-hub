@@ -32,7 +32,7 @@ def temp_router_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     # Initialize sample profiles and roles
     config = RouterConfig(
         enabled=True,
-        default_role="orchestrator",
+        default_role="manager",
         profiles={
             "ag-w1": RouterProfileConfig(
                 profile_id="ag-w1",
@@ -60,13 +60,13 @@ def temp_router_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
             ),
         },
         roles={
-            "coder-primary": RolePolicy(
-                role_name="coder-primary",
+            "developer-1": RolePolicy(
+                role_name="developer-1",
                 preferred_chain=["ag-w1", "ag-w2", "op-1"],
                 default_model="gemini-2.5-pro",
             ),
-            "coder-secondary": RolePolicy(
-                role_name="coder-secondary",
+            "developer-2": RolePolicy(
+                role_name="developer-2",
                 preferred_chain=["ag-w2", "op-1"],
                 default_model="gemini-2.5-flash",
             ),
@@ -79,14 +79,14 @@ def temp_router_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def test_persist_role_chain_reorder_and_persistence(temp_router_config: Path):
     """Verify persist_role_chain updates preferred_chain and primary_profile_id and survives reload."""
     new_chain: List[str] = ["op-1", "ag-w2", "ag-w1"]
-    ok, msg = AutoAssigner.persist_role_chain("coder-primary", new_chain)
+    ok, msg = AutoAssigner.persist_role_chain("developer-1", new_chain)
 
     assert ok is True
     assert "успешно сохранена" in msg
 
     # Reload from disk
     reloaded = load_router_config()
-    role_cfg = reloaded.roles["coder-primary"]
+    role_cfg = reloaded.roles["developer-1"]
     assert role_cfg.preferred_chain == new_chain
     assert role_cfg.preferred_chain[0] == "op-1"
 
@@ -98,18 +98,18 @@ def test_persist_role_chain_canonical_name_mapping(temp_router_config: Path):
 
     assert ok is True
     reloaded = load_router_config()
-    assert reloaded.roles["coder-primary"].preferred_chain == new_chain
+    assert reloaded.roles["developer-1"].preferred_chain == new_chain
 
 
 def test_persist_role_chain_validation_errors(temp_router_config: Path):
     """Verify persist_role_chain rejects invalid profiles and duplicates."""
     # Unknown profile
-    ok, msg = AutoAssigner.persist_role_chain("coder-primary", ["ag-w1", "non-existent-profile"])
+    ok, msg = AutoAssigner.persist_role_chain("developer-1", ["ag-w1", "non-existent-profile"])
     assert ok is False
     assert "не найден" in msg
 
     # Duplicate profile in chain
-    ok, msg = AutoAssigner.persist_role_chain("coder-primary", ["ag-w1", "ag-w1"])
+    ok, msg = AutoAssigner.persist_role_chain("developer-1", ["ag-w1", "ag-w1"])
     assert ok is False
     assert "повторяться" in msg or "дублир" in msg
 
@@ -124,20 +124,20 @@ def test_action_executor_save_chain(temp_router_config: Path):
     executor = ActionExecutor()
 
     # save_chain
-    res1 = executor.execute("save_chain", {"role_id": "coder-primary", "chain": ["ag-w2", "ag-w1"]})
+    res1 = executor.execute("save_chain", {"role_id": "developer-1", "chain": ["ag-w2", "ag-w1"]})
     assert res1["ok"] is True
 
     # reorder_chain
-    res2 = executor.execute("reorder_chain", {"role_id": "coder-primary", "desired_chain": ["op-1", "ag-w1"]})
+    res2 = executor.execute("reorder_chain", {"role_id": "developer-1", "desired_chain": ["op-1", "ag-w1"]})
     assert res2["ok"] is True
 
     # edit_route
-    res3 = executor.execute("edit_route", {"role_id": "coder-secondary", "chain": ["op-1", "ag-w2"]})
+    res3 = executor.execute("edit_route", {"role_id": "developer-2", "chain": ["op-1", "ag-w2"]})
     assert res3["ok"] is True
 
     reloaded = load_router_config()
-    assert reloaded.roles["coder-primary"].preferred_chain == ["op-1", "ag-w1"]
-    assert reloaded.roles["coder-secondary"].preferred_chain == ["op-1", "ag-w2"]
+    assert reloaded.roles["developer-1"].preferred_chain == ["op-1", "ag-w1"]
+    assert reloaded.roles["developer-2"].preferred_chain == ["op-1", "ag-w2"]
 
 
 def test_action_executor_set_model_updates_profile_and_role(temp_router_config: Path):
@@ -147,13 +147,13 @@ def test_action_executor_set_model_updates_profile_and_role(temp_router_config: 
     res = executor.execute("set_model", {
         "profile_id": "ag-w1",
         "model": "gemini-3.1-pro",
-        "role_id": "coder-primary",
+        "role_id": "developer-1",
     })
     assert res["ok"] is True
 
     reloaded = load_router_config()
     assert reloaded.profiles["ag-w1"].preferred_models[0] == "gemini-3.1-pro"
-    assert reloaded.roles["coder-primary"].default_model == "gemini-3.1-pro"
+    assert reloaded.roles["developer-1"].default_model == "gemini-3.1-pro"
 
 
 def test_web_client_7_views_exact_order_and_no_redundant_views():

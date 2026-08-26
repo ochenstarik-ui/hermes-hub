@@ -96,7 +96,7 @@ def test_main_account_vs_orchestrator_separation():
     service.scan_all()
     agents = service.get_agent_view_models()
 
-    orch_agent = next((a for a in agents if a.role_id == "orchestrator"), None)
+    orch_agent = next((a for a in agents if a.role_id == "manager"), None)
     assert orch_agent is not None
     assert orch_agent.is_main_orchestrator is True
 

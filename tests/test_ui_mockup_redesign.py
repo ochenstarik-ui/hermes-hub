@@ -130,7 +130,7 @@ def test_restored_account_buttons_invoke_each_action(ui_root) -> None:
 @pytest.mark.ui
 def test_assign_role_error_stays_visible_in_open_modal(ui_root, monkeypatch) -> None:
     policy = SimpleNamespace(preferred_chain=[])
-    monkeypatch.setattr(app_module, "load_router_config", lambda: SimpleNamespace(roles={"orchestrator": policy}))
+    monkeypatch.setattr(app_module, "load_router_config", lambda: SimpleNamespace(roles={"manager": policy}))
     monkeypatch.setattr(
         app_module.AutoAssigner,
         "assign_profile_to_role",

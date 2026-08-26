@@ -43,8 +43,8 @@ def _profile(plan_code: str = "PRO", plan_source: str = "provider_api") -> Profi
         account_identity="user@example.test",
         provider="antigravity",
         provider_display_name="Google Antigravity",
-        assigned_roles=["coder-primary"],
-        primary_role="coder-primary",
+        assigned_roles=["developer-1"],
+        primary_role="developer-1",
         is_main_account=True,
         is_main_orchestrator=False,
         auth_state="AUTHENTICATED",
@@ -143,7 +143,7 @@ def test_quota_missing_is_not_rendered_as_zero_and_reason_is_visible(ui_root) ->
 @pytest.mark.ui
 def test_agent_quota_and_failover_reason_are_bound_to_their_models(ui_root) -> None:
     agent = AgentViewModel(
-        role_id="coder-primary",
+        role_id="developer-1",
         role_name_ru="Кодер 1",
         role_description_ru="Основной кодер",
         assigned_profile_id="account-2",
@@ -163,7 +163,7 @@ def test_agent_quota_and_failover_reason_are_bound_to_their_models(ui_root) -> N
     )
     team_card = AgentCardWidget(ui_root)
     pipeline = RolePipeline(
-        role_id="coder-primary",
+        role_id="developer-1",
         role_name_ru="Кодер 1",
         default_model="gpt-5",
         max_failover=2,
@@ -214,7 +214,7 @@ def test_agent_quota_and_failover_reason_are_bound_to_their_models(ui_root) -> N
 
 def test_dashboard_agent_quota_measurement_drives_progress_percent() -> None:
     agent = AgentViewModel(
-        role_id="coder-primary",
+        role_id="developer-1",
         role_name_ru="Кодер 1",
         role_description_ru="Основной кодер",
         assigned_profile_id="ag-w1",

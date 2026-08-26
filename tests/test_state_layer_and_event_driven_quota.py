@@ -177,16 +177,16 @@ def test_route_and_agent_delta_events():
     bus.subscribe("AGENT_UPDATED", _on_agent)
 
     try:
-        store.apply_delta_route_changed("coder-primary", "ag-w1", failover_reason="Testing failover")
+        store.apply_delta_route_changed("developer-1", "ag-w1", failover_reason="Testing failover")
         assert len(route_events) >= 1
-        assert route_events[-1]["role_id"] == "coder-primary"
+        assert route_events[-1]["role_id"] == "developer-1"
         assert route_events[-1]["failover_reason"] == "Testing failover"
         assert "generation" in route_events[-1]
         assert "seq" in route_events[-1]
 
         assert len(agent_events) >= 1
-        assert agent_events[-1]["role_id"] == "coder-primary"
-        assert agent_events[-1]["agent"].role_id == "coder-primary"
+        assert agent_events[-1]["role_id"] == "developer-1"
+        assert agent_events[-1]["agent"].role_id == "developer-1"
     finally:
         bus.unsubscribe(EVENT_ROUTING_UPDATED, _on_route)
         bus.unsubscribe("AGENT_UPDATED", _on_agent)

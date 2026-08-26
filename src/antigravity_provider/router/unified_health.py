@@ -9,6 +9,7 @@ Single Source of Truth for:
 - EventLogService
 """
 from __future__ import annotations
+from antigravity_provider.router.role_registry import RoleRegistry
 
 import json
 import logging
@@ -644,21 +645,38 @@ class UnifiedHealthService:
         config = load_router_config()
         self.scan_all(force=False)
 
-        ROLE_META = {
-            "orchestrator": ("Главный оркестратор", "Управление командой, планирование, контроль исполнения"),
-            "coder-primary": ("Кодер 1", "Основная разработка кода и исправление дефектов"),
-            "coder-secondary": ("Кодер 2", "Параллельная разработка и вспомогательные модули"),
-            "reviewer": ("Ревьюер", "Независимое fail-closed ревью и валидация diff"),
-            "research": ("Исследователь", "Read-only поиск в кодовой базе и сбор фактов"),
-            "fast": ("Быстрый агент", "Оперативные вызовы, вспомогательные проверки"),
-            "universal": ("Универсальный агент", "Широкий спектр общих задач"),
-        }
-
         agents: List[AgentViewModel] = []
 
         for rname, rpol in config.roles.items():
-            rname_ru, rdesc_ru = ROLE_META.get(rname, (rname, ""))
+            rname_ru = RoleRegistry.get_role_name_ru(rname, rname)
+            rdesc_ru = RoleRegistry.get_role_description_ru(rname)
+            is_implemented = RoleRegistry.is_role_implemented(rname)
+            
             chain = rpol.preferred_chain
+            
+            if not is_implemented:
+                agents.append(AgentViewModel(
+                    role_id=rname,
+                    role_name_ru=rname_ru,
+                    role_description_ru=rdesc_ru or "Роль объявлена, исполнение не реализовано",
+                    assigned_profile_id=None,
+                    assigned_display_name=None,
+                    provider="N/A",
+                    provider_display_name="N/A",
+                    model="-",
+                    account_identity="Роль объявлена, исполнение не реализовано",
+                    routing_position="Отключено",
+                    status="unimplemented",
+                    status_label_ru="Не реализовано",
+                    is_active=False,
+                    is_main_orchestrator=False,
+                    cooldown_remaining_sec=0,
+                    session_id=None,
+                    active_quota_status="unavailable",
+                    active_quota_label="Не применяется (роль не активна)",
+                ))
+                continue
+
             if not chain:
                 continue
 
@@ -703,7 +721,7 @@ class UnifiedHealthService:
                     status=active_pvm.health_state,
                     status_label_ru=active_pvm.health_label_ru,
                     is_active=(active_pvm.health_state == STATUS_HEALTHY),
-                    is_main_orchestrator=(rname == "orchestrator"),
+                    is_main_orchestrator=(rname == "manager"),
                     cooldown_remaining_sec=active_pvm.cooldown_remaining_sec,
                     session_id=None,
                     active_quota_status=active_quota_st,
@@ -772,15 +790,7 @@ class UnifiedHealthService:
         self.scan_all(force=False)
         pipelines: Dict[str, RolePipeline] = {}
 
-        ROLE_NAMES = {
-            "orchestrator": "Главный оркестратор",
-            "coder-primary": "Кодер 1 (Primary)",
-            "coder-secondary": "Кодер 2 (Secondary)",
-            "reviewer": "Ревьюер",
-            "research": "Исследователь",
-            "fast": "Быстрый агент",
-            "universal": "Универсальный агент",
-        }
+        
 
         for rname, rpol in config.roles.items():
             nodes: List[PipelineNode] = []
@@ -834,7 +844,7 @@ class UnifiedHealthService:
 
             pipelines[rname] = RolePipeline(
                 role_id=rname,
-                role_name_ru=ROLE_NAMES.get(rname, rname),
+                role_name_ru=RoleRegistry.get_role_name_ru(rname, rname),
                 default_model=rpol.default_model or "auto",
                 max_failover=rpol.max_failover_attempts,
                 session_affinity=rpol.session_affinity_enabled,

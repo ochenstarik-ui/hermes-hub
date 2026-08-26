@@ -45,12 +45,12 @@ def isolated_hub(tmp_path, monkeypatch):
             ),
         },
         roles={
-            "orchestrator": RolePolicy(
-                role_name="orchestrator",
+            "manager": RolePolicy(
+                role_name="manager",
                 preferred_chain=["ag-orch-1"],
             ),
         },
-        default_role="orchestrator",
+        default_role="manager",
     )
     save_router_config(cfg)
     return tmp_path

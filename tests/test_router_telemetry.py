@@ -39,7 +39,7 @@ def test_telemetry_recording_latency_tokens_outcome(temp_telemetry_service):
     svc = temp_telemetry_service
 
     rec = svc.record_call(
-        role="orchestrator",
+        role="manager",
         profile_id="ag-orch",
         provider="antigravity",
         model="gemini-2.5-pro",
@@ -51,7 +51,7 @@ def test_telemetry_recording_latency_tokens_outcome(temp_telemetry_service):
         failover_count=0,
     )
 
-    assert rec.role == "orchestrator"
+    assert rec.role == "manager"
     assert rec.profile_id == "ag-orch"
     assert rec.provider == "antigravity"
     assert rec.model == "gemini-2.5-pro"
@@ -82,7 +82,7 @@ def test_telemetry_aggregates_calculation(temp_telemetry_service):
         outcome = "success" if i <= 8 else "error"
         error_cat = None if outcome == "success" else "quota_exhausted"
         svc.record_call(
-            role="coder-primary",
+            role="developer-1",
             profile_id="codex-w1",
             provider="openai-codex",
             model="gpt-4o",
@@ -141,7 +141,7 @@ def test_telemetry_no_tokens_when_usage_missing(temp_telemetry_service):
     svc = temp_telemetry_service
 
     rec = svc.record_call(
-        role="fast",
+        role="tester",
         profile_id="opengo-1",
         provider="opencode-go",
         model="deepseek-v4-flash",
@@ -170,7 +170,7 @@ def test_telemetry_no_secrets_and_no_request_response_content(temp_telemetry_ser
 
     # Record a normal call
     rec = svc.record_call(
-        role="orchestrator",
+        role="manager",
         profile_id="ag-w1",
         provider="antigravity",
         model="gemini-2.5-pro",
@@ -228,7 +228,7 @@ def test_telemetry_cost_calculation_with_and_without_pricing(temp_telemetry_serv
 
     # 1. Without pricing -> cost_usd is None
     rec1 = svc.record_call(
-        role="coder-primary",
+        role="developer-1",
         profile_id="ag-w1",
         provider="antigravity",
         model="gemini-2.5-pro",
@@ -245,7 +245,7 @@ def test_telemetry_cost_calculation_with_and_without_pricing(temp_telemetry_serv
     })
 
     rec2 = svc.record_call(
-        role="coder-primary",
+        role="developer-1",
         profile_id="ag-w1",
         provider="antigravity",
         model="gemini-2.5-pro",
@@ -279,8 +279,8 @@ def test_router_engine_records_telemetry_end_to_end(tmp_path, monkeypatch):
             ),
         },
         roles={
-            "orchestrator": RolePolicy(
-                role_name="orchestrator",
+            "manager": RolePolicy(
+                role_name="manager",
                 preferred_chain=["ag-w1"],
             )
         }
@@ -304,7 +304,7 @@ def test_router_engine_records_telemetry_end_to_end(tmp_path, monkeypatch):
     with patch.object(TelemetryService, "get", return_value=svc), \
          patch.object(AntigravityAdapter, "invoke", side_effect=mock_invoke):
 
-        res = engine.route_request({"messages": [{"role": "user", "content": "hello"}]}, role="orchestrator")
+        res = engine.route_request({"messages": [{"role": "user", "content": "hello"}]}, role="manager")
 
         assert "router_metadata" in res
         aggs = svc.get_aggregates()

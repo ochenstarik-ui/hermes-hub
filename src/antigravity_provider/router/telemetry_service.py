@@ -8,6 +8,7 @@ Captures, persists, and computes honest empirical measurements for all router ca
 - Ring Buffer & File Rotation (bounded memory and disk footprint)
 """
 from __future__ import annotations
+from antigravity_provider.router.role_registry import RoleRegistry
 
 import collections
 import datetime
@@ -399,7 +400,7 @@ class TelemetryService:
         global_aggs = self.get_aggregates(window_seconds=window_seconds)
 
         providers = set(known_providers or ["antigravity", "openai-codex", "opencode-go"])
-        roles = set(known_roles or ["orchestrator", "coder-primary", "coder-secondary", "reviewer", "research", "fast"])
+        roles = set(known_roles or RoleRegistry.get_role_ids())
 
         with self._lock:
             for r in self._buffer:

@@ -29,12 +29,12 @@ def _config():
         "coder": SimpleNamespace(provider="antigravity", preferred_models=["gemini"]),
     }
     roles = {
-        "orchestrator": SimpleNamespace(preferred_chain=["orch"]),
-        "coder-primary": SimpleNamespace(preferred_chain=["coder"]),
-        "coder-secondary": SimpleNamespace(preferred_chain=["coder"]),
-        "reviewer": SimpleNamespace(preferred_chain=["coder"]),
-        "research": SimpleNamespace(preferred_chain=["coder"]),
-        "fast": SimpleNamespace(preferred_chain=["coder"]),
+        "manager": SimpleNamespace(preferred_chain=["orch"]),
+        "developer-1": SimpleNamespace(preferred_chain=["coder"]),
+        "developer-2": SimpleNamespace(preferred_chain=["coder"]),
+        "code-reviewer": SimpleNamespace(preferred_chain=["coder"]),
+        "researcher": SimpleNamespace(preferred_chain=["coder"]),
+        "tester": SimpleNamespace(preferred_chain=["coder"]),
     }
     return SimpleNamespace(roles=roles, profiles=profiles)
 
@@ -83,16 +83,16 @@ def test_graph_layout_zoom_and_viewport_survive_restart(tmp_path):
 
 def test_validation_finds_cycle_unreachable_and_missing_profile():
     config = _config()
-    config.roles["reviewer"].preferred_chain = ["ghost"]
+    config.roles["code-reviewer"].preferred_chain = ["ghost"]
     graph = RoutingGraph(
         nodes=[
-            GraphNode("orchestrator", 0, 0),
-            GraphNode("coder-primary", 1, 0),
-            GraphNode("reviewer", 2, 0),
+            GraphNode("manager", 0, 0),
+            GraphNode("developer-1", 1, 0),
+            GraphNode("code-reviewer", 2, 0),
         ],
         edges=[
-            GraphEdge("orchestrator", "coder-primary"),
-            GraphEdge("coder-primary", "orchestrator"),
+            GraphEdge("manager", "developer-1"),
+            GraphEdge("developer-1", "manager"),
         ],
     )
     codes = {issue.code for issue in validate_graph(graph, config)}
@@ -108,16 +108,16 @@ def test_profile_edge_updates_yaml_via_auto_assigner(monkeypatch, tmp_path):
         lambda profile, role, is_primary: calls.append((profile, role, is_primary)) or (True, "ok"),
     )
     controller = RoutingGraphController(RoutingGraphStore(tmp_path / "graph.json"))
-    ok, _message = controller.add_edge("orchestrator", "coder-primary", "FALLBACK", "orch")
+    ok, _message = controller.add_edge("manager", "developer-1", "FALLBACK", "orch")
     assert ok
-    assert calls == [("orch", "coder-primary", False)]
+    assert calls == [("orch", "developer-1", False)]
 
 
 def test_undo_redo_and_dirty_state(monkeypatch, tmp_path):
     monkeypatch.setattr(graph_module, "load_router_config", _config)
     controller = RoutingGraphController(RoutingGraphStore(tmp_path / "graph.json"))
     original = controller.graph.nodes[0].x
-    controller.move_node("orchestrator", original + 100, 50)
+    controller.move_node("manager", original + 100, 50)
     assert controller.dirty
     assert controller.undo()
     assert controller.graph.nodes[0].x == original
@@ -255,8 +255,8 @@ def test_role_chain_order_and_removal_persist_through_auto_assigner(monkeypatch)
     config = SimpleNamespace(
         profiles={key: SimpleNamespace() for key in ("a", "b", "c")},
         roles={
-            "orchestrator": SimpleNamespace(preferred_chain=["a", "b", "c"]),
-            "reviewer": SimpleNamespace(preferred_chain=["b"]),
+            "manager": SimpleNamespace(preferred_chain=["a", "b", "c"]),
+            "code-reviewer": SimpleNamespace(preferred_chain=["b"]),
         },
     )
     calls = []
@@ -279,11 +279,11 @@ def test_role_chain_order_and_removal_persist_through_auto_assigner(monkeypatch)
     monkeypatch.setattr(team_module, "load_router_config", lambda: config)
     monkeypatch.setattr(team_module.AutoAssigner, "assign_profile_to_role", assign)
 
-    ok, _message = team_module.persist_role_chain("orchestrator", ["c", "a"])
+    ok, _message = team_module.persist_role_chain("manager", ["c", "a"])
 
     assert ok
-    assert config.roles["orchestrator"].preferred_chain == ["c", "a"]
-    assert config.roles["reviewer"].preferred_chain == ["b"]
+    assert config.roles["manager"].preferred_chain == ["c", "a"]
+    assert config.roles["code-reviewer"].preferred_chain == ["b"]
     assert ("b", "spare", False) in calls
 
 
