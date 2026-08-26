@@ -519,7 +519,7 @@ function updateGlobalHeader() {
 
   const isHealthy = readiness.state === 'healthy';
   const readyRoles = readiness.roles_ready_count || 0;
-  const totalRoles = readiness.total_roles || 6;
+  const totalRoles = readiness.total_roles ?? 0;
 
   if (elements.headerReadinessBadge) {
     elements.headerReadinessBadge.className = `header-readiness-badge ${isHealthy ? 'text-healthy' : 'text-warning'}`;
@@ -527,7 +527,7 @@ function updateGlobalHeader() {
   if (elements.headerReadinessText) {
     elements.headerReadinessText.textContent = readiness.title_ru
       ? `${readiness.title_ru} (${readyRoles}/${totalRoles} ролей)`
-      : 'Система готова';
+      : 'Н/Д: состояние ещё не измерено';
   }
 
   const kpiReadiness = document.getElementById('kpi-system-readiness');
@@ -805,6 +805,10 @@ function renderQuotaCell(bucket, unavailableReason) {
 //  1. OVERVIEW VIEW (P0-3, P0-4 Diagram Model Select & Counters)
 // ═══════════════════════════════════════════════════════════════
 function renderOverviewView() {
+  if (typeof renderWorkflowOverview === 'function') {
+    renderWorkflowOverview(currentSnapshot);
+    return;
+  }
   if (!currentSnapshot) return;
 
   const providers = currentSnapshot.providers || [];

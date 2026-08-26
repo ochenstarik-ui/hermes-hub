@@ -85,6 +85,23 @@ def get_router_active_profile_path() -> Path:
     return get_config_dir() / "router_active_profile.json"
 
 
+def get_workflow_state_path() -> Path:
+    """Return the persisted agent/workflow state sidecar.
+
+    Logical roles and their execution routes remain canonical in
+    ``router_profiles.yaml``.  This file stores only the extra agent metadata,
+    graph layout and execution checkpoints which do not belong to routing.
+    """
+    return get_config_dir() / "workflow_state.json"
+
+
+def get_agent_files_dir() -> Path:
+    """Return the user-editable directory containing real Agent Files."""
+    directory = get_hermes_home() / "agents"
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
 def get_compatibility_path() -> Path:
     return get_config_dir() / "compatibility.json"
 

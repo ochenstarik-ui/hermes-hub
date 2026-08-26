@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hermes Hub — Панель управления</title>
   <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="static/workflow.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
 </head>
 <body>
@@ -92,52 +93,53 @@
       <div class="content-scroll">
         <!-- 1. OVERVIEW VIEW -->
         <section id="view-overview" class="view-pane active">
-          <div class="overview-grid">
-            <div class="kpi-card">
-              <div class="kpi-label">Состояние системы</div>
-              <div class="kpi-value text-healthy" id="kpi-system-readiness">—</div>
-              <div class="kpi-sub" id="kpi-readiness-summary">—</div>
+          <div class="workflow-toolbar">
+            <div class="workflow-mode" role="group" aria-label="Режим workflow">
+              <button class="workflow-mode-btn active" id="workflow-mode-live" data-mode="live">LIVE</button>
+              <button class="workflow-mode-btn" id="workflow-mode-edit" data-mode="edit">EDIT</button>
             </div>
-            <div class="kpi-card">
-              <div class="kpi-label">Подключено аккаунтов</div>
-              <div class="kpi-value text-accent" id="kpi-total-accounts">—</div>
-              <div class="kpi-sub" id="kpi-accounts-sub">—</div>
-            </div>
-            <div class="kpi-card">
-              <div class="kpi-label">Готовых ролей</div>
-              <div class="kpi-value text-healthy" id="kpi-ready-roles">—</div>
-              <div class="kpi-sub" id="kpi-roles-sub">—</div>
-            </div>
-            <div class="kpi-card">
-              <div class="kpi-label">Провайдеры ИИ</div>
-              <div class="kpi-value text-info" id="kpi-providers-count">—</div>
-              <div class="kpi-sub" id="kpi-providers-sub">5 поддерживаемых систем</div>
+            <div class="workflow-toolbar-actions">
+              <span class="workflow-save-state" id="workflow-save-state">Сохранено</span>
+              <button class="btn btn-secondary" id="btn-workflow-save">Сохранить workflow</button>
+              <button class="btn btn-primary" id="btn-agent-add">+ Добавить агента</button>
             </div>
           </div>
 
-          <div class="section-card">
-            <div class="section-card-header" style="display:flex; justify-content:space-between; align-items:center;">
-              <div>
-                <div class="section-card-title">Схема маршрутизации запросов</div>
-                <div class="section-card-subtitle">Распределение агентов и цепочки отказоустойчивости</div>
+          <div class="workflow-kpis" aria-label="Оперативные показатели">
+            <article class="workflow-kpi"><span>Активные задачи</span><strong id="workflow-kpi-active">Загрузка…</strong><small id="workflow-kpi-active-reason">Получение снапшота</small></article>
+            <article class="workflow-kpi"><span>Агенты онлайн</span><strong id="workflow-kpi-online">Загрузка…</strong><small id="workflow-kpi-online-reason">Получение снапшота</small></article>
+            <article class="workflow-kpi"><span>Среднее время ответа</span><strong id="workflow-kpi-latency">Загрузка…</strong><small id="workflow-kpi-latency-reason">Получение телеметрии</small></article>
+            <article class="workflow-kpi"><span>Использование токенов</span><strong id="workflow-kpi-tokens">Загрузка…</strong><small id="workflow-kpi-tokens-reason">Получение телеметрии</small></article>
+            <article class="workflow-kpi"><span>Успешность задач</span><strong id="workflow-kpi-success">Загрузка…</strong><small id="workflow-kpi-success-reason">Получение телеметрии</small></article>
+          </div>
+
+          <div class="workflow-main-layout">
+            <section class="workflow-board-card">
+              <header class="workflow-board-header">
+                <div><strong id="workflow-title">Workflow</strong> <span id="workflow-run-state" class="workflow-run-state">Загрузка…</span></div>
+                <label>Итерация: <strong id="workflow-iteration">Н/Д</strong> / <input id="workflow-max-iterations" type="number" min="1" max="100" value="5"></label>
+                <div class="workflow-zoom"><button id="workflow-zoom-out" title="Уменьшить">−</button><span id="workflow-zoom-value">100%</span><button id="workflow-zoom-in" title="Увеличить">+</button><button id="workflow-fit" title="Вписать граф">⛶</button></div>
+              </header>
+              <div class="workflow-canvas" id="workflow-canvas" tabindex="0" aria-label="Редактор графа workflow">
+                <svg id="workflow-edges" class="workflow-edges" aria-hidden="true"><defs><marker id="wf-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z"></path></marker></defs><g id="workflow-edge-layer"></g></svg>
+                <div id="workflow-node-layer" class="workflow-node-layer"></div>
+                <div id="workflow-empty" class="workflow-empty hidden"><strong>В workflow пока нет агентов</strong><span>Добавьте агента, затем переключитесь в EDIT и соедините узлы.</span></div>
+                <div class="workflow-minimap" id="workflow-minimap" aria-label="Мини-карта"></div>
               </div>
-              <button class="btn btn-secondary btn-sm" id="btn-auto-assign" title="Автоматическое распределение аккаунтов по ролям">
-                Авто-распределение
-              </button>
-            </div>
-            <div class="route-diagram-container" id="overview-route-diagram">
-              <!-- Rendered by app.js -->
-            </div>
+              <footer class="workflow-legend">
+                <span><i class="state-waiting"></i>Ожидает</span><span><i class="state-working"></i>Работает</span><span><i class="state-reviewing"></i>Проверяет</span><span><i class="state-error"></i>Ошибка</span><span><i class="state-completed"></i>Завершено</span>
+                <span class="edge-legend success">→ Успех</span><span class="edge-legend return">⇢ Возврат</span>
+              </footer>
+            </section>
+
+            <aside class="workflow-inspector" id="workflow-inspector">
+              <div class="workflow-inspector-empty"><strong>INSPECTOR</strong><span>Выберите агента на графе</span></div>
+            </aside>
           </div>
 
-          <div class="section-card">
-            <div class="section-card-header">
-              <div class="section-card-title">Провайдеры и доступность runtime</div>
-              <div class="section-card-subtitle">Статус локальных адаптеров и обнаруженные модели</div>
-            </div>
-            <div class="providers-grid" id="overview-providers-summary">
-              <!-- Rendered by app.js -->
-            </div>
+          <div class="workflow-bottom-grid">
+            <section class="workflow-events"><header><strong>Последние события</strong><button id="workflow-events-all">Журнал событий →</button></header><div id="workflow-events-list" class="workflow-events-list"><p>Загрузка событий…</p></div></section>
+            <section class="workflow-run-panel"><header><strong>Управление LIVE</strong></header><textarea id="workflow-task" placeholder="Опишите реальную задачу для workflow"></textarea><div><button class="btn btn-primary" id="btn-workflow-start">Запустить workflow</button><button class="btn btn-secondary" id="btn-workflow-stop">Остановить</button></div><p id="workflow-run-error" class="workflow-run-error"></p></section>
           </div>
         </section>
 
@@ -505,5 +507,6 @@
 
   <!-- Application Logic -->
   <script src="app.js"></script>
+  <script src="static/workflow.js"></script>
 </body>
 </html>

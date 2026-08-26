@@ -130,7 +130,7 @@ def test_web_client_html_and_js_7_views_parity():
 
     # Overview view elements
     assert "renderOverviewView" in app_js
-    assert "overview-route-diagram" in index_html
+    assert "workflow-canvas" in index_html
 
     # Analytics view elements
     assert "analytics-total-calls" in index_html

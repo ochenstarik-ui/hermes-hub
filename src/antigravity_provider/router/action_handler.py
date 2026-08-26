@@ -305,6 +305,23 @@ class ActionExecutor:
             except Exception:
                 pass
 
+        if action in {
+            'create_agent',
+            'update_agent',
+            'delete_agent',
+            'read_agent_file',
+            'save_agent_file',
+            'save_workflow',
+            'start_workflow',
+            'stop_workflow',
+        }:
+            try:
+                from antigravity_provider.router.workflow_service import execute_workflow_action
+
+                return execute_workflow_action(action, data)
+            except (ValueError, OSError) as exc:
+                return {'ok': False, 'message': str(exc)}
+
         # Device-flow для Grok и Codex через веб. Backend был готов давно, но
         # наружу не выведен: веб-мастер показывал заглушку «не реализовано», и
         # подключить эти провайдеры можно было только из десктопа. Настоящие
