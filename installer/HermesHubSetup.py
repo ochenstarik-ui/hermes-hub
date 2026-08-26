@@ -33,8 +33,8 @@ def check_hermes_agent_installed() -> bool:
 
 
 def verify_dependencies(venv_python: Path) -> bool:
-    """Verify that required UI packages can be imported without error."""
-    code = "import customtkinter; from PIL import Image; import yaml; import psutil; print('OK')"
+    """Verify that required web packages can be imported without error."""
+    code = "import fastapi; import uvicorn; import yaml; import psutil; print('OK')"
     try:
         res = subprocess.run(
             [str(venv_python), "-c", code],
@@ -48,8 +48,8 @@ def verify_dependencies(venv_python: Path) -> bool:
 
 
 def install_dependencies(venv_python: Path) -> bool:
-    """Install required UI packages into Hermes venv."""
-    packages = ["customtkinter>=6.0.0", "pillow>=10.0.0", "psutil>=5.9.0", "pyyaml>=6.0.1", "requests>=2.31.0"]
+    """Install required web packages into Hermes venv."""
+    packages = ["fastapi>=0.110.0", "uvicorn>=0.28.0", "psutil>=5.9.0", "pyyaml>=6.0.1", "requests>=2.31.0"]
     try:
         res = subprocess.run(
             [str(venv_python), "-m", "pip", "install", "--upgrade"] + packages,
@@ -95,13 +95,13 @@ def run_installation(silent: bool = False):
     print(f" ✓ Hermes Agent найден ({venv_python})")
 
     # 2. Dependency verification and install
-    print("\n[2/5] Проверка и установка зависимостей UI (customtkinter, Pillow)...")
+    print("\n[2/5] Проверка и установка зависимостей (FastAPI, uvicorn, PyYAML, psutil)...")
     if not verify_dependencies(venv_python):
         print(" Установка недостающих пакетов в окружение Hermes...")
         ok = install_dependencies(venv_python)
         if not ok or not verify_dependencies(venv_python):
             print("\n" + "!" * 60)
-            print(" [ОШИБКА УСТАНОВКИ] Не удалось установить зависимости GUI (customtkinter / Pillow)!")
+            print(" [ОШИБКА УСТАНОВКИ] Не удалось установить зависимости (FastAPI / uvicorn / PyYAML / psutil)!")
             print(" Пожалуйста, проверьте подключение к сети и права доступа к venv.")
             print("!" * 60 + "\n")
             if not silent:

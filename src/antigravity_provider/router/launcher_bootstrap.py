@@ -2,13 +2,13 @@
 
 Responsibilities:
 1. Dependency Verification & Self-Healing:
-   Checks for required packages (customtkinter, pillow, psutil, pyyaml, requests).
+   Checks for required packages (fastapi, uvicorn, psutil, pyyaml, requests).
    If any package is missing, attempts non-blocking silent auto-installation into the active Python environment.
-2. Pre-UI Crash Logging:
+2. Pre-Server Crash Logging:
    Ensures all startup lifecycle stages and any early unhandled exceptions are written to
-   logs/startup.log with full traceback before GUI initialization.
+   logs/startup.log with full traceback before server initialization.
 3. Native User Feedback:
-   If a fatal crash occurs before a window can be displayed, shows a native Windows error dialog
+   If a fatal crash occurs before the server is initialized, shows a native Windows error dialog
    pointing to the exact log file location instead of silent process termination.
 """
 from __future__ import annotations
@@ -58,15 +58,15 @@ def show_native_error(title: str, message: str) -> None:
 
 
 REQUIRED_PACKAGES: Dict[str, str] = {
-    "customtkinter": "customtkinter>=6.0.0",
-    "PIL": "pillow>=10.0.0",
+    "fastapi": "fastapi>=0.110.0",
+    "uvicorn": "uvicorn>=0.28.0",
     "psutil": "psutil>=5.9.0",
     "yaml": "pyyaml>=6.0.1",
 }
 
 
 def check_missing_dependencies() -> List[str]:
-    """Check which required UI / system packages are currently unimportable."""
+    """Check which required web / system packages are currently unimportable."""
     missing = []
     for mod_name, pkg_spec in REQUIRED_PACKAGES.items():
         try:
@@ -118,7 +118,7 @@ def self_heal_dependencies(missing_packages: List[str]) -> Tuple[bool, str]:
 
 
 def bootstrap_and_launch() -> None:
-    """Bootstrap entry point: log startup, verify dependencies, and launch Hermes Hub GUI."""
+    """Bootstrap entry point: log startup, verify dependencies, and launch Hermes Hub Web Server."""
     log_startup("=== Hermes Hub Launcher Bootstrap initiated ===")
     log_startup(f"Python: {sys.executable} (version {sys.version.split()[0]})")
     log_startup(f"Working Directory: {os.getcwd()}")
@@ -132,29 +132,29 @@ def bootstrap_and_launch() -> None:
             log_path = get_startup_log_path()
             show_native_error(
                 "Hermes Hub — Ошибка компонентов",
-                "Не удалось автоматически установить необходимые компоненты графического интерфейса (customtkinter / Pillow / psutil).\n\n"
+                "Не удалось автоматически установить необходимые компоненты (FastAPI / uvicorn / psutil / PyYAML).\n\n"
                 f"Детали ошибки: {detail}\n\n"
                 f"Лог запуска: {log_path}\n\n"
                 "Вы можете установить их вручную командой:\n"
-                f"{sys.executable} -m pip install customtkinter pillow psutil pyyaml",
+                f"{sys.executable} -m pip install fastapi uvicorn psutil pyyaml",
             )
             sys.exit(1)
 
-    # 2. Launch GUI with full exception capture
+    # 2. Launch Web Server with full exception capture
     try:
-        log_startup("Importing hermes_hub_app module...")
-        from antigravity_provider.router.hermes_hub_app import launch_hub
+        log_startup("Importing web server module...")
+        from antigravity_provider.router.web.server import run_server
 
-        log_startup("Executing launch_hub()...")
-        launch_hub()
-        log_startup("Hermes Hub GUI closed normally.")
+        log_startup("Executing run_server()...")
+        run_server()
+        log_startup("Hermes Hub Web Server closed normally.")
     except Exception as exc:
         tb = traceback.format_exc()
         log_startup(f"FATAL EXCEPTION during launch:\n{tb}")
         log_path = get_startup_log_path()
         show_native_error(
             "Hermes Hub — Критическая ошибка при запуске",
-            f"Произошла ошибка при запуске интерфейса Hermes Hub:\n\n{exc}\n\n"
+            f"Произошла ошибка при запуске веб-сервера Hermes Hub:\n\n{exc}\n\n"
             f"Полный текст ошибки записан в лог:\n{log_path}",
         )
         sys.exit(1)

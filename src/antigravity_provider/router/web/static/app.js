@@ -1465,6 +1465,429 @@ function closeModal() {
   if (elements.modalBackdrop) elements.modalBackdrop.classList.add('hidden');
 }
 
+// ── MODALS (Account Details, Model Choice, Routing, Wizard) ──
+function openAccountDetailsModal(profileId, isRefresh = false) {
+  _openAccountModalProfile = profileId;
+  if (!currentSnapshot) return;
+  const profile = (currentSnapshot.all_profiles || {})[profileId];
+  if (!profile) return;
+
+  const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === profile.provider);
+  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
+  const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
+  const qs = profile.quota_snapshot || (currentSnapshot.quotas || {})[profileId];
+  const buckets = (qs && qs.buckets) ? qs.buckets : [];
+
+  let modelBlockHtml = '';
+  if (discoveredModels.length > 0) {
+    modelBlockHtml = `
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
+        <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Предпочитаемая модель профиля:</label>
+        <div style="display:flex; gap:8px;">
+          <select id="modal-model-select" class="select-filter" style="flex:1;">
+            ${discoveredModels.map((m) => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="handleSaveProfileModel('${escapeHtml(profileId)}')">Сохранить</button>
+        </div>
+      </div>
+    `;
+  } else {
+    modelBlockHtml = `
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
+        <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
+          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}', '${escapeHtml(profileId)}')">↻ Запросить список моделей</button>
+      </div>
+    `;
+  }
+
+  elements.modalTitle.textContent = `Учетная запись: ${profile.display_name || profileId}`;
+  elements.modalBody.innerHTML = `
+    <div id="modal-feedback-area"></div>
+    <div style="margin-bottom:14px;">
+      <div style="font-size:14px; font-weight:700;">${escapeHtml(profile.account_identity || profile.email || profileId)}</div>
+      <div style="font-size:12px; color:var(--text-muted); margin-top:2px;">
+        Провайдер: <strong>${escapeHtml(profile.provider_display_name || profile.provider)}</strong> •
+        Тариф: <strong>${escapeHtml(profile.plan_code || profile.plan || 'Неизвестен')}</strong> •
+        Статус: <strong class="text-healthy">${escapeHtml(profile.health_label_ru || 'Работает')}</strong>
+      </div>
+      <div style="font-size:12px; color:var(--text-secondary); margin-top:4px;">
+        Назначенные роли: <strong>${escapeHtml((profile.assigned_roles || []).join(', ') || 'Нет')}</strong>
+      </div>
+    </div>
+
+    ${modelBlockHtml}
+
+    <h3 style="font-size:13px; font-weight:700; margin-bottom:8px; border-bottom:1px solid var(--border-subtle); padding-bottom:4px;">
+      Квоты и корзины провайдера
+    </h3>
+    <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
+      ${buckets.map((b) => `
+        <div style="background:var(--surface-muted); padding:8px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+          <div style="display:flex; justify-content:space-between; font-weight:600;">
+            <span>${escapeHtml(b.display_name)}</span>
+            <span>${b.remaining_percent !== null && b.remaining_percent !== undefined ? `${b.remaining_percent.toFixed(1)}%` : 'Н/Д'}</span>
+          </div>
+          <div class="quota-bar-track" style="margin:4px 0;">
+            <div class="quota-bar-fill" style="width:${Math.max(0, Math.min(100, b.remaining_percent || 0))}%; background-color:${(b.remaining_percent || 0) < 20 ? 'var(--status-warning)' : 'var(--status-healthy)'};"></div>
+          </div>
+          <div style="font-size:10px; color:var(--text-muted);">
+            ${b.reset_at ? `Сброс: ${formatIsoDate(b.reset_at)}` : (b.period ? `Период: ${b.period}` : 'Без отметки сброса')}
+          </div>
+        </div>
+      `).join('') || '<div class="empty-text">Данные о квотах отсутствуют (провайдер не отдал лимиты).</div>'}
+    </div>
+  `;
+
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-secondary" onclick="handleTestProfile('${escapeHtml(profileId)}')">Тест подключения</button>
+    <button class="btn btn-secondary" onclick="handleSetMainAccount('${escapeHtml(profile.provider)}', '${escapeHtml(profileId)}')">Сделать основным</button>
+    <button class="btn btn-secondary" onclick="handleDeleteCredentials('${escapeHtml(profileId)}')">Удалить ключ</button>
+    <button class="btn btn-primary" onclick="closeModal()">Закрыть</button>
+  `;
+
+  showModal();
+}
+
+async function handleSetMainAccount(providerId, profileId) {
+  showToast(`Назначение ${profileId} основным аккаунтом...`, 'info');
+  const res = await executeAction('set_main', { provider: providerId, profile_id: profileId });
+  if (res.ok) {
+    showToast(`Профиль ${profileId} назначен основным`, 'success');
+    closeModal();
+    fetchSnapshot();
+  } else {
+    showToast(res.message || 'Ошибка назначения профиля', 'error');
+  }
+}
+
+async function handleSaveProfileModel(profileId) {
+  const sel = document.getElementById('modal-model-select');
+  if (!sel) return;
+  const model = sel.value;
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение модели...</div>';
+  }
+  const res = await executeAction('set_model', { profile_id: profileId, model: model });
+  if (feedbackArea) {
+    if (res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Модель сохранена')}</div>`;
+      if (currentSnapshot && currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
+        currentSnapshot.all_profiles[profileId].preferred_models = [model];
+      }
+    } else {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml(res.message || 'Ошибка сохранения модели')}</div>`;
+    }
+  }
+}
+
+function openAgentModelModal(roleId, profileId) {
+  if (!currentSnapshot) return;
+  const profile = (currentSnapshot.all_profiles || {})[profileId];
+  if (!profile) return;
+
+  const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === profile.provider);
+  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
+  const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
+  const roleName = ((currentSnapshot.routing || {})[roleId]?.role_name_ru) || roleId;
+
+  elements.modalTitle.textContent = `Выбор модели для роли: ${roleName}`;
+  elements.modalBody.innerHTML = `
+    <div id="modal-feedback-area"></div>
+    <div style="margin-bottom:12px; font-size:12px; color:var(--text-muted);">
+      Профиль агента: <strong>${escapeHtml(profile.display_name)} (${profileId})</strong> • Провайдер: <strong>${escapeHtml(profile.provider_display_name || profile.provider)}</strong>
+    </div>
+    ${discoveredModels.length > 0 ? `
+      <div style="margin-bottom:16px;">
+        <label style="display:block; font-weight:600; margin-bottom:6px;">Выберите модель из обнаруженного списка:</label>
+        <select id="role-model-select" class="select-filter" style="width:100%;">
+          ${discoveredModels.map((m) => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+        </select>
+      </div>
+    ` : `
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:16px;">
+        <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
+          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}')">↻ Запросить список моделей</button>
+      </div>
+    `}
+  `;
+
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+    ${discoveredModels.length > 0 ? `<button class="btn btn-primary" onclick="handleSaveRoleModel('${escapeHtml(roleId)}', '${escapeHtml(profileId)}')">Сохранить модель</button>` : ''}
+  `;
+
+  showModal();
+}
+
+async function handleSaveRoleModel(roleId, profileId) {
+  const sel = document.getElementById('role-model-select');
+  if (!sel) return;
+  const model = sel.value;
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение модели...</div>';
+  }
+  const res = await executeAction('set_model', { profile_id: profileId, model: model, role_id: roleId });
+  if (feedbackArea) {
+    if (res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Модель сохранена')}</div>`;
+      if (currentSnapshot) {
+        if (currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
+          currentSnapshot.all_profiles[profileId].preferred_models = [model];
+        }
+        if (currentSnapshot.routing && currentSnapshot.routing[roleId]) {
+          currentSnapshot.routing[roleId].default_model = model;
+        }
+        if (currentSnapshot.agents) {
+          const ag = currentSnapshot.agents.find((a) => a.role_id === roleId);
+          if (ag) ag.model = model;
+        }
+      }
+      setTimeout(() => {
+        closeModal();
+        renderCurrentView();
+      }, 700);
+    } else {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml(res.message || 'Ошибка сохранения модели')}</div>`;
+    }
+  }
+}
+
+async function handleRefreshProviderModels(providerId, profileId = null) {
+  showToast(`Запрос списка моделей для ${providerId}...`, 'info');
+  const res = await executeAction('refresh_models', { provider: providerId });
+  if (res.ok) {
+    showToast('Запрос обновления моделей отправлен', 'success');
+    if (profileId) {
+      setTimeout(() => openAccountDetailsModal(profileId), 500);
+    }
+  }
+}
+
+async function handleTestProfile(profileId) {
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Запуск тестового запроса к провайдеру...</div>';
+  }
+  const res = await executeAction('test', { profile_id: profileId });
+  if (feedbackArea) {
+    if (res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Тест успешно пройден')}</div>`;
+    } else {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml(res.message || 'Тест завершился с ошибкой')}</div>`;
+    }
+  }
+}
+
+// ── Add Account Wizard ──
+function openAddAccountWizard() {
+  elements.modalTitle.textContent = 'Мастер подключения учетной записи';
+  showWizardStep1();
+  showModal();
+}
+
+function showWizardStep1() {
+  elements.modalBody.innerHTML = `
+    <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+      Шаг 1 из 3: Выберите провайдера ИИ
+    </div>
+    <div style="display:grid; grid-template-columns:1fr; gap:8px;">
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('grok')">
+        <span style="font-size:18px; color:var(--prov-grok);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">Grok (xAI)</div>
+          <div style="font-size:11px; color:var(--text-muted);">Device Code OAuth (работает на сервере) или API Key</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('openai-codex')">
+        <span style="font-size:18px; color:var(--prov-codex);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">OpenAI Codex</div>
+          <div style="font-size:11px; color:var(--text-muted);">Device Code OAuth (работает на сервере) или API Key</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('opencode-go')">
+        <span style="font-size:18px; color:var(--prov-opencode);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">OpenCode Go</div>
+          <div style="font-size:11px; color:var(--text-muted);">API Key / Токен подписки</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('claude')">
+        <span style="font-size:18px; color:var(--prov-claude);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">Claude (Anthropic)</div>
+          <div style="font-size:11px; color:var(--text-muted);">API Key или OAuth (по ссылке или с кодом подтверждения)</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('antigravity')">
+        <span style="font-size:18px; color:var(--prov-antigravity);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">Google Antigravity</div>
+          <div style="font-size:11px; color:var(--text-muted);">OAuth редирект (по ссылке с авто-возвратом или ручной вставкой)</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('local')">
+        <span style="font-size:18px; color:var(--status-healthy, #22c55e);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">Локальная модель (Local LLM)</div>
+          <div style="font-size:11px; color:var(--text-muted);">llama.cpp / Ollama / vLLM (OpenAI-совместимый сервер)</div>
+        </div>
+      </button>
+    </div>
+  `;
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+  `;
+}
+
+function showWizardStep2(providerId) {
+  let bodyHtml = '';
+
+  if (providerId === 'grok' || providerId === 'openai-codex') {
+    const providerName = providerId === 'grok' ? 'Grok (xAI)' : 'OpenAI Codex';
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Авторизация ${providerName} по коду устройства
+      </div>
+      <div id="device-auth-box" style="background:var(--surface-muted); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+        <div style="color:var(--text-secondary);">Запрашиваем код у провайдера…</div>
+      </div>
+    `;
+    setTimeout(() => startDeviceAuth(providerId), 0);
+  } else if (providerId === 'antigravity' || providerId === 'claude') {
+    const providerName = providerId === 'antigravity' ? 'Google Antigravity' : 'Claude';
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Авторизация ${providerName}
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">Слот, в который войти:</label>
+        <select class="input-text" style="width:100%;" id="wiz-redirect-slot">${buildSlotOptions(providerId)}</select>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+          Вход в занятый слот заменит учётные данные, которые в нём сейчас.
+        </div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <button class="btn btn-primary btn-sm" onclick="startRedirectAuth('${escapeHtml(providerId)}')">Получить ссылку</button>
+      </div>
+      <div id="redirect-auth-box" style="background:var(--surface-muted); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+        <div style="color:var(--text-secondary);">Выберите слот и нажмите «Получить ссылку».</div>
+      </div>
+    `;
+  } else if (providerId === 'local' || providerId === 'local-llm' || providerId === 'llama.cpp' || providerId === 'ollama' || providerId === 'vllm') {
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Настройка локального сервера (Local LLM)
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">URL сервера (Base URL):</label>
+        <input type="text" class="input-text" style="width:100%;" id="wiz-base-url-input" placeholder="http://127.0.0.1:8081/v1" value="http://127.0.0.1:8081/v1">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">API Key (опционально):</label>
+        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="Оставьте пустым, если ключ не требуется">
+      </div>
+    `;
+  } else {
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Ввод API ключа ${providerId}
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">API Key / Subscription Token:</label>
+        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="sk-...">
+      </div>
+    `;
+  }
+
+  elements.modalBody.innerHTML = `
+    <div id="modal-feedback-area"></div>
+    ${bodyHtml}
+  `;
+
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
+    <button class="btn btn-primary" onclick="proceedToWizardStep3('${providerId}')">Продолжить →</button>
+  `;
+}
+
+function proceedToWizardStep3(providerId) {
+  const baseInput = document.getElementById('wiz-base-url-input');
+  if (baseInput) {
+    window._wiz_base_url = baseInput.value.trim();
+  }
+  const tokenInput = document.getElementById('wiz-token-input');
+  if (tokenInput) {
+    window._wiz_token = tokenInput.value.trim();
+  }
+  showWizardStep3(providerId);
+}
+
+function showWizardStep3(providerId) {
+  elements.modalBody.innerHTML = `
+    <div id="modal-feedback-area"></div>
+    <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+      Шаг 3 из 3: Назначение роли для нового аккаунта
+    </div>
+    <div style="margin-bottom:14px;">
+      <label style="display:block; font-weight:600; margin-bottom:4px;">Целевая роль в роутере:</label>
+      <select class="select-filter" style="width:100%;" id="wiz-target-role">
+        <option value="coder-primary">Кодер 1 (Primary Coder)</option>
+        <option value="coder-secondary">Кодер 2 (Secondary Coder)</option>
+        <option value="orchestrator">Оркестратор (Fallback Router)</option>
+        <option value="reviewer">Ревьюер кода (Reviewer)</option>
+        <option value="research">Исследователь (Researcher)</option>
+        <option value="fast">Быстрые задачи (Fast / Flash)</option>
+        <option value="spare">Резервный пул (Spare Pool)</option>
+      </select>
+    </div>
+  `;
+
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="showWizardStep2('${providerId}')">← Назад</button>
+    <button class="btn btn-primary" onclick="finishAddAccount('${providerId}')">✓ Завершить подключение</button>
+  `;
+}
+
+async function finishAddAccount(providerId) {
+  const roleSelect = document.getElementById('wiz-target-role');
+  const targetRole = roleSelect ? roleSelect.value : 'coder-primary';
+
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение нового профиля в конфигурации...</div>';
+  }
+
+  const payload = {
+    provider: providerId,
+    target_role: targetRole,
+  };
+  if (window._wiz_base_url) {
+    payload.base_url = window._wiz_base_url;
+  }
+  if (window._wiz_token) {
+    payload.token = window._wiz_token;
+  }
+
+  const res = await executeAction('add_account', payload);
+
+  if (res && res.ok) {
+    showToast('Аккаунт успешно сохранен в конфигурации', 'success');
+    closeModal();
+    fetchSnapshot();
+  } else {
+    if (feedbackArea) {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Не удалось завершить подключение')}</div>`;
+    }
+  }
+}
+
 // ── TOAST NOTIFICATIONS ──
 function showToast(message, type = 'info') {
   if (!elements.toastContainer) return;

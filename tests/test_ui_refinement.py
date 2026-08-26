@@ -7,9 +7,7 @@ import os
 import tempfile
 import pytest
 
-pytest.importorskip("customtkinter")
-
-from antigravity_provider.router.hermes_hub_app import do_test_profile, do_set_main, do_set_orchestrator
+from antigravity_provider.router.action_handler import do_test_profile, do_set_main, do_set_orchestrator
 from antigravity_provider.router.profile_manager import ProfileAuthManager
 
 

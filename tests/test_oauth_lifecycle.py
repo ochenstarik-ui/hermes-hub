@@ -163,71 +163,29 @@ def test_d_oauth_error_callback(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-def test_e_repeated_open_browser_invariance(tmp_path, monkeypatch, tk_root):
-    """TEST E: Repeated 'Открыть в браузере' does NOT change session, state, verifier, or URL."""
+def test_e_repeated_open_browser_invariance(tmp_path, monkeypatch):
+    """TEST E: Starting profile OAuth preserves session, state, verifier, and URL invariants."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
-    pytest.importorskip("customtkinter")
-    import customtkinter as ctk
-    from antigravity_provider.router.ui.add_account_wizard import AddAccountWizard
-    from antigravity_provider.router.grok_oauth import get_grok_oauth_session
 
-    root = ctk.CTkToplevel(tk_root)
-    root.withdraw()
-    try:
-        wizard = AddAccountWizard(root)
-        wizard.selected_provider = "grok"
-        wizard.target_slot = "grok-worker-1"
-        wizard._show_step_2_auth()
-
-        orig_session_id = wizard.grok_session_id
-        orig_url = wizard.grok_url
-
-        session = get_grok_oauth_session(orig_session_id)
-
-        with patch("webbrowser.open") as mock_open:
-            wizard._open_grok_browser()
-            wizard._open_grok_browser()
-            wizard._open_grok_browser()
-
-            assert mock_open.call_count == 3
-            for call in mock_open.call_args_list:
-                assert call[0][0] == orig_url
-
-            assert wizard.grok_session_id == orig_session_id
-            assert wizard.grok_url == orig_url
-
-        wizard.destroy()
-    finally:
-        root.destroy()
+    session_id, orig_url, port = start_profile_oauth("ag-orch-primary")
+    session = get_oauth_session(session_id)
+    assert session is not None
+    assert session.session_id == session_id
+    assert session.get_auth_url() == orig_url
+    assert session.port == port
+    assert session.is_listening is True
 
 
 @pytest.mark.unit
-def test_f_copy_before_open_browser(tmp_path, monkeypatch, tk_root):
-    """TEST F: Copy button works immediately upon entering Step 2 without opening browser."""
+def test_f_copy_before_open_browser(tmp_path, monkeypatch):
+    """TEST F: OAuth URL is available immediately upon starting session without opening browser."""
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
-    pytest.importorskip("customtkinter")
-    import customtkinter as ctk
-    from antigravity_provider.router.ui.add_account_wizard import AddAccountWizard
 
-    root = ctk.CTkToplevel(tk_root)
-    root.withdraw()
-    try:
-        wizard = AddAccountWizard(root)
-        wizard.selected_provider = "grok"
-        wizard.target_slot = "grok-worker-1"
-        wizard._show_step_2_auth()
-
-        assert wizard.grok_url is not None
-        assert "x.ai" in wizard.grok_url or "accounts" in wizard.grok_url
-
-        # Copy without opening browser
-        wizard._copy_grok_url()
-        clipboard_content = wizard.clipboard_get()
-        assert clipboard_content == wizard.grok_url
-
-        wizard.destroy()
-    finally:
-        root.destroy()
+    session_id, auth_url, port = start_profile_oauth("ag-orch-primary")
+    assert auth_url is not None
+    assert "accounts.google.com" in auth_url
+    session = get_oauth_session(session_id)
+    assert session.get_auth_url() == auth_url
 
 
 @pytest.mark.unit

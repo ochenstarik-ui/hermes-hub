@@ -254,7 +254,7 @@ def print_diagnostics_cli() -> int:
         reasons.append(f"Отсутствуют зависимости: {', '.join(missing_deps)}")
         has_fatal_error = True
     else:
-        print("[PASS] Зависимости venv: все необходимые пакеты установлены (customtkinter, Pillow, psutil, pyyaml)")
+        print("[PASS] Зависимости venv: все необходимые пакеты установлены (FastAPI, uvicorn, psutil, pyyaml)")
 
     # 2. Deployed Plugin Freshness Check
     hermes_home = paths.get_hermes_home()
@@ -419,8 +419,15 @@ def clear_cooldown_cli(profile_id: Optional[str] = None) -> int:
     return 0
 
 
+def run_web_server(port: Optional[int] = None) -> int:
+    """Launch Hermes Hub Web Server."""
+    from antigravity_provider.router.web.server import run_server
+    run_server()
+    return 0
+
+
 def main(argv: Optional[list[str]] = None) -> int:
-    parser = argparse.ArgumentParser(prog="hermes router", description="Hermes Multi-Provider Account Router CLI")
+    parser = argparse.ArgumentParser(prog="hermes-hub", description="Hermes Multi-Provider Account Router CLI")
     subparsers = parser.add_subparsers(dest="subcommand", help="Router subcommands")
 
     # status
@@ -470,17 +477,14 @@ def main(argv: Optional[list[str]] = None) -> int:
     cc_parser = subparsers.add_parser("clear-cooldown", help="Clear cooldowns and quota simulations")
     cc_parser.add_argument("profile_id", nargs="?", default=None, help="Optional profile ID")
 
-    # hub / cockpit / gui
-    hub_parser = subparsers.add_parser("hub", aliases=["cockpit", "gui"], help="Launch Hermes Hub GUI")
-    hub_parser.add_argument("--port", type=int, default=8765, help="Port to bind server (default 8765)")
-    hub_parser.add_argument("--no-browser", action="store_true", help="Do not automatically open browser")
+    # web / hub / server
+    hub_parser = subparsers.add_parser("web", aliases=["hub", "server", "cockpit", "gui"], help="Launch Hermes Hub Web Server")
+    hub_parser.add_argument("--port", type=int, default=5800, help="Port to bind server (default 5800)")
 
     args = parser.parse_args(argv)
 
-    if args.subcommand in ("hub", "cockpit", "gui"):
-        from antigravity_provider.router.hermes_hub_app import launch_hub
-        launch_hub()
-        return 0
+    if args.subcommand in ("web", "hub", "server", "cockpit", "gui") or not args.subcommand:
+        return run_web_server(port=getattr(args, "port", None))
     elif args.subcommand == "status":
         return print_router_status()
     elif args.subcommand == "diag":

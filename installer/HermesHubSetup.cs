@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
@@ -137,7 +137,7 @@ namespace HermesHubSetup
             {
                 ProcessStartInfo checkPsi = new ProcessStartInfo();
                 checkPsi.FileName = pythonExe;
-                checkPsi.Arguments = "-c \"import customtkinter, PIL, yaml, psutil, fastapi, uvicorn; print('DEPS_OK')\"";
+                checkPsi.Arguments = "-c \"import yaml, psutil, fastapi, uvicorn; print('DEPS_OK')\"";
                 checkPsi.UseShellExecute = false;
                 checkPsi.RedirectStandardOutput = true;
                 checkPsi.RedirectStandardError = true;
@@ -159,7 +159,7 @@ namespace HermesHubSetup
 
             if (needsInstall)
             {
-                if (progressCallback != null) progressCallback("Installing dependencies into Hermes venv (customtkinter, Pillow, PyYAML, psutil, FastAPI, uvicorn)...", 40);
+                if (progressCallback != null) progressCallback("Installing dependencies into Hermes venv (FastAPI, uvicorn, PyYAML, psutil)...", 40);
                 
                 // 1. Ensure pip is installed/bootstrapped if needed
                 try
@@ -185,7 +185,7 @@ namespace HermesHubSetup
                 {
                     ProcessStartInfo pipPsi = new ProcessStartInfo();
                     pipPsi.FileName = pythonExe;
-                    pipPsi.Arguments = "-m pip install --no-warn-script-location customtkinter pillow pyyaml psutil fastapi uvicorn";
+                    pipPsi.Arguments = "-m pip install --no-warn-script-location pyyaml psutil fastapi uvicorn";
                     pipPsi.UseShellExecute = false;
                     pipPsi.RedirectStandardOutput = true;
                     pipPsi.RedirectStandardError = true;
@@ -209,7 +209,7 @@ namespace HermesHubSetup
                     {
                         ProcessStartInfo uvPsi = new ProcessStartInfo();
                         uvPsi.FileName = "uv";
-                        uvPsi.Arguments = string.Format("pip install --python \"{0}\" customtkinter pillow pyyaml psutil fastapi uvicorn", pythonExe);
+                        uvPsi.Arguments = string.Format("pip install --python \"{0}\" pyyaml psutil fastapi uvicorn", pythonExe);
                         uvPsi.UseShellExecute = false;
                         uvPsi.RedirectStandardOutput = true;
                         uvPsi.RedirectStandardError = true;
@@ -237,7 +237,7 @@ namespace HermesHubSetup
                 {
                     ProcessStartInfo recheckPsi = new ProcessStartInfo();
                     recheckPsi.FileName = pythonExe;
-                    recheckPsi.Arguments = "-c \"import customtkinter, PIL, yaml, psutil, fastapi, uvicorn; print('DEPS_VERIFIED')\"";
+                    recheckPsi.Arguments = "-c \"import yaml, psutil, fastapi, uvicorn; print('DEPS_VERIFIED')\"";
                     recheckPsi.UseShellExecute = false;
                     recheckPsi.RedirectStandardOutput = true;
                     recheckPsi.RedirectStandardError = true;
@@ -277,17 +277,10 @@ namespace HermesHubSetup
 
                 // 1. Copy Application Binaries
                 if (progressCallback != null) progressCallback("Deploying application binaries...", 20);
-                string launcherSrc = Path.Combine(sourceRoot, @"launcher\HermesHub.exe");
-                if (!File.Exists(launcherSrc))
-                {
-                    launcherSrc = Path.Combine(sourceRoot, "HermesHub.exe");
-                }
-
-                if (File.Exists(launcherSrc))
-                {
-                    File.Copy(launcherSrc, Path.Combine(TargetInstallDir, "HermesHub.exe"), true);
-                    File.Copy(launcherSrc, Path.Combine(HermesHome, "HermesHub.exe"), true);
-                }
+                string oldDesktopExe = Path.Combine(TargetInstallDir, "HermesHub.exe");
+                if (File.Exists(oldDesktopExe)) { try { File.Delete(oldDesktopExe); } catch { } }
+                string oldDesktopHomeExe = Path.Combine(HermesHome, "HermesHub.exe");
+                if (File.Exists(oldDesktopHomeExe)) { try { File.Delete(oldDesktopHomeExe); } catch { } }
 
                 string webLauncherSrc = Path.Combine(sourceRoot, @"launcher\HermesHubWeb.exe");
                 if (!File.Exists(webLauncherSrc))
@@ -309,7 +302,7 @@ namespace HermesHubSetup
                 }
 
                 // 2. Install UI & System Dependencies into Hermes Python Environment
-                if (progressCallback != null) progressCallback("Checking Python dependencies (customtkinter, Pillow, FastAPI, uvicorn)...", 35);
+                if (progressCallback != null) progressCallback("Checking Python dependencies (FastAPI, uvicorn, psutil, PyYAML)...", 35);
                 if (!EnsurePythonDependencies(HermesPython, progressCallback))
                 {
                     return 13; // Dependency install failed
@@ -376,7 +369,7 @@ namespace HermesHubSetup
                 // 8. Post-install Verification & Import Smoke Test
                 if (progressCallback != null) progressCallback("Running post-install import validation...", 90);
                 string pluginSrcDir = Path.Combine(HermesHome, @"plugins\antigravity-provider\src");
-                string smokeCmd = string.Format("-c \"import sys; sys.path.insert(0, r'{0}'); import customtkinter; from PIL import Image; import antigravity_provider.router.hermes_hub_app; print('HERMES_HUB_IMPORT_OK')\"", pluginSrcDir);
+                string smokeCmd = string.Format("-c \"import sys; sys.path.insert(0, r'{0}'); from antigravity_provider.router.web.server import app; print('HERMES_HUB_IMPORT_OK')\"", pluginSrcDir);
                 ProcessStartInfo smokePsi = new ProcessStartInfo();
                 smokePsi.FileName = HermesPython;
                 smokePsi.Arguments = smokeCmd;
@@ -549,50 +542,30 @@ namespace HermesHubSetup
                 string targetWebExe = Path.Combine(TargetInstallDir, "HermesHubWeb.exe");
                 if (!File.Exists(targetWebExe)) targetWebExe = Path.Combine(HermesHome, "HermesHubWeb.exe");
 
-                string targetDesktopExe = Path.Combine(TargetInstallDir, "HermesHub.exe");
-                if (!File.Exists(targetDesktopExe)) targetDesktopExe = Path.Combine(HermesHome, "HermesHub.exe");
+                // Clean up legacy shortcuts
+                string[] legacyShortcuts = new string[]
+                {
+                    "Hermes Hub (Desktop).lnk",
+                    "Hermes Hub (Web).lnk",
+                    "Hermes Hub Web.lnk"
+                };
+                foreach (string legacy in legacyShortcuts)
+                {
+                    string p = Path.Combine(startMenu, legacy);
+                    if (File.Exists(p)) { try { File.Delete(p); } catch { } }
+                }
 
                 Type shellType = Type.GetTypeFromProgID("WScript.Shell");
-                if (shellType != null)
+                if (shellType != null && File.Exists(targetWebExe))
                 {
                     dynamic shell = Activator.CreateInstance(shellType);
-
-                    // 1. Web Application Window Shortcut (Primary Web App mode)
-                    if (File.Exists(targetWebExe))
-                    {
-                        string webShortcutPath = Path.Combine(startMenu, "Hermes Hub (Web).lnk");
-                        dynamic webShortcut = shell.CreateShortcut(webShortcutPath);
-                        webShortcut.TargetPath = targetWebExe;
-                        webShortcut.WorkingDirectory = TargetInstallDir;
-                        webShortcut.Description = "Hermes Hub — Web Application Window";
-                        webShortcut.IconLocation = targetWebExe + ",0";
-                        webShortcut.Save();
-                    }
-
-                    // 2. Native Desktop Shortcut (CustomTkinter GUI)
-                    if (File.Exists(targetDesktopExe))
-                    {
-                        string desktopShortcutPath = Path.Combine(startMenu, "Hermes Hub (Desktop).lnk");
-                        dynamic desktopShortcut = shell.CreateShortcut(desktopShortcutPath);
-                        desktopShortcut.TargetPath = targetDesktopExe;
-                        desktopShortcut.WorkingDirectory = TargetInstallDir;
-                        desktopShortcut.Description = "Hermes Hub — Native Desktop App";
-                        desktopShortcut.IconLocation = targetDesktopExe + ",0";
-                        desktopShortcut.Save();
-                    }
-
-                    // 3. Standard "Hermes Hub.lnk" shortcut
-                    string standardTarget = File.Exists(targetWebExe) ? targetWebExe : targetDesktopExe;
-                    if (File.Exists(standardTarget))
-                    {
-                        string standardShortcutPath = Path.Combine(startMenu, "Hermes Hub.lnk");
-                        dynamic standardShortcut = shell.CreateShortcut(standardShortcutPath);
-                        standardShortcut.TargetPath = standardTarget;
-                        standardShortcut.WorkingDirectory = TargetInstallDir;
-                        standardShortcut.Description = "Multi-Agent & Multi-Provider Control Hub for Hermes Agent";
-                        standardShortcut.IconLocation = standardTarget + ",0";
-                        standardShortcut.Save();
-                    }
+                    string standardShortcutPath = Path.Combine(startMenu, "Hermes Hub.lnk");
+                    dynamic standardShortcut = shell.CreateShortcut(standardShortcutPath);
+                    standardShortcut.TargetPath = targetWebExe;
+                    standardShortcut.WorkingDirectory = TargetInstallDir;
+                    standardShortcut.Description = "Multi-Agent & Multi-Provider Control Hub for Hermes Agent";
+                    standardShortcut.IconLocation = targetWebExe + ",0";
+                    standardShortcut.Save();
                 }
             }
             catch { }
@@ -634,7 +607,7 @@ namespace HermesHubSetup
                         key.SetValue("Publisher", "Hermes Team");
                         key.SetValue("InstallLocation", TargetInstallDir);
                         key.SetValue("UninstallString", string.Format("\"{0}\" /uninstall", Path.Combine(TargetInstallDir, "HermesHubSetup.exe")));
-                        key.SetValue("DisplayIcon", Path.Combine(TargetInstallDir, "HermesHub.exe"));
+                        key.SetValue("DisplayIcon", Path.Combine(TargetInstallDir, "HermesHubWeb.exe"));
                         key.SetValue("NoModify", 1, RegistryValueKind.DWord);
                         key.SetValue("NoRepair", 0, RegistryValueKind.DWord);
                     }

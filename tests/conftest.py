@@ -36,35 +36,6 @@ def isolate_hermes_environment(tmp_path, monkeypatch):
 
 
 def pytest_configure(config):
-    config.addinivalue_line("markers", "ui: mark test as requiring CustomTkinter / Tk graphical environment")
-
-
-def pytest_collection_modifyitems(config, items):
-    """Skip tests explicitly marked as needing the Tk graphical stack.
-
-    Selection is by the ``ui`` marker only. It used to also match any test whose
-    *name* contained "ui", "view" or "wizard", which silently skipped static
-    checks that never touch the toolkit — and hid real failures for weeks.
-    Modules that import the GUI stack guard themselves with
-    ``pytest.importorskip("customtkinter")`` at module scope; that guard is
-    enforced by tests/test_import_invariants.py.
-    """
-    try:
-        import customtkinter  # noqa: F401
-    except Exception:
-        skip_ui = pytest.mark.skip(reason="customtkinter is not installed in current environment")
-        for item in items:
-            if "ui" in item.keywords:
-                item.add_marker(skip_ui)
-
-@pytest.fixture(scope="session")
-def tk_root():
-    """Shared Tkinter root for all UI tests to avoid Tcl resource exhaustion."""
-    try:
-        import customtkinter as ctk
-        root = ctk.CTk()
-        root.withdraw()
-        yield root
-        root.destroy()
-    except Exception as e:
-        pytest.skip(f"Tkinter could not be initialized: {e}")
+    config.addinivalue_line("markers", "unit: mark test as a unit test")
+    config.addinivalue_line("markers", "integration: mark test as an integration test")
+    config.addinivalue_line("markers", "installer: mark test as installer test")

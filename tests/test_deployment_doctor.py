@@ -129,11 +129,10 @@ def test_adapter_no_browser_on_expired_token(clean_env, monkeypatch):
     assert "Авторизация истекла" in str(exc_info.value)
 
 
-@pytest.mark.ui
+@pytest.mark.unit
 def test_do_test_profile_no_browser_on_expired_token(clean_env):
-    """P0-3: Verify do_test_profile in UI layer catches expired token without invoking adapter."""
-    pytest.importorskip("customtkinter")
-    from antigravity_provider.router.hermes_hub_app import do_test_profile
+    """P0-3: Verify do_test_profile catches expired token without invoking adapter."""
+    from antigravity_provider.router.action_handler import do_test_profile
 
     expired_auth = {
         "provider": "antigravity",

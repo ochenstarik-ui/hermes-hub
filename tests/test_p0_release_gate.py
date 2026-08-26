@@ -53,19 +53,19 @@ def test_p0_1_installer_dependencies():
     cs_content = setup_cs.read_text(encoding="utf-8")
 
     assert "EnsurePythonDependencies" in cs_content, "Canonical installer must define dependency checking and installation"
-    assert "customtkinter" in cs_content and "pillow" in cs_content.lower(), "Canonical installer must install customtkinter and Pillow"
+    assert "fastapi" in cs_content and "uvicorn" in cs_content, "Canonical installer must install fastapi and uvicorn"
+    assert "customtkinter" not in cs_content, "Canonical installer must not contain legacy customtkinter"
     assert "HERMES_HUB_IMPORT_OK" in cs_content, "Canonical installer must execute post-install import smoke test"
     assert "assets" in cs_content, "Canonical installer must deploy branding and UI assets"
 
     # 2. Verify Runtime Dependency Availability
-    pytest.importorskip("customtkinter")
-    import customtkinter
-    from PIL import Image
+    import fastapi
+    import uvicorn
     import psutil
     import yaml
 
-    assert customtkinter is not None
-    assert Image is not None
+    assert fastapi is not None
+    assert uvicorn is not None
     assert psutil is not None
     assert yaml is not None
 

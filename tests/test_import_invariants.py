@@ -31,11 +31,8 @@ TESTS_DIR = Path(__file__).resolve().parent
 # repository sources, so the suite never grades a different deployed version.
 PACKAGE_ROOT = TESTS_DIR.parent / "src" / "antigravity_provider"
 
-# Third-party packages that may legitimately be absent (GUI / optional extras).
+# Third-party packages that may legitimately be absent (optional extras).
 OPTIONAL_EXTERNAL_MODULES = {
-    "customtkinter",
-    "tkinter",
-    "PIL",
     "psutil",
     "fastapi",
     "uvicorn",
@@ -76,47 +73,39 @@ def test_module_is_importable(module_name: str) -> None:
 
 
 @pytest.mark.unit
-def test_gui_test_modules_guard_optional_ui_dependency() -> None:
-    """Test modules touching customtkinter must call pytest.importorskip.
-
-    Without the guard a headless environment aborts collection of the whole
-    session ("Interrupted: 1 error during collection") instead of skipping the
-    affected module, which takes the release gate down with it.
-    """
-    # Modules that pull the GUI toolkit in transitively when imported.
-    GUI_BEARING_PREFIXES = (
+def test_zero_desktop_ui_imports_across_tests_and_src() -> None:
+    """Verify that neither src nor tests import deleted desktop UI modules, hermes_hub_app, or customtkinter."""
+    FORBIDDEN_PREFIXES = (
         "customtkinter",
+        "PIL",
         "antigravity_provider.router.ui",
         "antigravity_provider.router.hermes_hub_app",
     )
 
-    def _imports_gui(tree: ast.AST) -> bool:
+    def _imports_forbidden(tree: ast.AST) -> bool:
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
-                if any(a.name.startswith(GUI_BEARING_PREFIXES) for a in node.names):
+                if any(a.name.startswith(FORBIDDEN_PREFIXES) for a in node.names):
                     return True
             elif isinstance(node, ast.ImportFrom):
-                if (node.module or "").startswith(GUI_BEARING_PREFIXES):
+                if (node.module or "").startswith(FORBIDDEN_PREFIXES):
                     return True
         return False
 
     offenders: list[str] = []
-    for path in sorted(TESTS_DIR.glob("test_*.py")):
-        text = path.read_text(encoding="utf-8", errors="ignore")
-        try:
-            tree = ast.parse(text)
-        except SyntaxError:
-            continue
-        # A mention in prose is not an import; only real imports need the guard.
-        if not _imports_gui(tree):
-            continue
-        if "importorskip" not in text:
-            offenders.append(path.name)
+    for search_dir in (PACKAGE_ROOT, TESTS_DIR):
+        for path in sorted(search_dir.rglob("*.py")):
+            text = path.read_text(encoding="utf-8", errors="ignore")
+            try:
+                tree = ast.parse(text)
+            except SyntaxError:
+                continue
+            if _imports_forbidden(tree):
+                offenders.append(str(path.relative_to(TESTS_DIR.parent)))
 
     assert not offenders, (
-        "test modules import customtkinter without pytest.importorskip: "
+        "Found forbidden desktop / customtkinter imports in: "
         + ", ".join(offenders)
-        + " — add pytest.importorskip('customtkinter') above the import"
     )
 
 

@@ -1,4 +1,4 @@
-﻿"""End-to-end verification for Grok and Claude connection, assignment, and testing."""
+"""End-to-end verification for Grok and Claude connection, assignment, and testing."""
 
 from __future__ import annotations
 
@@ -8,8 +8,7 @@ import pytest
 from antigravity_provider.router.auto_assigner import AutoAssigner
 from antigravity_provider.router import action_handler
 from antigravity_provider.router.router_config import RouterConfig, RouterProfileConfig, RolePolicy
-from antigravity_provider.router.ui.add_account_wizard import ensure_profile_in_routing
-from antigravity_provider.router.hermes_hub_app import do_test_profile
+from antigravity_provider.router.action_handler import do_test_profile
 
 
 @pytest.mark.unit
@@ -37,15 +36,14 @@ def test_grok_wizard_definition_and_routing_flow():
         roles={"developer-1": RolePolicy(role_name="developer-1", preferred_chain=[])},
     )
     with patch("antigravity_provider.router.auto_assigner.load_router_config", return_value=config), \
-         patch("antigravity_provider.router.auto_assigner.save_router_config", return_value=True), \
-         patch("antigravity_provider.router.ui.add_account_wizard.load_router_config", return_value=config):
+         patch("antigravity_provider.router.auto_assigner.save_router_config", return_value=True):
         
         ok_def, msg_def = AutoAssigner.ensure_profile_definition("grok", "grok-worker-1")
         assert ok_def, f"Definition failed: {msg_def}"
         assert "grok-worker-1" in config.profiles
         assert config.profiles["grok-worker-1"].provider == "grok"
 
-        ok_route, msg_route = ensure_profile_in_routing("grok-worker-1")
+        ok_route, msg_route = AutoAssigner.assign_profile_to_role("grok-worker-1", "developer-1")
         assert ok_route, f"Routing failed: {msg_route}"
         assert "grok-worker-1" in config.roles["developer-1"].preferred_chain
 
@@ -58,15 +56,14 @@ def test_claude_wizard_definition_and_routing_flow():
         roles={"manager": RolePolicy(role_name="manager", preferred_chain=[])},
     )
     with patch("antigravity_provider.router.auto_assigner.load_router_config", return_value=config), \
-         patch("antigravity_provider.router.auto_assigner.save_router_config", return_value=True), \
-         patch("antigravity_provider.router.ui.add_account_wizard.load_router_config", return_value=config):
+         patch("antigravity_provider.router.auto_assigner.save_router_config", return_value=True):
         
         ok_def, msg_def = AutoAssigner.ensure_profile_definition("claude", "claude-orch")
         assert ok_def, f"Definition failed: {msg_def}"
         assert "claude-orch" in config.profiles
         assert config.profiles["claude-orch"].provider == "claude"
 
-        ok_route, msg_route = ensure_profile_in_routing("claude-orch")
+        ok_route, msg_route = AutoAssigner.assign_profile_to_role("claude-orch", "manager")
         assert ok_route, f"Routing failed: {msg_route}"
         assert "claude-orch" in config.roles["manager"].preferred_chain
 

@@ -16,7 +16,7 @@ LAUNCHER_DIR = REPO_ROOT / "launcher"
 
 
 def test_windows_csharp_launchers_and_setup_compile():
-    """Verify HermesHub.cs, HermesHubWeb.cs, and HermesHubSetup.cs compile without errors on Windows."""
+    """Verify HermesHubWeb.cs and HermesHubSetup.cs compile without errors on Windows."""
     csc_path = r"C:\Windows\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
     if not os.path.isfile(csc_path):
         csc_path = r"C:\Windows\Microsoft.NET\Framework\v4.0.30319\csc.exe"
@@ -27,32 +27,22 @@ def test_windows_csharp_launchers_and_setup_compile():
     temp_out = REPO_ROOT / "artifacts" / "test_compile"
     temp_out.mkdir(parents=True, exist_ok=True)
 
-    # 1. Compile HermesHub.cs
-    hub_cs = LAUNCHER_DIR / "HermesHub.cs"
-    res1 = subprocess.run([
-        csc_path, "/target:winexe", f"/out:{temp_out / 'HermesHub.exe'}",
-        "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", str(hub_cs)
-    ], capture_output=True, text=True)
-    assert res1.returncode == 0, f"HermesHub.cs compilation failed: {res1.stdout}\n{res1.stderr}"
-
-    # 2. Compile HermesHubWeb.cs
+    # 1. Compile HermesHubWeb.cs
     hub_web_cs = LAUNCHER_DIR / "HermesHubWeb.cs"
-    res2 = subprocess.run([
+    res1 = subprocess.run([
         csc_path, "/target:winexe", f"/out:{temp_out / 'HermesHubWeb.exe'}",
         "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll", str(hub_web_cs)
     ], capture_output=True, text=True)
-    assert res2.returncode == 0, f"HermesHubWeb.cs compilation failed: {res2.stdout}\n{res2.stderr}"
+    assert res1.returncode == 0, f"HermesHubWeb.cs compilation failed: {res1.stdout}\n{res1.stderr}"
 
-    # 3. Compile HermesHubSetup.cs
+    # 2. Compile HermesHubSetup.cs
     setup_cs = INSTALLER_DIR / "HermesHubSetup.cs"
-    res3 = subprocess.run([
+    res2 = subprocess.run([
         csc_path, "/target:winexe", f"/out:{temp_out / 'HermesHubSetup.exe'}",
-        # Установщик несёт содержимое вшитым ресурсом и распаковывает его через
-        # ZipFile — сборка требует System.IO.Compression.FileSystem.
         "/r:System.Windows.Forms.dll", "/r:System.Drawing.dll",
         "/r:System.IO.Compression.FileSystem.dll", str(setup_cs)
     ], capture_output=True, text=True)
-    assert res3.returncode == 0, f"HermesHubSetup.cs compilation failed: {res3.stdout}\n{res3.stderr}"
+    assert res2.returncode == 0, f"HermesHubSetup.cs compilation failed: {res2.stdout}\n{res2.stderr}"
 
 
 def test_windows_launcher_browser_search_and_health_check():
@@ -67,14 +57,13 @@ def test_windows_launcher_browser_search_and_health_check():
     assert "HermesHubWeb" in web_cs or "WebLauncher" in web_cs
 
 
-def test_windows_installer_creates_both_shortcuts():
-    """Verify HermesHubSetup.cs creates both Web and Desktop shortcuts."""
+def test_windows_installer_creates_single_web_shortcut():
+    """Verify HermesHubSetup.cs creates single Hermes Hub shortcut and cleans legacy ones."""
     setup_cs = (INSTALLER_DIR / "HermesHubSetup.cs").read_text(encoding="utf-8")
 
-    assert "Hermes Hub (Web).lnk" in setup_cs
-    assert "Hermes Hub (Desktop).lnk" in setup_cs
+    assert "Hermes Hub.lnk" in setup_cs
+    assert "Hermes Hub (Desktop).lnk" in setup_cs  # in legacy cleanup array
     assert "HermesHubWeb.exe" in setup_cs
-    assert "HermesHub.exe" in setup_cs
 
 
 def test_linux_installer_script_structure():
