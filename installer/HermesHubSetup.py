@@ -145,7 +145,7 @@ def run_installation(silent: bool = False):
     # 4. Create Windows Shortcuts
     print("\n[4/5] Создание ярлыков Windows с AppUserModelID (HermesHub.Desktop)...")
     try:
-        launcher_exe = hub_dest / "launcher" / "HermesHub.exe"
+        launcher_exe = hub_dest / "launcher" / "HermesHubWeb.exe"
         ico_file = hub_dest / "assets" / "branding" / "app" / "HermesHub.ico"
         desktop_dir = Path(os.environ.get("USERPROFILE", "")) / "Desktop"
         start_menu_dir = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
@@ -153,6 +153,18 @@ def run_installation(silent: bool = False):
         ps_script = f"""
         $WshShell = New-Object -comObject WScript.Shell
         
+        # Remove legacy shortcuts
+        $legacyShortcuts = @(
+            "{desktop_dir}\\Hermes Hub (Desktop).lnk",
+            "{desktop_dir}\\Hermes Hub (Web).lnk",
+            "{start_menu_dir}\\Hermes Hub (Desktop).lnk",
+            "{start_menu_dir}\\Hermes Hub (Web).lnk",
+            "{start_menu_dir}\\Hermes Hub Web.lnk"
+        )
+        foreach ($shortcut in $legacyShortcuts) {{
+            if (Test-Path $shortcut) {{ Remove-Item $shortcut -Force }}
+        }}
+
         # Desktop Shortcut
         $Shortcut = $WshShell.CreateShortcut("{desktop_dir}\\Hermes Hub.lnk")
         $Shortcut.TargetPath = "{launcher_exe}"
