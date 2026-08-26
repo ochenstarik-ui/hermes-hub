@@ -1298,6 +1298,55 @@ async function handleAddNodeToChain(roleId) {
 }
 
 // ── SETTINGS MANAGEMENT ──
+function renderSettingsView() {
+  if (!currentSnapshot) return;
+  const paths = currentSnapshot.system_paths || {};
+  const s = currentSnapshot.settings || {};
+
+  const elHome = document.getElementById('path-hermes-home');
+  const elConfig = document.getElementById('path-config-dir');
+  const elLog = document.getElementById('path-log-file');
+
+  if (elHome) elHome.textContent = paths.hermes_home || '—';
+  if (elConfig) elConfig.textContent = paths.config_dir || '—';
+  if (elLog) elLog.textContent = paths.log_file || '—';
+
+  const quotaThresholdSel = document.getElementById('setting-quota-threshold-percent');
+  const quotaActionSel = document.getElementById('setting-quota-threshold-action');
+  const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
+
+  if (quotaThresholdSel && s.quota_threshold_percent !== undefined) {
+    quotaThresholdSel.value = String(Math.round(s.quota_threshold_percent));
+  }
+  if (quotaActionSel && s.quota_threshold_action) {
+    quotaActionSel.value = s.quota_threshold_action;
+  }
+  if (monitorIntervalInput && s.monitoring_interval_seconds !== undefined) {
+    monitorIntervalInput.value = s.monitoring_interval_seconds;
+  }
+}
+
+async function saveHubServerSettings() {
+  const quotaThresholdSel = document.getElementById('setting-quota-threshold-percent');
+  const quotaActionSel = document.getElementById('setting-quota-threshold-action');
+  const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
+
+  const newSettings = {
+    quota_threshold_percent: quotaThresholdSel ? parseFloat(quotaThresholdSel.value) || 10.0 : 10.0,
+    quota_threshold_action: quotaActionSel ? quotaActionSel.value : 'notify',
+    monitoring_interval_seconds: monitorIntervalInput ? parseInt(monitorIntervalInput.value, 10) || 30 : 30,
+  };
+
+  showToast('Сохранение настроек сервера...', 'info');
+  const res = await executeAction('save_settings', newSettings);
+  if (res.ok) {
+    showToast('Настройки сервера успешно сохранены', 'success');
+    fetchSnapshot();
+  } else {
+    showToast(res.message || 'Ошибка сохранения настроек сервера', 'error');
+  }
+}
+
 function initSettings() {
   const btnSave = document.getElementById('btn-save-client-settings');
   const tokenInput = document.getElementById('setting-client-token-input');

@@ -127,7 +127,8 @@ def validate_graph(graph: RoutingGraph, config: Optional[RouterConfig] = None) -
     node_set = set(node_ids)
     for role_id in sorted({item for item in node_ids if node_ids.count(item) > 1}):
         issues.append(GraphIssue("duplicate-node", f"Роль {role_id} добавлена дважды", role_id))
-    if "orchestrator" not in node_set:
+    orch_node = next((n for n in ("manager", "orchestrator") if n in node_set), None)
+    if not orch_node:
         issues.append(GraphIssue("missing-orchestrator", "Отсутствует узел оркестратора"))
     for node in graph.nodes:
         policy = config.roles.get(node.role_id)
@@ -172,8 +173,8 @@ def validate_graph(graph: RoutingGraph, config: Optional[RouterConfig] = None) -
             visit(target)
         active.remove(role_id)
 
-    if "orchestrator" in node_set:
-        visit("orchestrator")
+    if orch_node:
+        visit(orch_node)
         for role_id in sorted(node_set - visited):
             issues.append(GraphIssue("unreachable", f"Роль {role_id} недостижима от оркестратора", role_id))
     return issues

@@ -417,6 +417,17 @@ class ModelRegistry:
             normalized = role.strip().lower()
             if normalized in self._role_reqs:
                 return self._role_reqs[normalized]
+            alias_map = {
+                "code-reviewer": "reviewer",
+                "manager": "orchestrator",
+                "developer-1": "coder-primary",
+                "developer-2": "coder-secondary",
+                "tester": "fast",
+                "researcher": "research",
+            }
+            mapped = alias_map.get(normalized)
+            if mapped and mapped in self._role_reqs:
+                return self._role_reqs[mapped]
             # Default fallback for custom roles
             return RoleRequirements(
                 role_id=normalized,

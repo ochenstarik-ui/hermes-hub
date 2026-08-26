@@ -221,10 +221,15 @@ def check_production_update_feed() -> tuple[bool, str]:
         with urllib.request.urlopen(req, timeout=6) as resp:
             if resp.status == 200:
                 data = json.loads(resp.read().decode("utf-8-sig"))
-                p_ver = data.get("version")
+                p_ver = data.get("version") or data.get("tag_name", "").lstrip("v")
                 p_url = data.get("package_url")
-                if not p_ver or not p_url:
-                    return False, "Public update manifest is missing version or package_url"
+                if not p_url and data.get("assets"):
+                    p_url = data["assets"][0].get("browser_download_url")
+                if not p_url:
+                    p_url = data.get("html_url") or DEFAULT_UPDATE_URL
+
+                if not p_ver:
+                    return False, "Public update manifest is missing version or tag_name"
 
                 # Verify package URL reachability
                 pkg_live = False

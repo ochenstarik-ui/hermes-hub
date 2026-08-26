@@ -23,6 +23,7 @@ import pytest
 
 from antigravity_provider.paths import get_hermes_home, get_profile_dir
 from antigravity_provider.router.auto_assigner import AutoAssigner, CANONICAL_ROLE_MAP
+from antigravity_provider.router.role_registry import RoleRegistry
 from antigravity_provider.router.exceptions import (
     AuthExpiredError,
     AuthRequiredError,
@@ -126,7 +127,7 @@ def test_p0_4_auto_assign_all(tmp_path, monkeypatch):
     # Verify only canonical roles exist in config
     cfg = load_router_config()
     for rname in cfg.roles:
-        assert rname in {"manager", "developer-1", "developer-2", "code-reviewer", "researcher", "tester"}
+        assert rname in set(RoleRegistry.get_role_ids())
 
 
 @pytest.mark.unit

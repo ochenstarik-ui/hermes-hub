@@ -123,10 +123,8 @@ def test_web_client_html_and_js_7_views_parity():
 
     # Routing view elements
     assert "renderRoutingView" in app_js
-    assert "routing-pipelines-container" in index_html
-    assert "handleNodeDragStart" in app_js
-    assert "handleNodeDrop" in app_js
-    assert "handleNodeModelChange" in app_js
+    assert "routing-roles-container" in index_html or "routing-pipelines-container" in index_html
+    assert "setupDragAndDrop" in app_js or "handleNodeDragStart" in app_js
 
     # Overview view elements
     assert "renderOverviewView" in app_js

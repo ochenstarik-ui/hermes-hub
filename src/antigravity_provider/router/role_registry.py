@@ -2,7 +2,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Tuple
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
+
+if TYPE_CHECKING:
+    from antigravity_provider.router.router_config import RolePolicy
 
 
 
@@ -179,11 +182,39 @@ CANONICAL_ROLES: Dict[str, RoleDefinition] = {
 
 _CANONICAL_ROLE_ALIASES: Dict[str, str] = {
     "orchestrator": "manager",
+    "главный оркестратор": "manager",
+    "оркестратор": "manager",
+    "менеджер": "manager",
+    "coder": "developer-1",
     "coder-primary": "developer-1",
+    "developer": "developer-1",
+    "кодер": "developer-1",
+    "кодер 1": "developer-1",
+    "разработчик": "developer-1",
+    "разработчик 1": "developer-1",
     "coder-secondary": "developer-2",
+    "кодер 2": "developer-2",
+    "разработчик 2": "developer-2",
     "reviewer": "code-reviewer",
+    "ревьюер": "code-reviewer",
+    "код-ревьювер": "code-reviewer",
+    "код-ревьюер": "code-reviewer",
     "research": "researcher",
+    "исследователь": "researcher",
     "fast": "tester",
+    "general": "tester",
+    "тестировщик": "tester",
+    "быстрый агент": "tester",
+    "tech_writer": "tech-writer",
+    "технический писатель": "tech-writer",
+    "аналитик": "analyst",
+    "надзиратель": "guardian",
+    "контроль затрат": "cost-controller",
+    "агент контроля затрат": "cost-controller",
+    "интеграция": "integration-expert",
+    "специалист по интеграции": "integration-expert",
+    "безопасность": "security-expert",
+    "специалист по безопасности": "security-expert",
 }
 
 class RoleRegistry:
