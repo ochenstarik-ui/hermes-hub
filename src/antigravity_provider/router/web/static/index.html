@@ -179,14 +179,48 @@
         </section>
 
         <!-- 3. ROUTING VIEW (Main Control Center) -->
-        <section id="view-routing" class="view-pane">
-          <div class="view-header-note">
-            Главный центр управления маршрутизацией: перетаскивайте узлы для смены приоритета (Основной → Резерв 1 → Резерв 2), настраивайте рабочие модели и управляйте составом цепочек.
-          </div>
-          <div class="routing-pipelines-list" id="routing-pipelines-container">
-            <!-- Rendered by app.js -->
-          </div>
-        </section>
+        
+          <section id="view-routing" class="view-pane">
+            <div class="view-header-note" style="display:flex; justify-content: space-between; align-items: center;">
+              <div>
+                <i class="fa-solid fa-circle-info" style="color:var(--status-warning);"></i>
+                Перетащите аккаунт из правой панели в нужную роль и установите порядок (приоритет) использования.
+                <br>
+                Система будет использовать аккаунты сверху вниз по списку при выполнении задач с учётом квот и состояния.
+              </div>
+            </div>
+            
+            <div class="routing-grid" style="display: flex; gap: 24px; height: calc(100vh - 150px);">
+              <!-- LEFT COLUMN: Roles -->
+              <div class="routing-left-col" id="routing-roles-container" style="flex: 2; overflow-y: auto; padding-right: 8px;">
+                <!-- Rendered by app.js -->
+              </div>
+              
+              <!-- RIGHT COLUMN: Available Accounts -->
+              <div class="routing-right-col" style="flex: 1; display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius-md); background-color: var(--surface-muted);">
+                <div style="padding: 16px; border-bottom: 1px solid var(--border-subtle);">
+                  <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+                    <h3 style="font-family: var(--font-title); font-size: 14px; text-transform: uppercase;">Доступные аккаунты</h3>
+                    <span id="available-accounts-count" class="text-muted" style="font-size: 12px;">0 аккаунтов</span>
+                  </div>
+                  <div class="input-group">
+                    <input type="text" id="routing-account-search" placeholder="Поиск по аккаунтам, ролям или моделям..." style="width: 100%;">
+                  </div>
+                  <div style="display: flex; gap: 8px; margin-top: 8px;">
+                    <select id="routing-filter-provider" style="flex:1;"><option value="all">Все провайдеры</option></select>
+                    <select id="routing-filter-status" style="flex:1;"><option value="all">Все статусы</option></select>
+                  </div>
+                </div>
+                <div class="available-accounts-list" id="routing-available-container" style="flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px;">
+                  <!-- Rendered by app.js -->
+                </div>
+                <div style="padding: 16px; text-align: center; font-size: 12px; color: var(--text-muted); border-top: 1px dashed var(--border-subtle);">
+                  <i class="fa-solid fa-arrows-up-down-left-right"></i> Перетащите аккаунт в нужную роль или нажмите «+» для добавления
+                </div>
+              </div>
+            </div>
+          </section>
+
 
         <!-- 4. ANALYTICS VIEW (P0-1 & P0-5) -->
         <section id="view-analytics" class="view-pane">
@@ -508,5 +542,14 @@
   <!-- Application Logic -->
   <script src="app.js"></script>
   <script src="static/workflow.js"></script>
+  <script>
+    const urlParams = new URLSearchParams(window.location.search);
+    const theme = urlParams.get('theme');
+    if (theme) {
+      document.body.setAttribute('data-theme', theme);
+      const sel = document.getElementById('theme-selector');
+      if (sel) sel.value = theme;
+    }
+  </script>
 </body>
 </html>
