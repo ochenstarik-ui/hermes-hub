@@ -104,6 +104,11 @@ def test_antigravity_adapter_subprocess_env_isolation(tmp_path, monkeypatch):
         return mock_res
 
     adapter = AntigravityAdapter()
+    fake_agy = tmp_path / "agy.exe"
+    fake_agy.write_bytes(b"")
+    import antigravity_provider.agy_subprocess as agy_sub
+    monkeypatch.setattr(agy_sub, "_agy_exe_cache", None)
+    monkeypatch.setenv("AGY_EXE_PATH", str(fake_agy))
     with patch("subprocess.run", side_effect=mock_subprocess_run):
         res = adapter.invoke(profile, {"messages": [{"role": "user", "content": "hi"}]})
 
