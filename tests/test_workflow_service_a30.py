@@ -134,7 +134,10 @@ def test_live_cycle_stops_with_explicit_iteration_limit_event(workflow_service, 
 
     monkeypatch.setattr("antigravity_provider.router.router_engine.get_router_engine", lambda: FakeEngine())
     workflow_service.start("Проверить реальный цикл")
-    workflow_service._thread.join(timeout=3)
+    thread = workflow_service._thread
+    assert thread is not None
+    thread.join(timeout=3)
+    assert not thread.is_alive(), "Workflow execution thread leaked after join"
 
     assert workflow_service.run["status"] == "failed"
     assert workflow_service.run["error"] == "Достигнут предел итераций: 2"
@@ -155,7 +158,10 @@ def test_provider_error_text_reaches_run_and_events(workflow_service, monkeypatc
     workflow_service.workflow.start_agent_id = "developer"
     workflow_service.workflow.edges = []
     workflow_service.start("Проверить ошибку")
-    workflow_service._thread.join(timeout=3)
+    thread = workflow_service._thread
+    assert thread is not None
+    thread.join(timeout=3)
+    assert not thread.is_alive(), "Workflow execution thread leaked after join"
 
     assert workflow_service.run["status"] == "failed"
     assert provider_text in workflow_service.run["error"]

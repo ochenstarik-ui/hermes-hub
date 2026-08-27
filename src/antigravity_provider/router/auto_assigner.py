@@ -586,3 +586,19 @@ class AutoAssigner:
             level="info",
         )
         return True, f"Цепочка роли '{canonical_role}' успешно сохранена: {', '.join(desired_chain)}"
+
+
+def ensure_profile_in_routing(profile_id: str) -> tuple[bool, str]:
+    """Keep existing chain rank or route a newly introduced profile slot.
+
+    Lives outside the GUI wizard so hermetic tests can import it without customtkinter.
+    """
+    config = load_router_config()
+    assigned_role = next(
+        (role_id for role_id, policy in config.roles.items() if profile_id in policy.preferred_chain),
+        "",
+    )
+    if assigned_role:
+        return True, f"Профиль уже входит в цепочку '{assigned_role}'"
+    _display_name, role_code, tier = AutoAssigner.get_display_name_and_role(profile_id)
+    return AutoAssigner.assign_profile_to_role(profile_id, role_code, is_primary=tier == "primary")

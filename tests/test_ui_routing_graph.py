@@ -133,18 +133,20 @@ def test_graph_store_handles_twenty_nodes(tmp_path):
 
 
 def test_wizard_keeps_existing_chain_rank_and_assigns_missing_slot(monkeypatch):
+    from antigravity_provider.router import auto_assigner as assigner_module
+
     config = _config()
     calls = []
-    monkeypatch.setattr(wizard_module, "load_router_config", lambda: config)
+    monkeypatch.setattr(assigner_module, "load_router_config", lambda: config)
     monkeypatch.setattr(
-        wizard_module.AutoAssigner,
+        assigner_module.AutoAssigner,
         "assign_profile_to_role",
         lambda profile, role, is_primary: calls.append((profile, role, is_primary)) or (True, "ok"),
     )
     assert wizard_module.ensure_profile_in_routing("orch")[0]
     assert calls == []
     monkeypatch.setattr(
-        wizard_module.AutoAssigner,
+        assigner_module.AutoAssigner,
         "get_display_name_and_role",
         lambda _profile: ("Новый кодер", "coder", "fallback"),
     )

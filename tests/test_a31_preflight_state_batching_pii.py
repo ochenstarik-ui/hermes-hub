@@ -11,7 +11,7 @@ import pytest
 from antigravity_provider import paths
 from antigravity_provider.router.action_handler import ActionExecutor
 from antigravity_provider.router.adapters.local_adapter import LocalLLMAdapter
-from antigravity_provider.router.preflight_service import PreflightCheckService, PreflightReport
+from antigravity_provider.router.preflight_service import PreflightCheckService, PreflightItem, PreflightReport
 from antigravity_provider.router.role_registry import CANONICAL_ROLES, RoleRegistry
 from antigravity_provider.router.router_config import (
     RouterConfig,
@@ -75,15 +75,18 @@ def test_dependency_agent_role_registered():
 
 
 def test_preflight_service_cli_and_environment():
-    """Verify CLI tools and environment checks."""
+    """Verify CLI tools and environment checks with controlled discovery."""
     service = PreflightCheckService.get()
 
-    cli_items = service.check_cli_dependencies()
+    with patch("antigravity_provider.router.preflight_service.shutil.which", return_value="/opt/agy"), \
+         patch("antigravity_provider.router.preflight_service.importlib.util.find_spec", return_value=object()):
+        cli_items = service.check_cli_dependencies()
     assert len(cli_items) >= 3
     ids = {item.check_id for item in cli_items}
     assert "cli_agy" in ids
     assert "pkg_fastapi" in ids
     assert "pkg_uvicorn" in ids
+    assert all(item.status == "PASS" for item in cli_items)
 
     env_items = service.check_system_environment()
     assert len(env_items) >= 3
@@ -93,28 +96,63 @@ def test_preflight_service_cli_and_environment():
     assert "env_logs_writable" in env_ids
 
 
+def _fake_preflight_items() -> list:
+    return [
+        PreflightItem(check_id="cli_agy", name="CLI", status="PASS", message="mocked"),
+        PreflightItem(check_id="env_hermes_home", name="HOME", status="PASS", message="mocked"),
+        PreflightItem(check_id="auth_local-1", name="AUTH", status="WARN", message="mocked"),
+        PreflightItem(check_id="local_srv_local-1", name="LLM", status="PASS", message="mocked"),
+    ]
+
+
 def test_preflight_service_run_all_and_action():
-    """Verify run_all_checks and action execution."""
+    """Verify run_all_checks orchestration without probing this machine."""
     service = PreflightCheckService.get()
-    report = service.run_all_checks()
+    cli, env, auth, local = (
+        [_fake_preflight_items()[0]],
+        [_fake_preflight_items()[1]],
+        [_fake_preflight_items()[2]],
+        [_fake_preflight_items()[3]],
+    )
+
+    with patch.object(service, "check_cli_dependencies", return_value=cli) as mock_cli, \
+         patch.object(service, "check_system_environment", return_value=env) as mock_env, \
+         patch.object(service, "check_auth_credentials", return_value=auth) as mock_auth, \
+         patch.object(service, "check_local_servers", return_value=local) as mock_local, \
+         patch("antigravity_provider.router.preflight_service.urllib.request.urlopen") as mock_urlopen:
+        report = service.run_all_checks()
+        action_res = ActionExecutor.execute("run_preflight", {})
+
+    mock_cli.assert_called()
+    mock_env.assert_called()
+    mock_auth.assert_called()
+    mock_local.assert_called()
+    mock_urlopen.assert_not_called()
 
     assert isinstance(report, PreflightReport)
-    assert isinstance(report.passed_count, int)
-    assert isinstance(report.failed_count, int)
-    assert isinstance(report.warn_count, int)
-    assert len(report.checks) > 0
-
+    assert report.passed_count == 3
+    assert report.warn_count == 1
+    assert report.failed_count == 0
+    assert len(report.checks) == 4
     report_dict = report.to_dict()
     assert "success" in report_dict
     assert "checks" in report_dict
     assert isinstance(report_dict["checks"], list)
 
-    # Test via ActionExecutor
-    action_res = ActionExecutor.execute("run_preflight", {})
     assert "ok" in action_res
     assert "message" in action_res
     assert "data" in action_res
     assert "checks" in action_res["data"]
+    assert mock_urlopen.call_count == 0
+
+
+@pytest.mark.live
+def test_preflight_live_local_servers():
+    """Optional live probe of configured local servers. Not part of hermetic pytest."""
+    service = PreflightCheckService.get()
+    items = service.check_local_servers()
+    assert isinstance(items, list)
+    assert items
 
 
 # ============================================================================

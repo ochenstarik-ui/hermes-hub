@@ -117,6 +117,7 @@ def test_identity_priority_and_plan_badge_suppression() -> None:
 
 
 @pytest.mark.ui
+@pytest.mark.timeout(90)
 def test_fifty_accounts_update_one_quota_without_rebuilding_other_cards(ui_root) -> None:
     view = AccountsView(ui_root)
     try:

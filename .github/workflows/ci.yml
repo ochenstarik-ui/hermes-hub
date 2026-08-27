@@ -10,6 +10,7 @@ jobs:
   test:
     name: Clean Windows Runner Test
     runs-on: windows-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout repository
@@ -24,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[dev]
+          pip install -e ".[dev,web]"
 
       - name: Code Quality (ruff)
         run: |
@@ -41,6 +42,7 @@ jobs:
   headless:
     name: Headless Run (no GUI dependencies)
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,7 +56,7 @@ jobs:
       - name: Install dependencies without GUI extras
         run: |
           python -m pip install --upgrade pip
-          pip install -e .[dev]
+          pip install -e ".[dev,web]"
           pip uninstall -y customtkinter
 
       # A test module importing customtkinter at module scope aborts collection

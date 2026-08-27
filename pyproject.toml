@@ -46,6 +46,7 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.23.0",
+    "pytest-timeout>=2.3.0",
     "anyio>=4.0.0",
     "ruff>=0.3.0",
 ]
@@ -65,6 +66,8 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 python_files = ["test_*.py"]
 addopts = "-m 'not live and not network and not installer'"
+timeout = 30
+timeout_method = "thread"
 markers = [
     "unit: Unit tests that run isolated in-memory",
     "integration: Component integration tests with isolated filesystem",

@@ -56,6 +56,12 @@ def _missing_external(exc: ImportError) -> str | None:
     root = name.split(".")[0]
     if root in OPTIONAL_EXTERNAL_MODULES:
         return root
+    msg = str(exc)
+    for mod in sorted(OPTIONAL_EXTERNAL_MODULES, key=len, reverse=True):
+        if f"No module named '{mod}'" in msg or f'No module named "{mod}"' in msg:
+            return mod
+        if f"No module named {mod}" in msg:
+            return mod
     return None
 
 
@@ -102,7 +108,7 @@ def test_gui_test_modules_guard_optional_ui_dependency() -> None:
 
     offenders: list[str] = []
     for path in sorted(TESTS_DIR.glob("test_*.py")):
-        text = path.read_text(encoding="utf-8", errors="ignore")
+        text = path.read_text(encoding="utf-8-sig", errors="ignore")
         try:
             tree = ast.parse(text)
         except SyntaxError:

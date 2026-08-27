@@ -22,23 +22,10 @@ import customtkinter as ctk
 
 from antigravity_provider.router.ui.theme import Theme
 from antigravity_provider.router.ui.components import HubButton, HubCard, HubEntry, HubModal
-from antigravity_provider.router.auto_assigner import AutoAssigner
+from antigravity_provider.router.auto_assigner import AutoAssigner, ensure_profile_in_routing
 from antigravity_provider.router.profile_manager import ProfileAuthManager
 from antigravity_provider.router.router_config import load_router_config
 from antigravity_provider.router.unified_health import EventLogService
-
-
-def ensure_profile_in_routing(profile_id: str) -> tuple[bool, str]:
-    """Keep existing chain rank or route a newly introduced profile slot."""
-    config = load_router_config()
-    assigned_role = next(
-        (role_id for role_id, policy in config.roles.items() if profile_id in policy.preferred_chain),
-        "",
-    )
-    if assigned_role:
-        return True, f"Профиль уже входит в цепочку '{assigned_role}'"
-    _display_name, role_code, tier = AutoAssigner.get_display_name_and_role(profile_id)
-    return AutoAssigner.assign_profile_to_role(profile_id, role_code, is_primary=tier == "primary")
 
 
 class AddAccountWizard(HubModal):

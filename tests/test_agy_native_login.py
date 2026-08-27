@@ -123,8 +123,9 @@ def test_launch_native_agy_login_env_isolation(tmp_path, monkeypatch):
         mock_popen.assert_called_once()
         args, kwargs = mock_popen.call_args
 
-        # Command is agy executable
-        assert args[0][0] == "C:\\fake\\agy.exe"
+        # Command includes the mocked agy executable (Linux wraps it in a terminal).
+        launched = args[0]
+        assert "C:\\fake\\agy.exe" in launched
 
         # Environment points to profile dir
         env = kwargs.get("env", {})
