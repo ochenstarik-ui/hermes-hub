@@ -82,14 +82,8 @@ def test_module_is_importable(module_name: str) -> None:
 
 
 @pytest.mark.unit
-def test_gui_test_modules_guard_optional_ui_dependency() -> None:
-    """Test modules touching customtkinter must call pytest.importorskip.
-
-    Without the guard a headless environment aborts collection of the whole
-    session ("Interrupted: 1 error during collection") instead of skipping the
-    affected module, which takes the release gate down with it.
-    """
-    # Modules that pull the GUI toolkit in transitively when imported.
+def test_no_tests_import_removed_desktop_ui() -> None:
+    """Verify that no test modules import the removed CustomTkinter desktop UI."""
     GUI_BEARING_PREFIXES = (
         "customtkinter",
         "antigravity_provider.router.ui",
@@ -113,17 +107,10 @@ def test_gui_test_modules_guard_optional_ui_dependency() -> None:
             tree = ast.parse(text)
         except SyntaxError:
             continue
-        # A mention in prose is not an import; only real imports need the guard.
-        if not _imports_gui(tree):
-            continue
-        if "importorskip" not in text:
+        if _imports_gui(tree):
             offenders.append(path.name)
 
-    assert not offenders, (
-        "test modules import customtkinter without pytest.importorskip: "
-        + ", ".join(offenders)
-        + " — add pytest.importorskip('customtkinter') above the import"
-    )
+    assert not offenders, f"The following test files still import removed desktop UI: {offenders}"
 
 
 @pytest.mark.unit

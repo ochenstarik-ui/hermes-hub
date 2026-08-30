@@ -67,14 +67,14 @@ def test_windows_launcher_browser_search_and_health_check():
     assert "HermesHubWeb" in web_cs or "WebLauncher" in web_cs
 
 
-def test_windows_installer_creates_both_shortcuts():
-    """Verify HermesHubSetup.cs creates both Web and Desktop shortcuts."""
+def test_windows_installer_creates_standard_shortcut_and_cleans_legacy():
+    """Verify HermesHubSetup.cs creates standard Hermes Hub.lnk shortcut and cleans up legacy shortcuts."""
     setup_cs = (INSTALLER_DIR / "HermesHubSetup.cs").read_text(encoding="utf-8")
 
+    assert "Hermes Hub.lnk" in setup_cs
     assert "Hermes Hub (Web).lnk" in setup_cs
     assert "Hermes Hub (Desktop).lnk" in setup_cs
     assert "HermesHubWeb.exe" in setup_cs
-    assert "HermesHub.exe" in setup_cs
 
 
 def test_linux_installer_script_structure():

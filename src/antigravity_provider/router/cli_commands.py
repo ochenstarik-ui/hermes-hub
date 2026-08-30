@@ -254,7 +254,7 @@ def print_diagnostics_cli() -> int:
         reasons.append(f"Отсутствуют зависимости: {', '.join(missing_deps)}")
         has_fatal_error = True
     else:
-        print("[PASS] Зависимости venv: все необходимые пакеты установлены (customtkinter, Pillow, psutil, pyyaml)")
+        print("[PASS] Зависимости venv: все необходимые пакеты установлены (fastapi, uvicorn, psutil, pyyaml)")
 
     # 2. Deployed Plugin Freshness Check
     hermes_home = paths.get_hermes_home()
@@ -478,8 +478,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     if args.subcommand in ("hub", "cockpit", "gui"):
-        from antigravity_provider.router.hermes_hub_app import launch_hub
-        launch_hub()
+        from antigravity_provider.router.web.server import run_web_server
+        port = getattr(args, "port", None)
+        no_browser = getattr(args, "no_browser", False)
+        run_web_server(port=port, open_browser=not no_browser)
         return 0
     elif args.subcommand == "status":
         return print_router_status()

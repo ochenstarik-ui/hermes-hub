@@ -8,8 +8,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-pytest.importorskip("customtkinter")
-
 from antigravity_provider.router.action_handler import ActionExecutor, do_set_model
 from antigravity_provider.router.model_discovery_service import ModelDiscoveryService
 from antigravity_provider.router.router_config import (
@@ -18,7 +16,6 @@ from antigravity_provider.router.router_config import (
     RouterProfileConfig,
     save_router_config,
 )
-from antigravity_provider.router.ui.model_catalog import CachedModels, refresh_models_async
 
 
 @pytest.fixture
@@ -138,25 +135,4 @@ def test_model_discovery_cache_retained_on_timeout_and_error(isolated_hub):
         assert service.get_models("antigravity") == ["existing-gemini-model"]
 
 
-def test_ui_model_catalog_refresh_models_async(isolated_hub):
-    """model_catalog.refresh_models_async dispatches and completes via service."""
-    service = ModelDiscoveryService.get()
-    with service._cache_lock:
-        service._cache["antigravity"] = {
-            "models": ["gemini-2.5-pro"],
-            "discovered_at": 1000.0,
-        }
 
-    completed: list[CachedModels] = []
-    done_evt = threading.Event()
-
-    def _on_done(cm: CachedModels) -> None:
-        completed.append(cm)
-        done_evt.set()
-
-    with patch.object(service, "_probe_provider", return_value=["gemini-2.5-pro", "gemini-2.5-flash"]):
-        ok = refresh_models_async("antigravity", _on_done)
-        assert ok is True
-        assert done_evt.wait(timeout=3.0) is True
-        assert len(completed) == 1
-        assert "gemini-2.5-pro" in completed[0].models
