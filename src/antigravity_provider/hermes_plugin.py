@@ -27,17 +27,45 @@ def _error_message(exc: Exception) -> str:
 def antigravity_llm_execution(**kwargs: Any) -> Any:
     request = kwargs.get("request") or {}
     next_call = kwargs.get("next_call")
-    provider = kwargs.get("provider")
+    provider = kwargs.get("provider") or request.get("provider")
+    model = kwargs.get("model") or request.get("model")
+    session_id = kwargs.get("session_id") or request.get("session_id")
 
-    # 1. Try routing through Multi-Provider Account Router if enabled AND role is determined
+    # 1. Try routing through Multi-Provider Account Router if enabled
     try:
         from .router import get_router_engine
         engine = get_router_engine()
         if engine.config.enabled:
+            # Check if router has any configured and enabled profiles.
+            # Empty configuration must not break Hermes and falls through cleanly.
+            has_active_profiles = bool(
+                engine.config.profiles and any(p.enabled for p in engine.config.profiles.values())
+            )
+            if not has_active_profiles:
+                logger.info("Router has no active profiles; passing call downstream to Hermes")
+                if callable(next_call):
+                    return next_call(request)
+                return request
+
             role = kwargs.get("role") or request.get("role")
             if not role and isinstance(request.get("metadata"), dict):
                 role = request["metadata"].get("role")
-            resolved_role = engine.resolve_role(request, explicit_role=role)
+
+            if provider and not role and not any(p.provider == provider for p in engine.config.profiles.values()):
+                logger.info("Explicit provider %r not managed by router; passing call downstream to Hermes", provider)
+                if callable(next_call):
+                    return next_call(request)
+                return request
+
+            allow_default_fallback = not provider or provider == "antigravity"
+            resolved_role, resolution_source = engine.resolve_role_with_source(
+                request,
+                explicit_role=role,
+                model=model,
+                provider=provider,
+                session_id=session_id,
+                fallback_to_default=allow_default_fallback,
+            )
 
             if not resolved_role:
                 if callable(next_call):
@@ -45,8 +73,16 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
                 return request
 
             if resolved_role:
-                session_id = kwargs.get("session_id") or request.get("session_id")
+                source_labels = {
+                    "explicit": "явная роль",
+                    "model_match": "по модели и провайдеру",
+                    "session_affinity": "по устойчивости сессии",
+                    "default_fallback": "роль по умолчанию",
+                }
+                source_label = source_labels.get(resolution_source, resolution_source)
+
                 completion = engine.route_request(request, role=resolved_role, session_id=session_id)
+
                 # Исчерпанная цепочка — это отказ роутера, а не ответ модели.
                 # Возвращать её текст Гермесу нельзя: он подменит собой настоящий
                 # ответ провайдера, который Гермес выбрал бы сам, и пользователь
@@ -58,9 +94,41 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
                         resolved_role,
                         completion.get("failover_trail"),
                     )
+                    try:
+                        from antigravity_provider.router.unified_health import EventLogService
+                        EventLogService.get().log(
+                            category="routing",
+                            message=f"Цепочка для роли '{resolved_role}' исчерпана; вызов передан штатному обработчику Hermes",
+                            details=f"Признак выбора роли: {source_label}",
+                            level="warning",
+                        )
+                    except Exception:
+                        pass
                     if callable(next_call):
                         return next_call(request)
                     return openai_completion_object(completion)
+
+                # Log successful Hermes routing event with factual role origin and profile
+                try:
+                    from antigravity_provider.router.unified_health import EventLogService
+                    meta = completion.get("router_metadata", {}) if isinstance(completion, dict) else {}
+                    served_profile = meta.get("profile_id", "default")
+                    served_provider = meta.get("provider", provider or "unknown")
+                    served_model = (
+                        meta.get("selected_model")
+                        or (meta.get("selection_trace") or {}).get("selected_model")
+                        or model
+                        or "default"
+                    )
+                    EventLogService.get().log(
+                        category="routing",
+                        message=f"Запрос Hermes направлен роли '{resolved_role}' ({source_label})",
+                        details=f"Профиль: '{served_profile}' ({served_provider}), модель: {served_model}",
+                        level="info",
+                    )
+                except Exception:
+                    pass
+
                 if isinstance(completion, dict) and "error" in completion and not completion.get("choices"):
                     err_text = format_antigravity_error(completion.get("error"))
                     completion = {

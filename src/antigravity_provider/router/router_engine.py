@@ -35,21 +35,117 @@ class RouterEngine:
         if self.affinity and hasattr(self.affinity, "ttl_seconds"):
             self.affinity.ttl_seconds = self.config.session_affinity_ttl_seconds
 
-    def resolve_role(self, request: Dict[str, Any], explicit_role: Optional[str] = None) -> Optional[str]:
-        """Determine logical role from explicit parameter, request payload, or metadata.
+    def resolve_role_with_source(
+        self,
+        request: Dict[str, Any],
+        explicit_role: Optional[str] = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
+        session_id: Optional[str] = None,
+        fallback_to_default: bool = False,
+    ) -> Tuple[Optional[str], str]:
+        """Determine logical role and factual reason from parameters, configuration, or session.
         
-        Returns None if role cannot be reliably determined (no guessing from prompts).
+        Resolution order:
+        1. Explicit role in parameters, request, or metadata -> ("role", "explicit")
+        2. By model and provider matched dynamically against router configuration -> ("role", "model_match")
+        3. By session affinity for session_id -> ("role", "session_affinity")
+        4. Configurable default role -> ("default_role", "default_fallback") if fallback_to_default else (None, "none")
+        
+        Zero prompt guessing.
         """
-        if explicit_role:
-            return explicit_role.strip().lower()
-        if "role" in request and request["role"]:
-            return str(request["role"]).strip().lower()
-        if "personality" in request and request["personality"]:
-            return str(request["personality"]).strip().lower()
-        metadata = request.get("metadata", {})
-        if isinstance(metadata, dict) and metadata.get("role"):
-            return str(metadata["role"]).strip().lower()
-        return None
+        from .role_registry import RoleRegistry
+
+        # 1. Explicit role
+        raw_role = explicit_role
+        if not raw_role and "role" in request and request["role"]:
+            raw_role = str(request["role"])
+        if not raw_role and "personality" in request and request["personality"]:
+            raw_role = str(request["personality"])
+        if not raw_role:
+            metadata = request.get("metadata", {})
+            if isinstance(metadata, dict) and metadata.get("role"):
+                raw_role = str(metadata["role"])
+        if raw_role and str(raw_role).strip():
+            canon_role = RoleRegistry.resolve_canonical_role(str(raw_role).strip().lower())
+            return canon_role, "explicit"
+
+        # 2. By model and provider (derived dynamically from router config, zero hardcoded literals)
+        req_model = str(model or request.get("model") or "").strip()
+        req_prov = str(provider or request.get("provider") or "").strip().lower()
+
+        if req_model:
+            import re
+
+            def _clean_m(m: str) -> str:
+                return m.split("/")[-1].strip().lower()
+
+            def _base_m(m: str) -> str:
+                short = _clean_m(m)
+                return re.sub(r"-(high|medium|low|none|thought|thinking)(?:-(high|medium|low|none))?$", "", short)
+
+            req_m_clean = _clean_m(req_model)
+            req_m_base = _base_m(req_model)
+
+            # 2a. Direct match with role default_model
+            for rname, rpolicy in self.config.roles.items():
+                if rpolicy.default_model:
+                    def_m_clean = _clean_m(rpolicy.default_model)
+                    def_m_base = _base_m(rpolicy.default_model)
+                    if req_m_clean == def_m_clean or (req_m_base and req_m_base == def_m_base):
+                        if not req_prov:
+                            return RoleRegistry.resolve_canonical_role(rname), "model_match"
+                        primary_pcfg = self.config.get_profile(rpolicy.preferred_chain[0]) if rpolicy.preferred_chain else None
+                        if primary_pcfg and primary_pcfg.provider.lower() == req_prov:
+                            return RoleRegistry.resolve_canonical_role(rname), "model_match"
+
+            # 2b. Match with preferred_models of profiles in role's chain
+            for rname, rpolicy in self.config.roles.items():
+                for pid in rpolicy.preferred_chain:
+                    pcfg = self.config.get_profile(pid)
+                    if pcfg and pcfg.preferred_models:
+                        if req_prov and pcfg.provider.lower() != req_prov:
+                            continue
+                        for pm in pcfg.preferred_models:
+                            pm_clean = _clean_m(pm)
+                            pm_base = _base_m(pm)
+                            if req_m_clean == pm_clean or (req_m_base and req_m_base == pm_base):
+                                return RoleRegistry.resolve_canonical_role(rname), "model_match"
+
+        # 3. By session affinity
+        target_session = session_id or self.resolve_session_id(request)
+        if target_session and self.affinity:
+            aff_rec = self.affinity.get_affinity(target_session)
+            if aff_rec and getattr(aff_rec, "role", None):
+                return RoleRegistry.resolve_canonical_role(aff_rec.role), "session_affinity"
+
+        # 4. Default fallback role
+        if fallback_to_default:
+            from .settings_service import get_hub_settings
+            def_role = get_hub_settings().get("default_role") or self.config.default_role or "manager"
+            return RoleRegistry.resolve_canonical_role(str(def_role).strip().lower()), "default_fallback"
+
+        return None, "none"
+
+    def resolve_role(
+        self,
+        request: Dict[str, Any],
+        explicit_role: Optional[str] = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
+        session_id: Optional[str] = None,
+        fallback_to_default: bool = False,
+    ) -> Optional[str]:
+        """Determine logical role from explicit parameter, request payload, metadata, model/provider, or session."""
+        role, _ = self.resolve_role_with_source(
+            request=request,
+            explicit_role=explicit_role,
+            model=model,
+            provider=provider,
+            session_id=session_id,
+            fallback_to_default=fallback_to_default,
+        )
+        return role
 
     def resolve_session_id(self, request: Dict[str, Any], explicit_session_id: Optional[str] = None) -> Optional[str]:
         if explicit_session_id:
@@ -69,7 +165,15 @@ class RouterEngine:
         session_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Execute request with session affinity and role-aware failover."""
-        target_role = self.resolve_role(request, role) or self.config.default_role
+        target_role, _ = self.resolve_role_with_source(
+            request,
+            explicit_role=role,
+            model=request.get("model"),
+            provider=request.get("provider"),
+            session_id=session_id,
+            fallback_to_default=True,
+        )
+        target_role = target_role or self.config.default_role or "manager"
         target_session = self.resolve_session_id(request, session_id)
         role_policy = self.config.get_role_policy(target_role)
 

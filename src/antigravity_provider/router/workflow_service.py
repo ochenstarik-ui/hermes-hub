@@ -1,13 +1,9 @@
-"""Persistent agents, workflow graph and live execution for Hermes Hub.
-
-The router role registry remains the source of truth for logical agents and
-Provider -> Account -> Model assignment.  This module adds the pieces that do
-not fit the routing schema: Agent Files, editor layout, workflow transitions,
-execution checkpoints and a bounded event journal.
-"""
+"""Hermes Hub A30 / A36 workflow runtime and persistence layer."""
 from __future__ import annotations
 
+import datetime
 import json
+import logging
 import re
 import threading
 import time
@@ -17,75 +13,94 @@ from pathlib import Path
 from typing import Any, Optional
 
 from antigravity_provider import paths
-from antigravity_provider.router.router_config import RolePolicy, load_router_config, save_router_config
+from antigravity_provider.router.router_config import (
+    RolePolicy,
+    load_router_config,
+    save_router_config,
+)
+
+logger = logging.getLogger("hermes.router.workflow")
 
 
-AGENT_STATES = {"waiting", "working", "reviewing", "error", "completed", "not_implemented"}
-EDGE_CONDITIONS = {"SUCCESS", "REVIEW_PASSED", "REVIEW_FAILED", "NEXT", "ERROR", "ALWAYS"}
+_AUTH_BEARER_RE = re.compile(r"Bearer\s+[A-Za-z0-9._~+/-]+", re.IGNORECASE)
+_ACCESS_TOKEN_PARAM_RE = re.compile(r"(access_token=)[^&]+", re.IGNORECASE)
+
+
+def sanitize_run_data(data: Any) -> Any:
+    """Sanitize data for saving to workflow_run_state.json, masking secrets and tokens."""
+    if isinstance(data, dict):
+        result = {}
+        for k, v in data.items():
+            k_lower = str(k).lower()
+            if any(s in k_lower for s in ["api_key", "token", "password", "secret", "client_secret", "jwt"]):
+                result[k] = "***"
+            elif isinstance(v, (dict, list)):
+                result[k] = sanitize_run_data(v)
+            elif isinstance(v, str):
+                s_val = _AUTH_BEARER_RE.sub("Bearer ***", v)
+                s_val = _ACCESS_TOKEN_PARAM_RE.sub(r"\1***", s_val)
+                result[k] = s_val
+            else:
+                result[k] = v
+        return result
+    elif isinstance(data, list):
+        return [sanitize_run_data(item) for item in data]
+    elif isinstance(data, str):
+        s_val = _AUTH_BEARER_RE.sub("Bearer ***", data)
+        s_val = _ACCESS_TOKEN_PARAM_RE.sub(r"\1***", s_val)
+        return s_val
+    return data
+
+
+def get_last_run_state(path: Optional[Path] = None) -> Optional[dict[str, Any]]:
+    """Return the last saved run state from workflow_run_state.json."""
+    target_path = path or paths.get_workflow_run_state_path()
+    if not target_path.is_file():
+        return None
+    try:
+        data = json.loads(target_path.read_text(encoding="utf-8"))
+        return data if isinstance(data, dict) else None
+    except Exception:
+        return None
+
+EDGE_CONDITIONS = {
+    "SUCCESS",
+    "ALWAYS",
+    "NEXT",
+    "REVIEW_PASSED",
+    "REVIEW_FAILED",
+    "ERROR",
+    "COMPLETED",
+    "ACCEPTED",
+}
 
 
 def _utc_timestamp() -> str:
-    import datetime
-
-    return datetime.datetime.now(datetime.timezone.utc).isoformat(timespec="seconds")
+    return datetime.datetime.now(datetime.timezone.utc).isoformat()
 
 
 def _slug(value: str) -> str:
-    result = re.sub(r"[^a-z0-9]+", "-", value.strip().lower()).strip("-")
-    return result or f"agent-{uuid.uuid4().hex[:8]}"
+    cleaned = re.sub(r"[^a-zA-Z0-9_-]+", "-", value.strip()).strip("-").lower()
+    return cleaned or f"agent-{uuid.uuid4().hex[:6]}"
 
 
-def sanitize_run_data(node: Any) -> Any:
-    """Recursively strip or mask any credentials or secret keys from workflow run state."""
-    secret_key_substrings = [
-        "api_key", "token", "password", "secret", "jwt", "bearer",
-        "access_token", "refresh_token", "client_secret", "authorization",
-    ]
-    if isinstance(node, dict):
-        sanitized: dict[str, Any] = {}
-        for k, v in node.items():
-            k_lower = str(k).lower()
-            if any(s in k_lower for s in secret_key_substrings) and k_lower not in ("auth_status", "author", "auth_required"):
-                sanitized[k] = "***"
-            else:
-                sanitized[k] = sanitize_run_data(v)
-        return sanitized
-    elif isinstance(node, list):
-        return [sanitize_run_data(x) for x in node]
-    elif isinstance(node, str):
-        val = node
-        val = re.sub(r'Bearer\s+[a-zA-Z0-9_\-\.]{8,}', 'Bearer ***', val, flags=re.IGNORECASE)
-        val = re.sub(r'sk-[a-zA-Z0-9_\-]{8,}', 'sk-***', val)
-        val = re.sub(r'gho_[a-zA-Z0-9_\-]{8,}', 'gho_***', val)
-        val = re.sub(r'((?:access_token|refresh_token|api_key|token|password|secret|key)=)([^\s&,"]+)', r'\g<1>***', val, flags=re.IGNORECASE)
-        return val
-    return node
+def _safe_agent_file(path_str: str, agent_id: str) -> tuple[Path, str]:
+    home = paths.get_hermes_home().resolve()
+    if not path_str or not path_str.strip():
+        relative = f"agents/{_slug(agent_id)}.md"
+        return (home / relative).resolve(), relative
 
+    raw = Path(path_str.strip())
+    if raw.is_absolute():
+        resolved = raw.resolve()
+    else:
+        resolved = (home / raw).resolve()
 
-def get_last_run_state(run_state_path: Optional[Path] = None) -> Optional[dict[str, Any]]:
-    """Return the last saved workflow run state from workflow_run_state.json, if any."""
-    p = run_state_path or paths.get_workflow_run_state_path()
-    if not p.is_file():
-        return None
     try:
-        data = json.loads(p.read_text(encoding="utf-8"))
-        if isinstance(data, dict):
-            return sanitize_run_data(data)
-    except Exception:
-        pass
-    return None
-
-
-def _safe_agent_file(value: str, agent_id: str) -> tuple[Path, str]:
-    """Resolve an Agent File below HERMES_HOME/agents and reject traversal."""
-    root = paths.get_agent_files_dir().resolve()
-    candidate_name = Path(value or f"{agent_id}.md").name
-    if not candidate_name.lower().endswith(".md"):
-        candidate_name += ".md"
-    target = (root / candidate_name).resolve()
-    if target.parent != root:
-        raise ValueError("Agent File должен находиться в каталоге agents")
-    return target, f"agents/{candidate_name}"
+        rel = resolved.relative_to(home).as_posix()
+    except ValueError as exc:
+        raise ValueError("Agent File должен находиться внутри каталога HERMES_HOME") from exc
+    return resolved, rel
 
 
 @dataclass
@@ -112,6 +127,7 @@ class WorkflowEdge:
     target: str
     condition: str = "SUCCESS"
     label: str = ""
+    max_iterations: Optional[int] = None
 
 
 @dataclass
@@ -122,6 +138,62 @@ class WorkflowDefinition:
     max_iterations: int = 5
     escalation_agent_id: Optional[str] = None
     start_agent_id: Optional[str] = None
+
+
+def get_canonical_a36_pipeline() -> WorkflowDefinition:
+    """Return canonical Antigravity 4-agent workflow with nested feedback loops."""
+    return WorkflowDefinition(
+        id="a36-pipeline",
+        name="Конвейер Antigravity (Оркестратор, 2 кодера, ревьюер)",
+        start_agent_id="manager",
+        max_iterations=5,
+        edges=[
+            WorkflowEdge(
+                id="edge-manager-to-dev1",
+                source="manager",
+                target="developer-1",
+                condition="SUCCESS",
+                label="Постановка задачи",
+            ),
+            WorkflowEdge(
+                id="edge-dev1-to-dev2",
+                source="developer-1",
+                target="developer-2",
+                condition="SUCCESS",
+                label="Реализация на проверку",
+            ),
+            WorkflowEdge(
+                id="edge-dev2-to-dev1",
+                source="developer-2",
+                target="developer-1",
+                condition="REVIEW_FAILED",
+                label="Доработка Кодеру 1",
+                max_iterations=5,
+            ),
+            WorkflowEdge(
+                id="edge-dev2-to-reviewer",
+                source="developer-2",
+                target="code-reviewer",
+                condition="REVIEW_PASSED",
+                label="Одобрено Кодером 2",
+            ),
+            WorkflowEdge(
+                id="edge-reviewer-to-dev2",
+                source="code-reviewer",
+                target="developer-2",
+                condition="REVIEW_FAILED",
+                label="Переделка Кодеру 2",
+                max_iterations=5,
+            ),
+            WorkflowEdge(
+                id="edge-reviewer-to-manager",
+                source="code-reviewer",
+                target="manager",
+                condition="REVIEW_PASSED",
+                label="Приёмка",
+            ),
+        ],
+    )
 
 
 @dataclass
@@ -206,12 +278,6 @@ class WorkflowService:
             return
         try:
             raw = json.loads(self.state_path.read_text(encoding="utf-8"))
-
-            # Идентификаторы агентов повторяют идентификаторы ролей, а роли со
-            # старыми именами переименовываются в канонические при загрузке
-            # конфигурации. Без такого же переименования здесь сохранённый
-            # workflow ссылался бы на исчезнувших агентов, и граф падал бы с
-            # «Ребро ссылается на отсутствующего агента».
             from antigravity_provider.router.role_registry import RoleRegistry
 
             def _canon(agent_id: str) -> str:
@@ -228,12 +294,18 @@ class WorkflowService:
                 item["id"] = _canon(item["id"])
                 if item.get("role"):
                     item["role"] = _canon(item["role"])
-                # Первым выигрывает агент под старым именем: именно им
-                # пользовался владелец, канонический мог быть дописан пустым.
                 self.agents.setdefault(item["id"], AgentDefinition(**item))
 
             wf = raw.get("workflow") or {}
             edges = []
+            valid_edge_keys = {
+                "id",
+                "source",
+                "target",
+                "condition",
+                "label",
+                "max_iterations",
+            }
             for edge in wf.pop("edges", []):
                 if not isinstance(edge, dict):
                     continue
@@ -241,7 +313,8 @@ class WorkflowService:
                 for key in ("source", "target", "from_agent", "to_agent"):
                     if edge.get(key):
                         edge[key] = _canon(edge[key])
-                edges.append(WorkflowEdge(**edge))
+                filtered_edge = {k: v for k, v in edge.items() if k in valid_edge_keys}
+                edges.append(WorkflowEdge(**filtered_edge))
             self.workflow = WorkflowDefinition(edges=edges, **wf)
             self.events = [WorkflowEvent(**event) for event in raw.get("events", [])[-200:]]
             self.run = raw.get("run") or self._idle_run()
@@ -317,8 +390,8 @@ class WorkflowService:
                 from antigravity_provider.router.role_registry import get_role_definition
 
                 definition = get_role_definition(role_id)
-                name = getattr(definition, "name", None) or getattr(definition, "display_name", None) or name
-                description = getattr(definition, "description", "")
+                name = getattr(definition, "display_name_ru", None) or getattr(definition, "name", None) or name
+                description = getattr(definition, "description_ru", "") or getattr(definition, "description", "")
             except (ImportError, AttributeError, TypeError):
                 pass
             agent = AgentDefinition(
@@ -332,12 +405,28 @@ class WorkflowService:
             self.agents[role_id] = agent
             self._ensure_file(target, agent)
             changed = True
+
+        if not self.workflow.edges:
+            a36_roles = {"manager", "developer-1", "developer-2", "code-reviewer"}
+            if a36_roles.issubset(self.agents.keys()):
+                self.workflow = get_canonical_a36_pipeline()
+                if "manager" in self.agents:
+                    self.agents["manager"].position = {"x": 60.0, "y": 140.0}
+                if "developer-1" in self.agents:
+                    self.agents["developer-1"].position = {"x": 320.0, "y": 140.0}
+                if "developer-2" in self.agents:
+                    self.agents["developer-2"].position = {"x": 580.0, "y": 140.0}
+                if "code-reviewer" in self.agents:
+                    self.agents["code-reviewer"].position = {"x": 840.0, "y": 140.0}
+                changed = True
+
         if changed:
             self._save()
 
     @staticmethod
     def _ensure_file(target: Path, agent: AgentDefinition) -> None:
         if not target.exists():
+            target.parent.mkdir(parents=True, exist_ok=True)
             body = f"# {agent.name}\n\n## Роль\n\n{agent.role}\n\n## Назначение\n\n{agent.description or 'Инструкции ещё не заполнены.'}\n"
             target.write_text(body, encoding="utf-8")
 
@@ -390,6 +479,7 @@ class WorkflowService:
         with self._lock:
             agent = self._require_agent(agent_id)
             target, relative = _safe_agent_file(agent.agent_file, agent.id)
+            target.parent.mkdir(parents=True, exist_ok=True)
             temporary = target.with_suffix(".md.tmp")
             temporary.write_text(str(content), encoding="utf-8")
             temporary.replace(target)
@@ -404,6 +494,8 @@ class WorkflowService:
         if not name:
             raise ValueError("Укажите название агента")
         with self._lock:
+            if self.run.get("status") in {"running", "stopping"}:
+                raise ValueError("Нельзя менять конфигурацию агентов во время выполнения workflow")
             if agent_id in self.agents:
                 raise ValueError("Агент с таким идентификатором уже существует")
             profile_id = str(data.get("account") or data.get("profile_id") or "").strip()
@@ -446,6 +538,8 @@ class WorkflowService:
 
     def update_agent(self, agent_id: str, data: dict[str, Any]) -> AgentDefinition:
         with self._lock:
+            if self.run.get("status") in {"running", "stopping"}:
+                raise ValueError("Нельзя менять конфигурацию агентов во время выполнения workflow")
             agent = self._require_agent(agent_id)
             config = load_router_config()
             policy = config.roles.get(agent.role)
@@ -463,10 +557,11 @@ class WorkflowService:
                 policy.preferred_chain = [profile_id] + [item for item in policy.preferred_chain if item != profile_id]
             if "model" in data:
                 model = str(data.get("model") or "").strip() or None
-                if model and profile_id:
-                    profile = config.profiles[profile_id]
-                    if model not in profile.preferred_models:
-                        raise ValueError("Модель не доступна выбранному аккаунту")
+                if model and policy.preferred_chain:
+                    eff_profile_id = policy.preferred_chain[0]
+                    eff_profile = config.profiles.get(eff_profile_id)
+                    if eff_profile and eff_profile.preferred_models and model not in eff_profile.preferred_models:
+                        raise ValueError(f"Модель {model} не доступна для профиля {eff_profile_id}")
                 policy.default_model = model
             if not save_router_config(config):
                 raise OSError("Не удалось сохранить назначение агента")
@@ -487,6 +582,8 @@ class WorkflowService:
 
     def delete_agent(self, agent_id: str, force: bool = False) -> dict[str, Any]:
         with self._lock:
+            if self.run.get("status") in {"running", "stopping"}:
+                raise ValueError("Нельзя удалять агентов во время выполнения workflow")
             agent = self._require_agent(agent_id)
             edge_ids = [edge.id for edge in self.workflow.edges if edge.source == agent_id or edge.target == agent_id]
             route_used = bool(load_router_config().roles.get(agent.role))
@@ -498,7 +595,17 @@ class WorkflowService:
             if not save_router_config(config):
                 raise OSError("Не удалось удалить роль из маршрутизатора")
             self.workflow.edges = [edge for edge in self.workflow.edges if edge.id not in edge_ids]
-            self.agents.pop(agent_id)
+            if self.workflow.start_agent_id == agent_id:
+                self.workflow.start_agent_id = None
+            if self.workflow.escalation_agent_id == agent_id:
+                self.workflow.escalation_agent_id = None
+            target, _ = _safe_agent_file(agent.agent_file, agent.id)
+            if target.exists():
+                try:
+                    target.unlink()
+                except OSError:
+                    pass
+            self.agents.pop(agent_id, None)
             self._event("AGENT_DELETED", f"Удалён агент «{agent.name}»", agent_id=agent_id, level="warning")
             self._save()
             return {"deleted": True, "consequences": consequences}
@@ -509,18 +616,35 @@ class WorkflowService:
                 raise ValueError("Нельзя менять граф в режиме LIVE во время выполнения")
             edges: list[WorkflowEdge] = []
             seen: set[str] = set()
-            for raw in data.get("edges", []):
-                source, target = str(raw.get("source") or ""), str(raw.get("target") or "")
-                condition = str(raw.get("condition") or "SUCCESS").upper()
+            for raw_edge in data.get("edges", []):
+                source, target = str(raw_edge.get("source") or ""), str(raw_edge.get("target") or "")
+                condition = str(raw_edge.get("condition") or "SUCCESS").upper()
                 if source not in self.agents or target not in self.agents:
                     raise ValueError("Ребро ссылается на отсутствующего агента")
                 if condition not in EDGE_CONDITIONS:
                     raise ValueError(f"Неизвестное условие перехода: {condition}")
-                edge_id = str(raw.get("id") or f"edge-{uuid.uuid4().hex[:10]}")
+                edge_id = str(raw_edge.get("id") or f"edge-{uuid.uuid4().hex[:10]}")
                 if edge_id in seen:
                     raise ValueError("Идентификаторы рёбер должны быть уникальны")
                 seen.add(edge_id)
-                edges.append(WorkflowEdge(edge_id, source, target, condition, str(raw.get("label") or "")))
+                edge_max_it = raw_edge.get("max_iterations")
+                if edge_max_it is not None:
+                    try:
+                        edge_max_it = int(edge_max_it)
+                        if not 1 <= edge_max_it <= 100:
+                            edge_max_it = None
+                    except (ValueError, TypeError):
+                        edge_max_it = None
+                edges.append(
+                    WorkflowEdge(
+                        id=edge_id,
+                        source=source,
+                        target=target,
+                        condition=condition,
+                        label=str(raw_edge.get("label") or ""),
+                        max_iterations=edge_max_it,
+                    )
+                )
             max_iterations = int(data.get("max_iterations") or self.workflow.max_iterations)
             if not 1 <= max_iterations <= 100:
                 raise ValueError("Предел итераций должен быть от 1 до 100")
@@ -577,7 +701,13 @@ class WorkflowService:
             self._stop.set()
             self._event("WORKFLOW_STOP_REQUESTED", "Запрошена остановка workflow", level="warning")
             self._save()
-            self._save_run_state("STOPPED", step_index=len(self._completed_steps), current_agent=self.run.get("current_agent_id"), iteration=self.run.get("iteration", 1), interruption_reason="Остановлено пользователем")
+            self._save_run_state(
+                "STOPPED",
+                step_index=len(self._completed_steps),
+                current_agent=self.run.get("current_agent_id"),
+                iteration=self.run.get("iteration", 1),
+                interruption_reason="Остановлено пользователем",
+            )
             return dict(self.run)
 
     def _execute(self) -> None:
@@ -587,6 +717,7 @@ class WorkflowService:
         context = str(self.run.get("current_task") or "")
         current = str(self.run.get("current_agent_id") or "")
         visited: dict[str, int] = {}
+        edge_counts: dict[str, int] = {}
         try:
             engine = get_router_engine()
             engine.reload_config()
@@ -594,8 +725,14 @@ class WorkflowService:
                 with self._lock:
                     agent = self._require_agent(current)
                     visited[current] = visited.get(current, 0) + 1
-                    iteration = max(visited.values())
-                    self.run.update({"current_agent_id": current, "iteration": iteration})
+                    iteration = visited[current]
+                    global_iteration = sum(visited.values())
+                    self.run.update({
+                        "current_agent_id": current,
+                        "iteration": iteration,
+                        "global_iteration": global_iteration,
+                        "max_iterations": self.workflow.max_iterations,
+                    })
                     step_idx = len(self._completed_steps)
                     if iteration > self.workflow.max_iterations:
                         message = f"Достигнут предел итераций: {self.workflow.max_iterations}"
@@ -605,7 +742,7 @@ class WorkflowService:
                         break
                     file_data = self.read_agent_file(current)
                     if not file_data["exists"]:
-                        raise FileNotFoundError(f"{file_data['path']}: {file_data['reason']}")
+                        raise FileNotFoundError(f"{file_data['path']}: {file_data.get('reason')}")
                     self.run.setdefault("agent_states", {})[current] = (
                         "reviewing" if "review" in agent.role.lower() else "working"
                     )
@@ -665,7 +802,7 @@ class WorkflowService:
                         (item for item in self.workflow.edges if item.source == current and item.condition in {status, "ALWAYS"}),
                         None,
                     )
-                    if not edge and status not in {"ERROR", "REVIEW_FAILED"}:
+                    if not edge and status in {"SUCCESS", "NEXT"}:
                         edge = next(
                             (item for item in self.workflow.edges if item.source == current and item.condition in {"SUCCESS", "NEXT"}),
                             None,
@@ -703,6 +840,16 @@ class WorkflowService:
                             interruption_reason=self.run.get("error") if self.run["status"] == "failed" else None,
                         )
                         break
+
+                    edge_counts[edge.id] = edge_counts.get(edge.id, 0) + 1
+                    edge_limit = edge.max_iterations if edge.max_iterations is not None else self.workflow.max_iterations
+                    if edge_counts[edge.id] > edge_limit:
+                        message = f"Достигнут предел итераций для перехода {edge.source} → {edge.target}: {edge_limit}"
+                        self.run.update({"status": "failed", "error": message})
+                        self._event("WORKFLOW_MAX_ITERATIONS", message, level="error", agent_id=current, iteration=iteration)
+                        self._save_run_state("FAILED", step_index=step_idx + 1, current_agent=current, iteration=iteration, interruption_reason=message)
+                        break
+
                     self._event(
                         "WORKFLOW_TRANSITION",
                         f"Переход {current} → {edge.target}: {edge.condition}",
@@ -746,7 +893,6 @@ class WorkflowService:
                 self.run["current_agent_id"] = current or self.run.get("current_agent_id")
                 self._save()
 
-
     @staticmethod
     def _response_text(response: Any) -> str:
         if not isinstance(response, dict):
@@ -763,9 +909,26 @@ class WorkflowService:
             explicit = response.get("status") or response.get("structured_status")
             if explicit and str(explicit).upper() in EDGE_CONDITIONS:
                 return str(explicit).upper()
-        for status in ("REVIEW_FAILED", "REVIEW_PASSED", "SUCCESS", "ERROR"):
-            if re.search(rf"\b{status}\b", text.upper()):
+
+        text_upper = text.upper()
+        # 1. Match leading status keyword or STATUS: <keyword>
+        prefix_match = re.search(
+            r"^\s*(?:STATUS\s*:\s*|\[STATUS\s*:\s*)?(REVIEW_FAILED|REVIEW_PASSED|COMPLETED|ACCEPTED|SUCCESS|ERROR)\b",
+            text_upper,
+            re.MULTILINE,
+        )
+        if prefix_match:
+            return prefix_match.group(1)
+
+        # 2. Match multi-word distinct statuses anywhere
+        for status in ("REVIEW_FAILED", "REVIEW_PASSED", "COMPLETED", "ACCEPTED"):
+            if re.search(rf"\b{status}\b", text_upper):
                 return status
+
+        # 3. Explicit error status markers vs regular discussion of errors
+        if re.search(r"\bSTATUS\s*:\s*ERROR\b", text_upper) or re.search(r"\b\[ERROR\]\b", text_upper):
+            return "ERROR"
+
         return "SUCCESS"
 
     def _event(self, event_type: str, message: str, **kwargs: Any) -> None:
