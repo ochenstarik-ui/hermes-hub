@@ -99,3 +99,27 @@ def block_external_network_in_hermetic_tests(request, monkeypatch):
 def pytest_configure(config):
     config.addinivalue_line("markers", "ui: mark test as requiring UI environment")
 
+# Переменные окружения провайдеров не должны протекать в тесты.
+#
+# На машине владельца задана ANTHROPIC_BASE_URL=https://api.anthropic.com, и
+# из-за неё test_claude_health_check_real_probe падал: адаптер строил
+# ".../models" вместо ".../v1/models", хотя код верен, а подставилось значение
+# из окружения. Набор обязан давать одинаковый результат на любой машине —
+# это то же требование герметичности, ради которого делался A33.
+_PROVIDER_BASE_URL_VARS = (
+    "ANTHROPIC_BASE_URL",
+    "CODEX_BASE_URL",
+    "DEEPSEEK_BASE_URL",
+    "LOCAL_LLM_BASE_URL",
+    "NVIDIA_BASE_URL",
+    "OLLAMA_BASE_URL",
+    "OPENCODE_GO_BASE_URL",
+    "OPENROUTER_BASE_URL",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_provider_base_urls(monkeypatch):
+    """Убрать адреса провайдеров из окружения на время каждого теста."""
+    for name in _PROVIDER_BASE_URL_VARS:
+        monkeypatch.delenv(name, raising=False)
