@@ -596,6 +596,34 @@ class ActionExecutor:
             ok, msg = do_save_settings(data)
             return {'ok': ok, 'message': msg}
             
+        elif action == 'discover_local_models':
+            # Поиск уже запущенных локальных серверов на машине.
+            #
+            # Раньше адрес вводился руками, и владелец должен был помнить, на
+            # каком порту у него llama.cpp, Ollama или LM Studio. Опрашиваются
+            # известные порты на петле; наружу идёт только то, что ответило.
+            # Ни одной выдуманной модели: список берётся у самого сервера.
+            from antigravity_provider.router.local_discovery import discover_local_servers
+
+            host = (data.get('host') or '127.0.0.1').strip() or '127.0.0.1'
+            try:
+                servers = discover_local_servers(host=host)
+            except Exception as exc:
+                return {'ok': False, 'message': f'Поиск локальных серверов не удался: {exc}'}
+
+            usable = [s for s in servers if not s.error]
+            if not servers:
+                return {
+                    'ok': True,
+                    'message': 'Локальных серверов не найдено. Запустите Ollama, LM Studio или llama.cpp либо введите адрес вручную.',
+                    'data': {'servers': [], 'host': host},
+                }
+            return {
+                'ok': True,
+                'message': f'Найдено серверов: {len(usable)}',
+                'data': {'servers': [s.to_dict() for s in servers], 'host': host},
+            }
+
         elif action == 'check_updates':
             # Проверка выполняется СИНХРОННО и всегда возвращает данные.
             #

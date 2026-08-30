@@ -13,6 +13,10 @@ from antigravity_provider.router.router_config import (
 from antigravity_provider.router.workflow_service import WorkflowService
 
 
+# Роль в фикстурах названа test-developer намеренно: "developer" — это
+# псевдоним канонической роли developer-1, и при загрузке конфигурации он
+# переименовывается. Тест проверяет механику workflow, а не работу псевдонимов,
+# поэтому имя взято такое же нейтральное, как у соседнего test-reviewer.
 @pytest.fixture
 def workflow_service(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path))
@@ -24,7 +28,7 @@ def workflow_service(tmp_path, monkeypatch):
                 preferred_models=["model-real-from-config"],
             )
         },
-        roles={"developer": RolePolicy(role_name="developer", preferred_chain=["account-a"])},
+        roles={"test-developer": RolePolicy(role_name="test-developer", preferred_chain=["account-a"])},
     )
     save_router_config(config)
     return WorkflowService(tmp_path / "workflow_state.json")
@@ -32,11 +36,11 @@ def workflow_service(tmp_path, monkeypatch):
 
 def test_router_roles_migrate_to_agents_and_create_real_files(workflow_service, tmp_path):
     snapshot = workflow_service.snapshot()
-    assert "developer" in [agent["id"] for agent in snapshot["agents"]]
-    agent = next(item for item in snapshot["agents"] if item["id"] == "developer")
-    assert agent["agent_file"] == "agents/developer.md"
+    assert "test-developer" in [agent["id"] for agent in snapshot["agents"]]
+    agent = next(item for item in snapshot["agents"] if item["id"] == "test-developer")
+    assert agent["agent_file"] == "agents/test-developer.md"
     assert agent["agent_file_exists"] is True
-    assert (tmp_path / "agents" / "developer.md").is_file()
+    assert (tmp_path / "agents" / "test-developer.md").is_file()
     assert agent["execution_config"]["account"] == "account-a"
     assert agent["execution_config"]["model"] == "model-real-from-config"
 
@@ -62,9 +66,9 @@ def test_create_update_file_and_restart_persistence(workflow_service, tmp_path):
 def test_delete_requires_explicit_confirmation_when_referenced(workflow_service):
     workflow_service.create_agent({"name": "Test Reviewer", "role": "test-reviewer", "account": "account-a"})
     workflow_service.save_workflow({
-        "start_agent_id": "developer",
+        "start_agent_id": "test-developer",
         "max_iterations": 3,
-        "edges": [{"id": "review", "source": "developer", "target": "test-reviewer", "condition": "SUCCESS"}],
+        "edges": [{"id": "review", "source": "test-developer", "target": "test-reviewer", "condition": "SUCCESS"}],
     })
     warning = workflow_service.delete_agent("test-reviewer")
     assert warning["confirmation_required"] is True
@@ -77,11 +81,11 @@ def test_delete_requires_explicit_confirmation_when_referenced(workflow_service)
 def test_cycles_are_valid_and_iteration_limit_is_persisted(workflow_service):
     workflow_service.create_agent({"name": "Test Reviewer", "role": "test-reviewer", "account": "account-a"})
     definition = workflow_service.save_workflow({
-        "start_agent_id": "developer",
+        "start_agent_id": "test-developer",
         "max_iterations": 2,
         "edges": [
-            {"source": "developer", "target": "test-reviewer", "condition": "SUCCESS"},
-            {"source": "test-reviewer", "target": "developer", "condition": "REVIEW_FAILED"},
+            {"source": "test-developer", "target": "test-reviewer", "condition": "SUCCESS"},
+            {"source": "test-reviewer", "target": "test-developer", "condition": "REVIEW_FAILED"},
         ],
     })
     assert definition.max_iterations == 2
@@ -92,13 +96,13 @@ def test_cycles_are_valid_and_iteration_limit_is_persisted(workflow_service):
 
 def test_invalid_edge_and_unknown_model_are_rejected(workflow_service):
     with pytest.raises(ValueError, match="отсутствующего агента"):
-        workflow_service.save_workflow({"edges": [{"source": "developer", "target": "missing"}]})
+        workflow_service.save_workflow({"edges": [{"source": "test-developer", "target": "missing"}]})
     with pytest.raises(ValueError, match="не доступна"):
-        workflow_service.update_agent("developer", {"account": "account-a", "model": "invented-model"})
+        workflow_service.update_agent("test-developer", {"account": "account-a", "model": "invented-model"})
 
 
 def test_interrupted_run_is_reported_not_silently_completed(workflow_service, tmp_path):
-    workflow_service.run.update({"id": "run-1", "status": "running", "current_agent_id": "developer"})
+    workflow_service.run.update({"id": "run-1", "status": "running", "current_agent_id": "test-developer"})
     workflow_service._save()
     restarted = WorkflowService(tmp_path / "workflow_state.json")
     assert restarted.run["status"] == "interrupted"
@@ -109,11 +113,11 @@ def test_interrupted_run_is_reported_not_silently_completed(workflow_service, tm
 def test_live_cycle_stops_with_explicit_iteration_limit_event(workflow_service, monkeypatch):
     workflow_service.create_agent({"name": "Loop Reviewer", "role": "loop-reviewer", "account": "account-a"})
     workflow_service.save_workflow({
-        "start_agent_id": "developer",
+        "start_agent_id": "test-developer",
         "max_iterations": 2,
         "edges": [
-            {"source": "developer", "target": "loop-reviewer", "condition": "SUCCESS"},
-            {"source": "loop-reviewer", "target": "developer", "condition": "REVIEW_FAILED"},
+            {"source": "test-developer", "target": "loop-reviewer", "condition": "SUCCESS"},
+            {"source": "loop-reviewer", "target": "test-developer", "condition": "REVIEW_FAILED"},
         ],
     })
 
@@ -155,7 +159,7 @@ def test_provider_error_text_reaches_run_and_events(workflow_service, monkeypatc
             return {"choices": [{"message": {"content": f"ERROR\n{provider_text}"}}]}
 
     monkeypatch.setattr("antigravity_provider.router.router_engine.get_router_engine", lambda: ErrorEngine())
-    workflow_service.workflow.start_agent_id = "developer"
+    workflow_service.workflow.start_agent_id = "test-developer"
     workflow_service.workflow.edges = []
     workflow_service.start("Проверить ошибку")
     thread = workflow_service._thread

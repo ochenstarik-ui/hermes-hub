@@ -333,7 +333,21 @@ class RoleRegistry:
         was_modified = False
         default_policies = cls.get_default_role_policies()
 
-        for rname, rpol in current_roles.items():
+        # Сначала роли под старыми именами, потом под каноническими.
+        #
+        # Порядок важен, когда в конфигурации есть и то и другое. У владельца
+        # ровно такой случай: прошлая миграция дописала manager, developer-1 и
+        # остальные рядом со старыми orchestrator и coder-primary, но работал
+        # он всё это время со старыми — там и лежит его настроенный порядок
+        # аккаунтов. При обходе одним проходом канонический пустой manager
+        # затирал бы цепочку из orchestrator, и владелец получил бы на первом
+        # месте аккаунт, который сам туда не ставил.
+        legacy_first = sorted(
+            current_roles.items(),
+            key=lambda kv: cls.resolve_canonical_role(kv[0]) == kv[0],
+        )
+
+        for rname, rpol in legacy_first:
             canonical_id = cls.resolve_canonical_role(rname)
             if canonical_id != rname:
                 was_modified = True
@@ -346,8 +360,10 @@ class RoleRegistry:
                         session_affinity_enabled=rpol.session_affinity_enabled,
                         default_model=rpol.default_model or default_policies[canonical_id].default_model,
                     )
-            else:
+            elif rname not in migrated:
                 migrated[rname] = rpol
+            else:
+                was_modified = True
 
         for canon_id, def_policy in default_policies.items():
             if canon_id not in migrated:

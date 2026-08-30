@@ -377,6 +377,26 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
         if not roles:
             roles = default_cfg.roles
         else:
+            # Сначала переименование старых ролей в канонические, и только
+            # потом дополнение недостающими.
+            #
+            # Раньше здесь просто дописывались отсутствующие умолчания, а
+            # RoleRegistry.migrate_legacy_roles не вызывалась ниоткуда —
+            # проверено поиском по всему коду. В результате старые роли
+            # оставались рядом с новыми: на конфигурации владельца интерфейс
+            # показывал 19 агентов вместо 13, причём шесть пар были неотличимы
+            # по названию (orchestrator и manager — оба «Менеджер проекта»,
+            # reviewer и code-reviewer — оба «Ревьюер кода»). Разложить
+            # аккаунты по такому списку невозможно.
+            #
+            # migrate_legacy_roles переносит preferred_chain дословно, поэтому
+            # порядок аккаунтов, выставленный владельцем, сохраняется.
+            renamed, renamed_any = RoleRegistry.migrate_legacy_roles(roles)
+            if renamed_any:
+                new_roles_added.extend(sorted(set(renamed) - set(roles)))
+                roles = renamed
+                migration_needed = True
+
             for def_rname, def_rpolicy in default_cfg.roles.items():
                 if def_rname not in roles:
                     roles[def_rname] = def_rpolicy

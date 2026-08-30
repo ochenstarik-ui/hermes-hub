@@ -206,13 +206,42 @@ class WorkflowService:
             return
         try:
             raw = json.loads(self.state_path.read_text(encoding="utf-8"))
-            self.agents = {
-                item["id"]: AgentDefinition(**item)
-                for item in raw.get("agents", [])
-                if isinstance(item, dict) and item.get("id")
-            }
+
+            # Идентификаторы агентов повторяют идентификаторы ролей, а роли со
+            # старыми именами переименовываются в канонические при загрузке
+            # конфигурации. Без такого же переименования здесь сохранённый
+            # workflow ссылался бы на исчезнувших агентов, и граф падал бы с
+            # «Ребро ссылается на отсутствующего агента».
+            from antigravity_provider.router.role_registry import RoleRegistry
+
+            def _canon(agent_id: str) -> str:
+                try:
+                    return RoleRegistry.resolve_canonical_role(agent_id)
+                except Exception:
+                    return agent_id
+
+            self.agents = {}
+            for item in raw.get("agents", []):
+                if not isinstance(item, dict) or not item.get("id"):
+                    continue
+                item = dict(item)
+                item["id"] = _canon(item["id"])
+                if item.get("role"):
+                    item["role"] = _canon(item["role"])
+                # Первым выигрывает агент под старым именем: именно им
+                # пользовался владелец, канонический мог быть дописан пустым.
+                self.agents.setdefault(item["id"], AgentDefinition(**item))
+
             wf = raw.get("workflow") or {}
-            edges = [WorkflowEdge(**edge) for edge in wf.pop("edges", []) if isinstance(edge, dict)]
+            edges = []
+            for edge in wf.pop("edges", []):
+                if not isinstance(edge, dict):
+                    continue
+                edge = dict(edge)
+                for key in ("source", "target", "from_agent", "to_agent"):
+                    if edge.get(key):
+                        edge[key] = _canon(edge[key])
+                edges.append(WorkflowEdge(**edge))
             self.workflow = WorkflowDefinition(edges=edges, **wf)
             self.events = [WorkflowEvent(**event) for event in raw.get("events", [])[-200:]]
             self.run = raw.get("run") or self._idle_run()
