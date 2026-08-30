@@ -366,3 +366,33 @@ class TestCredentialsDeletionGuard:
 @pytest.fixture
 def client():
     return TestClient(app)
+
+def test_destructive_command_with_tilde_is_rejected(monkeypatch, tmp_path):
+    """Команда с тильдой не должна обходить защиту каталогов учётных данных.
+
+    validate_command не раскрывал "~" и "$HOME" перед проверкой. Путь
+    "~/.hermes/agy_profiles" не считался абсолютным, склеивался с каталогом
+    проекта в путь с буквальным "~" внутри и признавался допустимым.
+
+    Измерено на реализации: "rm -rf ~/.hermes/agy_profiles" проходило, а та же
+    команда с абсолютным путём отклонялась. То есть самый естественный способ
+    написать опасную команду обходил защиту ровно в том месте, ради которого
+    она и делалась.
+    """
+    from antigravity_provider.router.security_guard import WorkspaceBoundaryGuard
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    guard = WorkspaceBoundaryGuard()
+
+    must_reject = [
+        "rm -rf ~/.hermes/agy_profiles",
+        "rm -rf ~/.ssh",
+        "rm -rf $HOME/.hermes",
+    ]
+    for cmd in must_reject:
+        allowed, reason, _alt = guard.validate_command(cmd)
+        assert not allowed, f"команда с тильдой прошла мимо защиты: {cmd} ({reason})"
+
+    # Обычная работа внутри проекта не должна страдать.
+    allowed, _reason, _alt = guard.validate_command("rm src/temp_file.py")
+    assert allowed, "защита мешает штатной работе внутри проекта"

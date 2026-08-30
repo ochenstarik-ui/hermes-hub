@@ -321,7 +321,17 @@ class WorkspaceBoundaryGuard:
                     return False, f"Команда {cmd_name} запущена в недопустимом каталоге: {reason}", alt
             else:
                 for target_arg in targets:
-                    target_path = (base_cwd / target_arg) if not Path(target_arg).is_absolute() else Path(target_arg)
+                    # Тильда и переменные окружения раскрываются ДО проверки.
+                    #
+                    # Без этого "rm -rf ~/.hermes/agy_profiles" не считался
+                    # абсолютным путём, склеивался с каталогом проекта в путь с
+                    # буквальным "~" внутри и признавался допустимым. Проверено:
+                    # команда с тильдой проходила, та же команда с абсолютным
+                    # путём отклонялась. То есть самый естественный способ
+                    # написать опасную команду обходил защиту ровно там, ради
+                    # чего она и делалась — на каталоге учётных данных.
+                    expanded = os.path.expandvars(os.path.expanduser(target_arg))
+                    target_path = Path(expanded) if Path(expanded).is_absolute() else (base_cwd / expanded)
                     ok, reason, alt = self.validate_path(target_path, operation="delete")
                     if not ok:
                         return False, f"Команда '{cmd_name}' пытается удалить недопустимый путь '{target_arg}': {reason}", alt
