@@ -1814,13 +1814,19 @@ function formatIsoDate(isoStr) {
 
 // ── THEME SWITCHER ──
 function applyTheme(theme) {
-  if (theme === 'light') {
-    document.body.setAttribute('data-theme', 'light');
-    document.body.classList.add('theme-light');
-  } else if (theme === 'dark') {
-    document.body.setAttribute('data-theme', 'dark');
-    document.body.classList.remove('theme-light');
+  // Тем три, а не две.
+  //
+  // Medium была полностью описана в style.css, но здесь не обрабатывалась и в
+  // список выбора не попадала — выбрать её было нельзя. По брендбуку это
+  // отдельная тема, а не осветлённая Dark: тёмно-зелёный холст #1A2A1F со
+  // светлыми кремовыми карточками #F7F1E3. Проверено подстановкой атрибута
+  // вручную — отрисовывается верно и отличается от Dark и фоном, и карточками.
+  const known = ['light', 'medium', 'dark'];
+  if (known.includes(theme)) {
+    document.body.setAttribute('data-theme', theme);
+    document.body.classList.toggle('theme-light', theme === 'light');
   } else {
+    // Системная: отдаём выбор prefers-color-scheme.
     document.body.removeAttribute('data-theme');
     document.body.classList.remove('theme-light');
   }

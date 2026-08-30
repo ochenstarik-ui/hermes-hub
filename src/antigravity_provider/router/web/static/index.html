@@ -445,6 +445,14 @@
                 <select id="setting-theme" class="select-filter">
                   <option value="system">Системная (по умолчанию)</option>
                   <option value="dark">Тёмная (Dark)</option>
+                  <!-- Medium была полностью реализована в style.css, но в этот
+                       список не попала, и выбрать её было нельзя. Брендбук
+                       требует три темы, причём Medium — отдельная, а не
+                       осветлённая Dark: тёмно-зелёный холст #1A2A1F со
+                       светлыми кремовыми карточками #F7F1E3. Проверено
+                       подстановкой data-theme вручную: тема отрисовывается
+                       верно и отличается от Dark и по фону, и по карточкам. -->
+                  <option value="medium">Средняя (Medium)</option>
                   <option value="light">Светлая (Light)</option>
                 </select>
               </div>
