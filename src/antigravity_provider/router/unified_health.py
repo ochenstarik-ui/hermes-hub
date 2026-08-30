@@ -197,16 +197,22 @@ class SystemReadiness:
 
 
 # ═══════════════════════════════════════════════════════════════
-#  Event Log Service
+# ═══════════════════════════════════════════════════════════════
+#  Event Log Service & Forensic Audit
 # ═══════════════════════════════════════════════════════════════
 
 @dataclass
 class HubEvent:
     timestamp: str
-    category: str  # account | quota | routing | auth | system
+    category: str  # account | quota | routing | auth | system | security
     message: str
     details: Optional[str] = None
     level: str = "info"  # info | warning | error | success
+    actor: str = "system"  # user:web | reviewer:manual | agent:<id> | system
+    action: Optional[str] = None
+    target_profile: Optional[str] = None
+    target_role: Optional[str] = None
+    outcome: str = "success"  # success | denied | failed | dry_run
 
 
 class EventLogService:
@@ -226,9 +232,36 @@ class EventLogService:
                     cls._instance = cls()
         return cls._instance
 
-    def log(self, category: str, message: str, details: Optional[str] = None, level: str = "info"):
+    def log(
+        self,
+        category: str,
+        message: str,
+        details: Optional[str] = None,
+        level: str = "info",
+        actor: str = "system",
+        action: Optional[str] = None,
+        target_profile: Optional[str] = None,
+        target_role: Optional[str] = None,
+        outcome: str = "success",
+    ):
+        from antigravity_provider.router.security_guard import scrub_string
+
         ts = time.strftime("%H:%M:%S")
-        event = HubEvent(timestamp=ts, category=category, message=message, details=details, level=level)
+        clean_msg = scrub_string(str(message))
+        clean_details = scrub_string(str(details)) if details is not None else None
+
+        event = HubEvent(
+            timestamp=ts,
+            category=category,
+            message=clean_msg,
+            details=clean_details,
+            level=level,
+            actor=str(actor or "system"),
+            action=str(action) if action else None,
+            target_profile=str(target_profile) if target_profile else None,
+            target_role=str(target_role) if target_role else None,
+            outcome=str(outcome or "success"),
+        )
         with self._lock:
             self._events.append(event)
             # Cap at last 200 events
@@ -251,8 +284,9 @@ class EventLogService:
             log_file = paths.get_log_file()
             clean_msg = sanitize_text(event.message)
             clean_details = sanitize_text(event.details) if event.details else None
+            actor_tag = f" [{event.actor}]" if event.actor != "system" else ""
             with open(log_file, "a", encoding="utf-8") as f:
-                f.write(f"[{event.timestamp}] [{event.category.upper()}] [{event.level.upper()}] {clean_msg}\n")
+                f.write(f"[{event.timestamp}] [{event.category.upper()}]{actor_tag} [{event.level.upper()}] {clean_msg}\n")
                 if clean_details:
                     f.write(f"    Details: {clean_details}\n")
         except Exception:
