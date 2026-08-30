@@ -780,7 +780,13 @@ function renderQuotaCell(bucket, unavailableReason) {
   let barWidth = 0;
   let colorClass = 'var(--status-disabled)';
 
-  if (typeof remaining === 'number') {
+  const isUnlimited = bucket.status === 'unlimited' || bucket.period === 'unlimited' || (unavailableReason && unavailableReason.includes('Без ограничений'));
+
+  if (isUnlimited) {
+    formattedValue = 'Без ограничений';
+    barWidth = 100;
+    colorClass = 'var(--status-healthy)';
+  } else if (typeof remaining === 'number') {
     formattedValue = `${remaining.toFixed(1)}%`;
     barWidth = Math.max(0, Math.min(100, remaining));
     if (remaining <= 0) colorClass = 'var(--status-error)';
@@ -790,9 +796,11 @@ function renderQuotaCell(bucket, unavailableReason) {
     formattedValue = 'Н/Д';
   }
 
-  let resetText = bucket.reset_at
-    ? `Сброс: ${formatIsoDate(bucket.reset_at)}`
-    : (bucket.period ? `Период: ${bucket.period}` : (unavailableReason || 'Период провайдера'));
+  let resetText = isUnlimited
+    ? (unavailableReason || 'Без ограничений')
+    : (bucket.reset_at
+        ? `Сброс: ${formatIsoDate(bucket.reset_at)}`
+        : (bucket.period ? `Период: ${bucket.period}` : (unavailableReason || 'Период провайдера')));
 
   return `
     <div class="quota-cell">
@@ -1820,20 +1828,27 @@ function openAccountDetailsModal(profileId, isRefresh = false) {
 
     <div style="margin-bottom:8px; font-weight:600; font-size:12px;">Лимиты и квоты провайдера:</div>
     <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:14px;">
-      ${buckets.map((b) => `
+      ${buckets.map((b) => {
+        const isUnlimited = b.status === 'unlimited' || b.period === 'unlimited';
+        const remDisplay = isUnlimited ? 'Без ограничений' : (b.remaining_percent !== null && b.remaining_percent !== undefined ? Math.round(b.remaining_percent) + '%' : 'Н/Д');
+        const fillPct = isUnlimited ? 100 : (b.remaining_percent !== null && b.remaining_percent !== undefined ? Math.max(0, Math.min(100, b.remaining_percent)) : 0);
+        const barColor = isUnlimited ? 'var(--status-healthy)' : ((b.remaining_percent !== null && b.remaining_percent < 20) ? 'var(--status-warning)' : 'var(--status-healthy)');
+        const resetLabel = isUnlimited ? 'Без ограничений (локальная модель)' : (b.reset_at ? `Сброс: ${formatIsoDate(b.reset_at)}` : (b.period ? `Период: ${b.period}` : 'Без отметки сброса'));
+        return `
         <div style="background:var(--surface-card); border:1px solid var(--border-subtle); padding:8px 10px; border-radius:var(--radius-sm);">
           <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:600; margin-bottom:4px;">
-            <span>${escapeHtml(b.bucket_name || b.name || 'Квота')}</span>
-            <span>${b.remaining_percent !== null && b.remaining_percent !== undefined ? Math.round(b.remaining_percent) + '%' : 'Н/Д'}</span>
+            <span>${escapeHtml(b.bucket_name || b.name || b.display_name || 'Квота')}</span>
+            <span>${escapeHtml(remDisplay)}</span>
           </div>
           <div class="cell-bar-track" style="margin-bottom:4px;">
-            <div class="cell-bar-fill" style="width:${b.remaining_percent !== null && b.remaining_percent !== undefined ? Math.max(0, Math.min(100, b.remaining_percent)) : 0}%; background:${(b.remaining_percent !== null && b.remaining_percent < 20) ? 'var(--status-warning)' : 'var(--status-healthy)'};"></div>
+            <div class="cell-bar-fill" style="width:${fillPct}%; background:${barColor};"></div>
           </div>
           <div style="font-size:10px; color:var(--text-muted);">
-            ${b.reset_at ? `Сброс: ${formatIsoDate(b.reset_at)}` : (b.period ? `Период: ${b.period}` : 'Без отметки сброса')}
+            ${escapeHtml(resetLabel)}
           </div>
         </div>
-      `).join('') || '<div class="empty-text">Данные о квотах отсутствуют (провайдер не отдал лимиты).</div>'}
+        `;
+      }).join('') || '<div class="empty-text">Данные о квотах отсутствуют (провайдер не отдал лимиты).</div>'}
     </div>
   `;
 
@@ -2018,6 +2033,13 @@ function showWizardStep1() {
           <div style="font-size:11px; color:var(--text-muted);">OAuth редирект (с поддержкой SSH port-forward)</div>
         </div>
       </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('ollama')">
+        <span style="font-size:18px; color:var(--status-healthy, #22c55e);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">Ollama</div>
+          <div style="font-size:11px; color:var(--text-muted);">Локальный или удаленный Ollama API (http://127.0.0.1:11434/v1)</div>
+        </div>
+      </button>
       <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('local')">
         <span style="font-size:18px; color:var(--status-healthy, #22c55e);">●</span>
         <div style="text-align:left; margin-left:8px;">
@@ -2098,7 +2120,34 @@ function showWizardStep2(providerId) {
       <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
       <button class="btn btn-primary" onclick="proceedToWizardStep3('${escapeHtml(providerId)}')">Продолжить →</button>
     `;
-  } else if (providerId === 'local' || providerId === 'local-llm' || providerId === 'llama.cpp' || providerId === 'ollama' || providerId === 'vllm') {
+  } else if (providerId === 'ollama') {
+    window._wiz_device_profile = undefined;
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Настройка Ollama
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">URL сервера (Base URL):</label>
+        <input type="text" class="input-text" style="width:100%;" id="wiz-base-url-input" placeholder="http://127.0.0.1:11434/v1" value="http://127.0.0.1:11434/v1">
+      </div>
+      <div style="margin-bottom:10px; font-size:12px; color:var(--text-muted);">
+        Поиск серверов выполняется на машине, где запущен Hub (не в браузере).
+      </div>
+      <div style="margin-bottom:12px;">
+        <button class="btn btn-secondary" style="width:100%;" id="wiz-discover-btn" onclick="discoverLocalServers('discover_local_models')" data-action="discover_local_models">🔍 Найти на этом компьютере</button>
+        <div id="wiz-discover-status" style="font-size:12px; color:var(--text-secondary); margin-top:4px;"></div>
+      </div>
+      <div id="wiz-discover-results" style="margin-bottom:12px;"></div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">API Key / Bearer Token (опционально):</label>
+        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="Оставьте пустым, если ключ не требуется">
+      </div>
+    `;
+    footerHtml = `
+      <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
+      <button class="btn btn-primary" onclick="proceedToWizardStep3('${escapeHtml(providerId)}')">Продолжить →</button>
+    `;
+  } else if (providerId === 'local' || providerId === 'local-llm' || providerId === 'llama.cpp' || providerId === 'vllm') {
     // P0-1: reset stale wizard slot so local add_account does not reuse grok/antigravity slot
     window._wiz_device_profile = undefined;
     bodyHtml = `
@@ -2711,4 +2760,64 @@ function selectDiscoveredServer(baseUrl) {
     statusEl.textContent = `Выбран: ${baseUrl}`;
     statusEl.style.color = 'var(--status-healthy)';
   }
+}
+
+// ── Quota & Limits Export ─────────────────────────────────────────────────
+
+async function exportQuotas(format = 'json') {
+  const fmt = (format || 'json').toLowerCase();
+  showToast(`Формирование выгрузки лимитов (${fmt.toUpperCase()})...`, 'info');
+  try {
+    const token = (typeof getWebToken === 'function' ? getWebToken() : (localStorage.getItem('hermes_hub_token') || ''));
+    const headers = {};
+    if (token) {
+      headers['X-Hub-Token'] = token;
+    }
+    const resp = await fetch(`/api/quotas/export?format=${fmt}`, { headers });
+    if (!resp.ok) {
+      throw new Error(`Ошибка сервера: ${resp.status}`);
+    }
+    const blob = await resp.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = `hermes_quotas_export.${fmt}`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    showToast(`Выгрузка лимитов (${fmt.toUpperCase()}) успешно скачана`, 'success');
+  } catch (err) {
+    showToast(`Не удалось выгрузить лимиты: ${err.message}`, 'error');
+  }
+}
+
+function openExportQuotasModal() {
+  if (elements.modalTitle) elements.modalTitle.textContent = '📥 Экспорт лимитов и квот';
+  elements.modalBody.innerHTML = `
+    <div style="margin-bottom:14px; font-size:13px; color:var(--text-secondary);">
+      Выберите формат для выгрузки актуального отчета по лимитам, корзинам и статусам всех профилей:
+    </div>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="exportQuotas('json'); closeModal();">
+        <span style="font-size:20px; margin-right:8px;">📄</span>
+        <div style="text-align:left;">
+          <div style="font-weight:700;">Экспорт в JSON</div>
+          <div style="font-size:11px; color:var(--text-muted);">Полная структурированная выгрузка объектов со всеми метаданными</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="exportQuotas('csv'); closeModal();">
+        <span style="font-size:20px; margin-right:8px;">📊</span>
+        <div style="text-align:left;">
+          <div style="font-weight:700;">Экспорт в CSV</div>
+          <div style="font-size:11px; color:var(--text-muted);">Табличный формат для открытия в Excel, Google Sheets или LibreOffice</div>
+        </div>
+      </button>
+    </div>
+  `;
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+  `;
+  showModal();
 }

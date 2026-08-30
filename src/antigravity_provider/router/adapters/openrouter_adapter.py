@@ -19,6 +19,9 @@ DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 class OpenRouterAdapter(BaseProviderAdapter):
     """Adapter for OpenRouter's OpenAI-compatible chat completions API."""
 
+    _models_metadata: Dict[str, Dict[str, Any]] = {}
+    _context_window_cache: Dict[str, int] = {}
+
     def _resolve_base_url(self, profile: RouterProfileConfig) -> str:
         """Resolve base_url from profile custom_base_url, auth_config, or default."""
         url = (
@@ -44,6 +47,46 @@ class OpenRouterAdapter(BaseProviderAdapter):
             if val:
                 return val
         return None
+
+    def _build_headers(self, api_key: Optional[str] = None) -> Dict[str, str]:
+        """Build standard headers with OpenRouter attribution headers."""
+        referer = (
+            os.environ.get("OPENROUTER_HTTP_REFERER")
+            or os.environ.get("HERMES_REFERER")
+            or "https://github.com/ochenstarik-ui/hermes-hub"
+        )
+        title = (
+            os.environ.get("OPENROUTER_APP_TITLE")
+            or os.environ.get("OPENROUTER_TITLE")
+            or "Hermes Hub"
+        )
+        headers: Dict[str, str] = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "hermes-router/1.0",
+            "HTTP-Referer": referer,
+            "X-OpenRouter-Title": title,
+        }
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
+
+    def get_context_window(
+        self,
+        profile: RouterProfileConfig,
+        model: Optional[str] = None,
+    ) -> Optional[int]:
+        """Fetch actual context_window / max_context_length from profile or discovery cache."""
+        cache_key = f"{profile.profile_id}:{model or 'default'}"
+        if cache_key in self._context_window_cache:
+            return self._context_window_cache[cache_key]
+        if model and model in self._context_window_cache:
+            return self._context_window_cache[model]
+        return None
+
+    def get_model_metadata(self, model_id: str) -> Optional[Dict[str, Any]]:
+        """Return cached metadata for model ID if available."""
+        return self._models_metadata.get(model_id)
 
     def invoke(self, profile: RouterProfileConfig, request: Dict[str, Any]) -> Dict[str, Any]:
         base_url = self._resolve_base_url(profile)
@@ -71,12 +114,7 @@ class OpenRouterAdapter(BaseProviderAdapter):
         if "stop" in request:
             payload["stop"] = request["stop"]
 
-        headers: Dict[str, str] = {
-            "Content-Type": "application/json",
-            "User-Agent": "hermes-router/1.0",
-        }
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        headers = self._build_headers(api_key)
 
         req = urllib.request.Request(
             f"{base_url}/chat/completions",
@@ -119,18 +157,12 @@ class OpenRouterAdapter(BaseProviderAdapter):
     def discover_models(self, profile: RouterProfileConfig) -> List[str]:
         """Request GET {base_url}/models and return the server's model list.
 
-        No invented/hardcoded model list: on error, fall back to
-        profile.preferred_models only.
+        Extracts context_length and display_name metadata when provided by the API.
+        No invented/hardcoded model list: on error, fall back to profile.preferred_models.
         """
         base_url = self._resolve_base_url(profile)
         api_key = self._resolve_api_key(profile)
-
-        headers: Dict[str, str] = {
-            "Accept": "application/json",
-            "User-Agent": "hermes-router/1.0",
-        }
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        headers = self._build_headers(api_key)
 
         req = urllib.request.Request(
             f"{base_url}/models",
@@ -142,14 +174,33 @@ class OpenRouterAdapter(BaseProviderAdapter):
             with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode("utf-8", errors="replace"))
                 items = data.get("data") or data.get("models") or []
-                if isinstance(items, list):
-                    models = [
-                        str(m.get("id") or m.get("name") if isinstance(m, dict) else m)
-                        for m in items
-                        if m
-                    ]
+                if isinstance(items, list) and items:
+                    models = []
+                    for m in items:
+                        if isinstance(m, dict):
+                            m_id = str(m.get("id") or m.get("name") or "")
+                            if not m_id:
+                                continue
+                            display_name = str(m.get("name") or m.get("display_name") or m_id)
+                            ctx_len = m.get("context_length") or m.get("context_window") or m.get("max_context_length")
+                            meta: Dict[str, Any] = {
+                                "id": m_id,
+                                "display_name": display_name,
+                            }
+                            if ctx_len is not None:
+                                try:
+                                    val = int(ctx_len)
+                                    meta["context_length"] = val
+                                    self._context_window_cache[f"{profile.profile_id}:{m_id}"] = val
+                                    self._context_window_cache[m_id] = val
+                                except (ValueError, TypeError):
+                                    pass
+                            self._models_metadata[m_id] = meta
+                            models.append(m_id)
+                        elif isinstance(m, str) and m:
+                            models.append(m)
                     if models:
-                        return sorted(models)
+                        return sorted(set(models))
         except Exception as exc:
             logger.debug("Failed to discover models for openrouter profile %s: %s", profile.profile_id, exc)
 
@@ -159,13 +210,7 @@ class OpenRouterAdapter(BaseProviderAdapter):
         """Fast GET {base_url}/models probe. Returns True on success, False on error."""
         base_url = self._resolve_base_url(profile)
         api_key = self._resolve_api_key(profile)
-
-        headers: Dict[str, str] = {
-            "Accept": "application/json",
-            "User-Agent": "hermes-router/1.0",
-        }
-        if api_key:
-            headers["Authorization"] = f"Bearer {api_key}"
+        headers = self._build_headers(api_key)
 
         req = urllib.request.Request(
             f"{base_url}/models",

@@ -126,7 +126,7 @@ class AutoAssigner:
             "local": ["local-1", "local-2"],
             "local-llm": ["local-1", "local-2"],
             "llama.cpp": ["local-1", "local-2"],
-            "ollama": ["local-1", "local-2"],
+            "ollama": ["ollama-1", "ollama-2"],
             "vllm": ["local-1", "local-2"],
         }
 
@@ -174,7 +174,10 @@ class AutoAssigner:
             elif p in ("grok", "xai"):
                 for i in range(3, 200):
                     yield f"grok-worker-{i}"
-            elif p in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
+            elif p == "ollama":
+                for i in range(3, 200):
+                    yield f"ollama-{i}"
+            elif p in ("local", "local-llm", "llama.cpp", "vllm"):
                 for i in range(3, 200):
                     yield f"local-{i}"
             else:

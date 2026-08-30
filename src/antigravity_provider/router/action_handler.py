@@ -1,9 +1,12 @@
+import csv
+import io
 import time
 import json
 import os
 import logging
 import threading
-from typing import Any, Dict, Tuple, Optional, Callable
+from datetime import datetime, timezone
+from typing import Any, Dict, Tuple, Optional, Callable, List
 
 from antigravity_provider.router.router_config import load_router_config, save_router_config
 from antigravity_provider.router.profile_manager import ProfileAuthManager
@@ -281,6 +284,136 @@ def _rescan_after_auth() -> None:
         logger.warning("Не удалось пересобрать снапшот после входа: %s", exc)
 
 
+def generate_quotas_export(format: str = "json") -> Any:
+    """Generate comprehensive limits and quotas export across all providers and profiles."""
+    from antigravity_provider.router.quota_collector import AccountQuotaService
+    config = load_router_config()
+    quota_service = AccountQuotaService.get()
+
+    profiles_data: List[Dict[str, Any]] = []
+    flat_rows: List[Dict[str, Any]] = []
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    # Sort profiles by provider then profile_id
+    sorted_profiles = sorted(config.profiles.values(), key=lambda p: (p.provider, p.profile_id))
+
+    for pcfg in sorted_profiles:
+        prov = pcfg.provider
+        pid = pcfg.profile_id
+
+        status = ProfileAuthManager.get_profile_status(prov, pid)
+        is_auth = bool(status.get("authenticated"))
+        identity = quota_service.get_identity(prov, pid)
+        quota_snap = quota_service.get_snapshot(prov, pid)
+
+        plan_name = identity.plan.display_name if (identity and identity.plan) else "UNKNOWN"
+        ident_str = identity.primary_identifier() if identity else pid
+
+        buckets_list: List[Dict[str, Any]] = []
+        source = quota_snap.source if quota_snap else "unconfigured"
+        fetched_at = quota_snap.fetched_at.isoformat() if (quota_snap and quota_snap.fetched_at) else now_iso
+        unavail = quota_snap.unavailable_reason if quota_snap else None
+
+        if quota_snap and quota_snap.buckets:
+            for b in quota_snap.buckets:
+                b_dict = {
+                    "id": b.id,
+                    "name": b.display_name,
+                    "model_family": b.model_family,
+                    "period": b.period,
+                    "used_percent": b.used_percent,
+                    "remaining_percent": b.remaining_percent,
+                    "used_absolute": b.used_absolute,
+                    "remaining_absolute": b.remaining_absolute,
+                    "limit_absolute": b.limit_absolute,
+                    "reset_at": b.reset_at.isoformat() if b.reset_at else None,
+                    "reset_in_seconds": b.reset_in_seconds,
+                    "reset_formatted": b.formatted_reset(),
+                    "status": b.status,
+                    "formatted_remaining": b.formatted_remaining(),
+                }
+                buckets_list.append(b_dict)
+                flat_rows.append({
+                    "provider": prov,
+                    "profile_id": pid,
+                    "identity": ident_str,
+                    "plan": plan_name,
+                    "auth_status": "AUTHENTICATED" if is_auth else "UNCONFIGURED",
+                    "bucket_id": b.id,
+                    "bucket_name": b.display_name,
+                    "model_family": b.model_family or "",
+                    "period": b.period or "",
+                    "remaining_percent": f"{b.remaining_percent:.1f}%" if b.remaining_percent is not None else "",
+                    "used_percent": f"{b.used_percent:.1f}%" if b.used_percent is not None else "",
+                    "remaining_absolute": b.remaining_absolute if b.remaining_absolute is not None else "",
+                    "limit_absolute": b.limit_absolute if b.limit_absolute is not None else "",
+                    "status": b.status,
+                    "reset_at": b.reset_at.isoformat() if b.reset_at else "",
+                    "reset_formatted": b.formatted_reset() or "",
+                    "formatted_remaining": b.formatted_remaining(),
+                    "source": source,
+                    "fetched_at": fetched_at,
+                })
+        else:
+            flat_rows.append({
+                "provider": prov,
+                "profile_id": pid,
+                "identity": ident_str,
+                "plan": plan_name,
+                "auth_status": "AUTHENTICATED" if is_auth else "UNCONFIGURED",
+                "bucket_id": "",
+                "bucket_name": "",
+                "model_family": "",
+                "period": "",
+                "remaining_percent": "",
+                "used_percent": "",
+                "remaining_absolute": "",
+                "limit_absolute": "",
+                "status": "unconfigured" if not is_auth else "unknown",
+                "reset_at": "",
+                "reset_formatted": "",
+                "formatted_remaining": unavail or ("Аккаунт не подключён" if not is_auth else "Н/Д"),
+                "source": source,
+                "fetched_at": fetched_at,
+            })
+
+        profiles_data.append({
+            "provider": prov,
+            "profile_id": pid,
+            "display_name": getattr(pcfg, "display_name", None) or (identity.display_name if identity else None) or pid,
+            "identity": ident_str,
+            "plan": plan_name,
+            "authenticated": is_auth,
+            "auth_status": "AUTHENTICATED" if is_auth else "UNCONFIGURED",
+            "source": source,
+            "fetched_at": fetched_at,
+            "unavailable_reason": unavail,
+            "buckets": buckets_list,
+        })
+
+    if format.lower().strip() == "csv":
+        output = io.StringIO()
+        fieldnames = [
+            "provider", "profile_id", "identity", "plan", "auth_status",
+            "bucket_id", "bucket_name", "model_family", "period",
+            "remaining_percent", "used_percent", "remaining_absolute", "limit_absolute",
+            "status", "reset_at", "reset_formatted", "formatted_remaining",
+            "source", "fetched_at",
+        ]
+        writer = csv.DictWriter(output, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in flat_rows:
+            writer.writerow(row)
+        return output.getvalue()
+
+    return {
+        "exported_at": now_iso,
+        "total_profiles": len(profiles_data),
+        "profiles": profiles_data,
+        "rows": flat_rows,
+    }
+
+
 class ActionExecutor:
     """Shared execution layer for Desktop and Web actions."""
     
@@ -379,25 +512,26 @@ class ActionExecutor:
                 return {'ok': False, 'message': reason, 'data': {'status': status}}
             return {'ok': True, 'message': 'Ожидание подтверждения', 'data': {'status': status}}
 
-        # Подключение аккаунта: для локального сервера это не навигация, а
+        # Подключение аккаунта: для локального сервера/Ollama это не навигация, а
         # настоящее сохранение профиля с адресом.
         if action == 'add_account':
             target_role = data.get('target_role', 'coder-primary')
             base_url = data.get('base_url', '')
             token = data.get('token', '')
             if prov in ('local', 'local-llm', 'llama.cpp', 'ollama', 'vllm') and base_url:
-                slot = AutoAssigner.find_free_slot(prov) or 'local-1'
+                slot = data.get('profile_id') or AutoAssigner.find_free_slot(prov) or f'{prov}-1'
                 AutoAssigner.ensure_profile_definition(prov, slot)
                 auth_data = {
-                    "provider": "local",
+                    "provider": prov,
                     "profile_id": slot,
                     "base_url": base_url,
                     "api_key": token if token else None,
                     "created_at": time.time(),
                 }
-                ProfileAuthManager.save_profile_auth("local", slot, auth_data)
+                ProfileAuthManager.save_profile_auth(prov, slot, auth_data)
                 AutoAssigner.assign_profile_to_role(slot, target_role, is_primary=False)
-                return {'ok': True, 'message': f'Локальный сервер {slot} успешно подключен'}
+                _rescan_after_auth()
+                return {'ok': True, 'message': f'Сервер {prov} ({slot}) успешно подключен'}
             return {'ok': True, 'message': 'Навигация'}
 
         # Чисто навигационные действия. edit_route и assign_role сюда НЕ входят:
@@ -664,6 +798,22 @@ class ActionExecutor:
             report = service.run_all_checks()
             msg = f"Проверка готовности: {report.passed_count} успешно, {report.failed_count} ошибок, {report.warn_count} предупреждений"
             return {'ok': report.success, 'message': msg, 'data': report.to_dict()}
+
+        elif action == 'export_quotas':
+            fmt = (data.get('format') or 'json').strip().lower()
+            res = generate_quotas_export(format=fmt)
+            if fmt == 'csv':
+                return {
+                    'ok': True,
+                    'message': 'Экспорт лимитов успешно сформирован (CSV)',
+                    'data': {'format': 'csv', 'content': res, 'filename': 'hermes_quotas_export.csv'}
+                }
+            else:
+                return {
+                    'ok': True,
+                    'message': 'Экспорт лимитов успешно сформирован (JSON)',
+                    'data': {'format': 'json', 'report': res, 'filename': 'hermes_quotas_export.json'}
+                }
 
         else:
             return {'ok': False, 'message': f'Неизвестное действие: {action}', 'unknown': True}

@@ -62,6 +62,20 @@ class ClaudeAdapter(BaseProviderAdapter):
 
         return None
 
+    def _build_headers(self, token: str) -> Dict[str, str]:
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+            "User-Agent": "hermes-router/1.0",
+        }
+        if token.startswith("sk-ant-"):
+            headers["x-api-key"] = token
+        else:
+            headers["Authorization"] = f"Bearer {token}"
+            headers["anthropic-beta"] = "oauth-2025-04-20"
+        return headers
+
     def invoke(self, profile: RouterProfileConfig, request: Dict[str, Any]) -> Dict[str, Any]:
         token = self._resolve_token(profile)
         if not token:
@@ -85,18 +99,7 @@ class ClaudeAdapter(BaseProviderAdapter):
         if "tools" in request and request["tools"]:
             payload["tools"] = request["tools"]
 
-        headers = {
-            "Content-Type": "application/json",
-            "anthropic-version": "2023-06-01",
-            "User-Agent": "hermes-router/1.0",
-        }
-        # OAuth vs API Key headers
-        if token.startswith("sk-ant-"):
-            headers["x-api-key"] = token
-        else:
-            headers["Authorization"] = f"Bearer {token}"
-            headers["anthropic-beta"] = "oauth-2025-04-20"
-
+        headers = self._build_headers(token)
         body_bytes = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=body_bytes, headers=headers, method="POST")
 
@@ -117,9 +120,51 @@ class ClaudeAdapter(BaseProviderAdapter):
 
     def health_check(self, profile: RouterProfileConfig) -> bool:
         token = self._resolve_token(profile)
-        return token is not None
+        if not token:
+            return False
+
+        base_url = (
+            profile.custom_base_url
+            or os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1")
+        ).rstrip("/")
+        url = f"{base_url}/models"
+        headers = self._build_headers(token)
+
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                return resp.status in (200, 204)
+        except Exception:
+            return False
 
     def discover_models(self, profile: RouterProfileConfig) -> List[str]:
+        token = self._resolve_token(profile)
+        if not token:
+            return list(profile.preferred_models or DEFAULT_CLAUDE_MODELS)
+
+        base_url = (
+            profile.custom_base_url
+            or os.environ.get("ANTHROPIC_BASE_URL", "https://api.anthropic.com/v1")
+        ).rstrip("/")
+        url = f"{base_url}/models"
+        headers = self._build_headers(token)
+
+        req = urllib.request.Request(url, headers=headers, method="GET")
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                items = data.get("data") or data.get("models") or []
+                if isinstance(items, list) and items:
+                    models = [
+                        str(m.get("id") or m.get("name") if isinstance(m, dict) else m)
+                        for m in items
+                        if m
+                    ]
+                    if models:
+                        return sorted(set(models))
+        except Exception as exc:
+            logger.debug("Claude /models discovery failed for %s: %s", profile.profile_id, exc)
+
         return list(profile.preferred_models or DEFAULT_CLAUDE_MODELS)
 
     def classify_error(self, exc: Exception, response_data: Optional[Dict[str, Any]] = None) -> ErrorClassification:

@@ -158,6 +158,10 @@
                 <option value="opencode-go">OpenCode Go</option>
                 <option value="claude">Claude (Anthropic)</option>
                 <option value="grok">Grok (xAI)</option>
+                <option value="ollama">Ollama</option>
+                <option value="local">Локальные (Local LLM)</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="nvidia">NVIDIA NIM</option>
               </select>
               <select id="filter-health" class="select-filter">
                 <option value="all">Все состояния</option>
@@ -167,6 +171,9 @@
                 <option value="auth_required">Требуется вход</option>
                 <option value="disabled">Отключён / Резерв</option>
               </select>
+              <button class="btn btn-secondary btn-sm" id="btn-export-quotas" onclick="openExportQuotasModal()" title="Выгрузить отчет о лимитах и квотах в формате JSON или CSV">
+                <span>📥 Экспорт лимитов (JSON / CSV)</span>
+              </button>
               <div class="toolbar-stats" id="accounts-stats-summary">
                 Показано: <strong>0</strong> из <strong>0</strong> аккаунтов
               </div>

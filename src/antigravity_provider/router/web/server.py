@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from antigravity_provider import paths
 from antigravity_provider.version import __version__
-from fastapi import FastAPI, Request, HTTPException, Depends, Header
+from fastapi import FastAPI, Request, HTTPException, Depends, Header, Response
 from pathlib import Path
 
 from fastapi.responses import FileResponse, JSONResponse
@@ -229,6 +229,30 @@ def get_events(limit: int = 100, category: Optional[str] = None, authorized: boo
     event_dicts = [dataclasses.asdict(e) for e in events]
     sanitized = sanitize_snapshot(event_dicts)
     return JSONResponse(content=jsonable_encoder({"events": sanitized}))
+
+
+@app.get("/api/quotas/export")
+def export_quotas_endpoint(
+    format: str = "json",
+    authorized: bool = Depends(get_auth_token),
+):
+    """Export full quotas and limits report across all providers and profiles."""
+    from antigravity_provider.router.action_handler import generate_quotas_export
+    fmt = format.lower().strip()
+    if fmt == "csv":
+        csv_data = generate_quotas_export(format="csv")
+        return Response(
+            content=csv_data,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=hermes_quotas_export.csv"},
+        )
+    else:
+        json_data = generate_quotas_export(format="json")
+        sanitized = sanitize_snapshot(json_data)
+        return JSONResponse(
+            content=jsonable_encoder(sanitized),
+            headers={"Content-Disposition": "attachment; filename=hermes_quotas_export.json"},
+        )
 
 
 @app.get("/api/settings")
