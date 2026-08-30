@@ -27,9 +27,20 @@ from ..router_config import RouterProfileConfig
 from .base_adapter import BaseProviderAdapter, ErrorCategory, ErrorClassification
 
 
-import threading
-
-_AGY_INVOCATION_LOCK = threading.RLock()
+# Глобального мьютекса здесь больше нет.
+#
+# Он был введён в 50fde5f, чтобы защитить ГЛОБАЛЬНУЮ подмену учётных данных
+# gemini:antigravity от гонки между подпроцессами. С тех пор подмена перестала
+# быть глобальной: agy_subprocess пишет в profile_dir/.gemini/oauth_creds.json,
+# а HOME, USERPROFILE, HOMEPATH и HOMEDRIVE подменяются на каталог профиля.
+# Общего состояния между профилями не осталось, и мьютекс охранял пустоту.
+#
+# Стоил он при этом дорого: измерено, что три параллельных вызова по одной
+# секунде занимали 3.01 с. То есть из десяти аккаунтов Antigravity
+# одновременно работал ровно один, чем обесценивалась вся мультиаккаунтность.
+#
+# Ограничение одновременности остаётся за LeaseManager, который считает лизы
+# ПО ПРОФИЛЮ и настраивается через max_concurrency.
 
 
 def get_profile_env_dir(profile_id: str) -> Path:
@@ -77,8 +88,7 @@ class AntigravityAdapter(BaseProviderAdapter):
                         profile_id=profile.profile_id,
                     )
 
-            with _AGY_INVOCATION_LOCK:
-                res = agy_generate(req, custom_env=custom_env, profile_id=profile.profile_id)
+            res = agy_generate(req, custom_env=custom_env, profile_id=profile.profile_id)
         else:
             res = agy_generate(req, custom_env=custom_env, profile_id=profile.profile_id)
 
