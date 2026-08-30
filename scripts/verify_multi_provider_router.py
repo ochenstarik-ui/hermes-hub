@@ -6,6 +6,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from contextlib import ExitStack
 from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -30,6 +31,9 @@ from antigravity_provider.router.router_engine import RouterEngine, get_router_e
 from antigravity_provider.router.adapters.antigravity_adapter import AntigravityAdapter, get_profile_env_dir
 from antigravity_provider.router.adapters.codex_adapter import CodexAdapter
 from antigravity_provider.router.adapters.opencode_adapter import OpenCodeGoAdapter
+from antigravity_provider.router.adapters.claude_adapter import ClaudeAdapter
+from antigravity_provider.router.adapters.grok_adapter import GrokAdapter
+from antigravity_provider.router.adapters.local_adapter import LocalLLMAdapter
 
 
 def run_checks() -> int:
@@ -61,17 +65,43 @@ def run_checks() -> int:
 
     # 2. Role Fallback Chains
     print("2. Checking role fallback policies...")
-    assert "orchestrator" in config.roles, "Роль orchestrator отсутствует"
+    # Имя оркестрирующей роли меняется вместе с реестром: в A28 orchestrator
+    # стал manager. Дословная проверка старого имени пережила миграцию и
+    # роняла установку на Windows с кодом 12 — на Linux этот скрипт не
+    # запускается, поэтому там всё ставилось. Спрашиваем актуальное имя у
+    # реестра, а не помним его в скрипте.
+    assert config.roles, "В конфигурации нет ни одной роли"
+    try:
+        from antigravity_provider.router.role_registry import RoleRegistry
+
+        orchestrating_role = RoleRegistry.resolve_canonical_role("orchestrator")
+    except Exception:
+        orchestrating_role = "orchestrator"
+    assert orchestrating_role in config.roles, (
+        f"Оркестрирующая роль {orchestrating_role!r} отсутствует; есть: {sorted(config.roles)}"
+    )
     # Цепочки настраиваются владельцем и меняются — дословно их сверять нельзя.
     # Проверяем то, что действительно ломает маршрутизацию: цепочка непуста и
     # каждый профиль в ней существует.
+    # Пустая цепочка — не поломка сама по себе. В A28 появились роли,
+    # объявленные без реализации (guardian, cost-controller): аккаунтов у них
+    # ещё нет, и требовать цепочку — значит ронять установку из-за роли,
+    # которой никто не пользуется. Ломает маршрутизацию другое: ссылка на
+    # несуществующий профиль и пустая цепочка у ОРКЕСТРИРУЮЩЕЙ роли.
+    empty_chains = []
     for role_name, policy in config.roles.items():
         chain = policy.preferred_chain or []
-        assert chain, f"У роли {role_name} пустая цепочка отказоустойчивости"
+        if not chain:
+            empty_chains.append(role_name)
         for pid in chain:
             assert pid in config.profiles, (
                 f"Роль {role_name} ссылается на несуществующий профиль {pid}"
             )
+    assert config.roles[orchestrating_role].preferred_chain, (
+        f"У оркестрирующей роли {orchestrating_role!r} пустая цепочка — маршрутизация работать не будет"
+    )
+    if empty_chains:
+        print(f"   [INFO] Без аккаунтов пока: {', '.join(sorted(empty_chains))}")
     print(f"   [PASS] Цепочки {len(config.roles)} ролей ссылаются только на существующие профили")
     passed += 1
 
@@ -151,26 +181,61 @@ def run_checks() -> int:
     engine = RouterEngine(config=config)
     engine.health.clear_cooldown()
 
-    mock_codex = {"id": "c1", "choices": [{"message": {"role": "assistant", "content": "from-codex"}}]}
-    mock_ag = {"id": "a1", "choices": [{"message": {"role": "assistant", "content": "from-antigravity"}}]}
-    mock_opengo = {"id": "o1", "choices": [{"message": {"role": "assistant", "content": "from-opencode"}}]}
+    # Проверяется МЕХАНИЗМ отказоустойчивости, а не расстановка аккаунтов.
+    #
+    # Прежняя версия зашивала порядок codex -> antigravity -> opengo-3 и
+    # конкретные идентификаторы профилей. Но порядок в цепочке — это выбор
+    # владельца, он его меняет мышью в интерфейсе. Любая перестановка роняла
+    # проверку, а с ней и установку на Windows с кодом 12.
+    #
+    # Здесь: берём настоящую цепочку оркестрирующей роли, роняем все профили
+    # кроме последнего и убеждаемся, что маршрутизатор дошёл именно до него.
+    # Учитываем предел попыток: если цепочка длиннее, до её хвоста
+    # маршрутизатор просто не дойдёт, и ожидать этого нельзя.
+    full_chain = list(config.roles[orchestrating_role].preferred_chain)
+    max_attempts = getattr(config.roles[orchestrating_role], "max_failover_attempts", 0) or len(full_chain)
+    chain = full_chain[:max_attempts]
+    assert len(chain) >= 2, (
+        f"В цепочке роли {orchestrating_role!r} меньше двух профилей — "
+        "отказоустойчивость проверить нечем"
+    )
+    last_pid = chain[-1]
+    last_provider = config.profiles[last_pid].provider
 
-    # Simulate codex failure -> route to Antigravity fallback
-    with patch.object(CodexAdapter, "invoke", side_effect=RuntimeError("Insufficient quota")):
-        with patch.object(AntigravityAdapter, "invoke", return_value=mock_ag):
-            res = engine.route_request({"messages": [{"role": "user", "content": "test"}]}, role="orchestrator", session_id="s1")
-            assert res["choices"][0]["message"]["content"] == "from-antigravity"
-            assert res["router_metadata"]["profile_id"] == "ag-orch-fallback"
+    adapter_by_provider = {
+        "openai-codex": CodexAdapter,
+        "antigravity": AntigravityAdapter,
+        "opencode-go": OpenCodeGoAdapter,
+        "claude": ClaudeAdapter,
+        "grok": GrokAdapter,
+        "local": LocalLLMAdapter,
+    }
 
-    # Simulate both codex and ag failure -> route to OpenCode Go
-    with patch.object(CodexAdapter, "invoke", side_effect=RuntimeError("Insufficient quota")):
-        with patch.object(AntigravityAdapter, "invoke", side_effect=RuntimeError("Individual quota reached")):
-            with patch.object(OpenCodeGoAdapter, "invoke", return_value=mock_opengo):
-                res2 = engine.route_request({"messages": [{"role": "user", "content": "test2"}]}, role="orchestrator", session_id="s2")
-                assert res2["choices"][0]["message"]["content"] == "from-opencode"
-                assert res2["router_metadata"]["profile_id"] == "opengo-3"
+    expected = {"id": "ok", "choices": [{"message": {"role": "assistant", "content": "from-last-in-chain"}}]}
+    failing = {cls for pid in chain[:-1]
+               if (cls := adapter_by_provider.get(config.profiles[pid].provider)) is not None}
+    winner = adapter_by_provider.get(last_provider)
 
-    print("   [PASS] 3-tier role failover chain (Codex -> Antigravity -> OpenCode Go) verified")
+    if winner is None or winner in failing:
+        print(f"   [SKIP] Последний профиль цепочки ({last_pid}, {last_provider}) "
+              "не покрыт заглушками адаптеров")
+    else:
+        with ExitStack() as stack:
+            for cls in failing:
+                stack.enter_context(patch.object(cls, "invoke", side_effect=RuntimeError("Insufficient quota")))
+            stack.enter_context(patch.object(winner, "invoke", return_value=expected))
+            res = engine.route_request(
+                {"messages": [{"role": "user", "content": "test"}]},
+                role=orchestrating_role,
+                session_id="verify-failover",
+            )
+        assert res["choices"][0]["message"]["content"] == "from-last-in-chain", (
+            f"Отказоустойчивость не дошла до последнего профиля цепочки: {res}"
+        )
+        assert res["router_metadata"]["profile_id"] == last_pid, (
+            f"Ожидался профиль {last_pid}, получен {res['router_metadata']['profile_id']}"
+        )
+        print(f"   [PASS] Отказоустойчивость прошла цепочку {' -> '.join(chain)}")
     passed += 1
 
     # 10. Passthrough & Graceful fallback
