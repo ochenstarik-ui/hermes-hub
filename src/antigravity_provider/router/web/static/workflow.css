@@ -31,7 +31,7 @@
 .workflow-edges path { fill:none; stroke:var(--accent); stroke-width:1.6; marker-end:url(#wf-arrow); }
 .workflow-edges path.success,.workflow-edges path.review_passed { stroke:var(--status-healthy); }
 .workflow-edges path.review_failed,.workflow-edges path.error { stroke:var(--status-error); stroke-dasharray:7 5; }
-.workflow-edge-label { fill:var(--text-muted); font:9px var(--font-ui); text-transform:uppercase; }
+.workflow-edge-label { fill:var(--text-muted); font:9px var(--font-ui); text-transform:uppercase; text-anchor:middle; paint-order:stroke; stroke:var(--bg-base); stroke-width:3px; stroke-linejoin:round; }
 .workflow-edge-hit { fill:none; stroke:transparent; stroke-width:14; pointer-events:stroke; cursor:pointer; }
 .workflow-node { position:absolute; width:190px; min-height:92px; padding:11px 12px; border:1px solid var(--border-accent); border-radius:9px; background:linear-gradient(145deg,var(--surface),var(--surface-muted)); box-shadow:0 8px 22px rgba(0,0,0,.18); cursor:pointer; user-select:none; }
 .workflow-node.selected { outline:2px solid var(--accent); box-shadow:0 0 18px var(--accent-dim); }

@@ -342,6 +342,16 @@ function startPolling() {
 // пустого слота и у холодного резерва NOT_CONFIGURED. Состояния
 // AUTH_REQUIRED и AUTH_EXPIRED означают подключённый аккаунт, которому нужен
 // повторный вход, — их показываем.
+// Цвет индикатора по измеренному состоянию. Неизвестное состояние остаётся
+// серым (базовый .status-dot), а не выдаёт себя за здоровое.
+function healthDotClass(state) {
+  const st = String(state || '').toLowerCase();
+  if (st === 'healthy') return 'healthy';
+  if (['quota_exhausted', 'rate_limited', 'auth_required', 'auth_expired'].includes(st)) return 'warning';
+  if (['error', 'unhealthy'].includes(st)) return 'error';
+  return '';
+}
+
 function isConnectedProfile(p) {
   if (!p) return false;
   const st = String(p.auth_state || '').toUpperCase();
@@ -996,7 +1006,17 @@ function renderRoutingView() {
 
   const routing = currentSnapshot.routing || {};
   const agents = currentSnapshot.agents || [];
-  const profiles = currentSnapshot.profiles || {};
+  // Снапшот отдаётся как dataclasses.asdict(HubSnapshot): профили лежат в
+  // all_profiles. Ключа profiles в ответе нет — правая колонка была всегда
+  // пуста, счётчик оставался литеральным «0 аккаунтов» из разметки, а строки
+  // цепочек получали пустой профиль и рисовались иконкой-заглушкой.
+  // Показываем только подключённые аккаунты — правило A26.
+  // Для строк цепочек берём полный список: цепочка может ссылаться на
+  // аккаунт, который сейчас не подключён, и его надо показать как есть,
+  // а не подменять пустым профилем.
+  const profiles = currentSnapshot.all_profiles || {};
+  // В колонку «доступные» идут только подключённые — правило A26.
+  const availableProfiles = Object.entries(profiles).filter(([, p]) => isConnectedProfile(p));
 
   // Render Left Column (Roles)
   let rolesHtml = '';
@@ -1095,7 +1115,7 @@ function renderRoutingView() {
   const q = searchEl ? searchEl.value.toLowerCase() : '';
   
   let count = 0;
-  for (const [pid, prof] of Object.entries(profiles)) {
+  for (const [pid, prof] of availableProfiles) {
     if (q && !pid.toLowerCase().includes(q) && !(prof.provider||'').toLowerCase().includes(q)) continue;
     count++;
     const icon = getProviderIcon(prof.provider);
@@ -1107,7 +1127,10 @@ function renderRoutingView() {
           <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(prof.provider || '')}</div>
         </div>
         <div style="width:40px;">
-           <div class="cell-bar-track"><div class="cell-bar-fill" style="width:80%; background:var(--status-healthy);"></div></div>
+           <!-- Здесь стояла полоса с зашитым width:80% — одинаковая у всех
+                аккаунтов и ни на чём не основанная. Показываем измеренное
+                состояние здоровья, а не выдуманный процент. -->
+           <span class="status-dot ${healthDotClass(prof.health_state)}" title="${escapeHtml(prof.health_label_ru || 'Н/Д: состояние не проверялось')}"></span>
         </div>
         <button class="btn btn-secondary btn-sm" style="padding:2px 6px;" onclick="quickAddProfile('${escapeHtml(pid)}')"><i class="fa-solid fa-plus"></i></button>
       </div>
