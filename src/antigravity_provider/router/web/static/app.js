@@ -188,6 +188,12 @@ function initEventListeners() {
   if (btnPreflight) {
     btnPreflight.addEventListener('click', () => runPreflightChecks());
   }
+
+  // Reset router config listener (P0-4)
+  const btnResetConfig = document.getElementById('btn-reset-router-config');
+  if (btnResetConfig) {
+    btnResetConfig.addEventListener('click', () => openResetConfigModal());
+  }
 }
 
 
@@ -1365,6 +1371,67 @@ async function saveHubServerSettings() {
     fetchSnapshot();
   } else {
     showToast(res.message || 'Ошибка сохранения настроек сервера', 'error');
+  }
+}
+
+// ── RESET CONFIGURATION (P0-2 & P0-4) ──
+function openResetConfigModal() {
+  elements.modalTitle.textContent = 'Начать настройку заново';
+  elements.modalBody.innerHTML = `
+    <div class="modal-feedback warning" style="margin-bottom:14px; line-height:1.5;">
+      ⚠️ <strong>Вы собираетесь сбросить конфигурацию маршрутизатора в исходное чистое состояние.</strong>
+    </div>
+    <div style="font-size:13px; margin-bottom:12px;">
+      <div style="font-weight:600; color:var(--status-error); margin-bottom:4px;">Будет сброшено:</div>
+      <ul style="margin:0 0 12px 18px; padding:0; color:var(--text-secondary);">
+        <li>Цепочки всех 13 ролей (будут очищены).</li>
+        <li>Список профилей в <code>router_profiles.yaml</code> (0 профилей).</li>
+        <li>Перед сбросом создаётся резервная копия <code>router_profiles.yaml.bak_...</code>.</li>
+      </ul>
+      <div style="font-weight:600; color:var(--status-healthy); margin-bottom:4px;">Будет сохранено (НЕ затрагивается):</div>
+      <ul style="margin:0 0 0 18px; padding:0; color:var(--text-secondary);">
+        <li>Все учётные данные, токены, ключи и подключённые аккаунты.</li>
+        <li>Файлы авторизации в <code>~/.hermes/agy_profiles/</code>, <code>codex_profiles/</code> и др.</li>
+        <li>Общие настройки хаба в <code>hub_settings.json</code>.</li>
+      </ul>
+    </div>
+    <div id="reset-config-feedback-area"></div>
+  `;
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+    <button class="btn btn-danger" id="btn-modal-confirm-reset" onclick="confirmResetConfig()">Сбросить и начать заново</button>
+  `;
+  showModal();
+}
+
+async function confirmResetConfig() {
+  const btn = document.getElementById('btn-modal-confirm-reset');
+  const feedback = document.getElementById('reset-config-feedback-area');
+  if (btn) btn.disabled = true;
+  if (feedback) {
+    feedback.innerHTML = '<div class="modal-feedback info">⏳ Выполняется сброс конфигурации...</div>';
+  }
+  try {
+    const res = await executeAction('reset_router_config', {});
+    if (res && res.ok) {
+      if (feedback) {
+        feedback.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Конфигурация успешно сброшена')}</div>`;
+      }
+      setTimeout(() => {
+        closeModal();
+        fetchSnapshot();
+      }, 1000);
+    } else {
+      if (btn) btn.disabled = false;
+      if (feedback) {
+        feedback.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Ошибка сброса конфигурации')}</div>`;
+      }
+    }
+  } catch (err) {
+    if (btn) btn.disabled = false;
+    if (feedback) {
+      feedback.innerHTML = `<div class="modal-feedback error">❌ Ошибка: ${escapeHtml(err.message || String(err))}</div>`;
+    }
   }
 }
 

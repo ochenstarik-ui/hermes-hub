@@ -247,46 +247,45 @@ class TestLocalLLMModelDiscovery:
 class TestLocalLLMConfigAndAutoAssigner:
     """Test default configuration, migration, and slot auto-assignment."""
 
-    def test_default_config_contains_local_slots(self):
+    def test_default_config_clean_roles_and_local_registration(self):
         cfg = get_default_router_config()
-        assert "local-1" in cfg.profiles
-        assert "local-2" in cfg.profiles
+        assert len(cfg.profiles) == 0
+        assert len(cfg.roles) == 13
 
-        p1 = cfg.profiles["local-1"]
+        slot = AutoAssigner.find_free_slot("local")
+        assert slot == "local-1"
+
+        reloaded = load_router_config()
+        assert "local-1" in reloaded.profiles
+        p1 = reloaded.profiles["local-1"]
         assert p1.provider == "local"
-        assert "code-reviewer" in p1.capabilities
         assert "coding" in p1.capabilities
-        assert "Qwen3.8-27B-Q4_K_M.gguf" in p1.preferred_models
-        assert p1.max_concurrency == 1
 
-        p2 = cfg.profiles["local-2"]
-        assert p2.provider == "local"
-        assert "tester" in p2.capabilities
-        assert "Qwen3-4B-Instruct-2507-Q4_K_M.gguf" in p2.preferred_models
-        assert p2.max_concurrency == 1
-
-    def test_config_migration_adds_local_slots(self):
+    def test_config_migration_preserves_user_profiles_without_injecting_stubs(self):
         tmp_dir = tempfile.mkdtemp()
         try:
             config_path = Path(tmp_dir) / "router_profiles.yaml"
             legacy_profiles = {
-                "codex-orch": RouterProfileConfig(
-                    profile_id="codex-orch",
+                "custom-codex": RouterProfileConfig(
+                    profile_id="custom-codex",
                     provider="openai-codex",
                 )
             }
             legacy_cfg = RouterConfig(
                 enabled=True,
                 default_role="manager",
-                roles=get_default_router_config().roles,
+                roles={"manager": get_default_router_config().roles["manager"]},
                 profiles=legacy_profiles,
             )
             save_router_config(legacy_cfg, config_path)
 
             migrated = load_router_config(config_path)
-            assert "local-1" in migrated.profiles
-            assert "local-2" in migrated.profiles
-            assert migrated.profiles["local-1"].provider == "local"
+            # User profile is preserved
+            assert "custom-codex" in migrated.profiles
+            # 13 canonical roles are migrated
+            assert len(migrated.roles) == 13
+            # No dummy local profiles injected
+            assert "local-1" not in migrated.profiles
         finally:
             shutil.rmtree(tmp_dir, ignore_errors=True)
 

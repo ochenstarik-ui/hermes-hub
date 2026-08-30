@@ -78,28 +78,26 @@ def test_auto_assigner_find_free_slot_for_all_five_providers(clean_env):
     for provider in ["antigravity", "openai-codex", "opencode-go", "claude", "grok"]:
         slot = AutoAssigner.find_free_slot(provider)
         if slot is not None:
-            # Slot MUST exist in config.profiles
+            config = load_router_config()
             assert slot in config.profiles
             assert config.profiles[slot].provider == provider
 
-    # Test allocation when all default slots are filled (A26: unlimited accounts)
+    # Test allocation with clean slot numbering (A41 / A26 unlimited accounts)
     slot_claude = AutoAssigner.find_free_slot("claude")
-    assert slot_claude is not None
-    assert slot_claude in ("claude-orch", "claude-worker-1", "claude-worker-2")
+    assert slot_claude == "claude-1"
 
-    # Simulate fake auth on all 3 default claude slots
-    for c_slot in ["claude-orch", "claude-worker-1", "claude-worker-2"]:
-        ProfileAuthManager.save_profile_auth("claude", c_slot, {"api_key": "sk-ant-test-key-1234567890123456"})
+    # Simulate fake auth on claude-1
+    ProfileAuthManager.save_profile_auth("claude", "claude-1", {"api_key": "sk-ant-test-key-1234567890123456"})
 
-    # Now all default claude slots are taken -> find_free_slot dynamically generates claude-worker-3
+    # Next slot dynamically allocated is claude-2
     next_slot = AutoAssigner.find_free_slot("claude")
-    assert next_slot == "claude-worker-3"
+    assert next_slot == "claude-2"
     cfg = load_router_config()
-    assert "claude-worker-3" in cfg.profiles
-    assert cfg.profiles["claude-worker-3"].provider == "claude"
+    assert "claude-2" in cfg.profiles
+    assert cfg.profiles["claude-2"].provider == "claude"
 
     rec_slot, title, reason = AutoAssigner.recommend_assignment("claude")
-    assert rec_slot == "claude-worker-3"
+    assert rec_slot == "claude-2"
 
 
 @pytest.mark.unit

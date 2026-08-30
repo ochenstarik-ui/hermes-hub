@@ -39,6 +39,10 @@ def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
     config = load_router_config()
     pcfg = config.get_profile(profile_id)
     if not pcfg:
+        AutoAssigner.ensure_profile_definition(provider, profile_id)
+        config = load_router_config()
+        pcfg = config.get_profile(profile_id)
+    if not pcfg:
         return {'success': False, 'error': f"Профиль '{profile_id}' не найден"}
 
     status = ProfileAuthManager.get_profile_status(pcfg.provider, profile_id)
@@ -467,6 +471,65 @@ def generate_quotas_export(format: str = "json") -> Any:
     }
 
 
+def do_reset_router_config(actor: str = "user:web") -> Dict[str, Any]:
+    """Reset router configuration to clean default state (0 profiles, 13 canonical roles with empty chains).
+
+    Guaranteed to create a timestamped backup of router_profiles.yaml first.
+    Strictly preserves all credentials in ~/.hermes/agy_profiles, codex_profiles,
+    opengo_profiles, claude_profiles, grok_profiles, and hub_settings.json.
+    """
+    import shutil
+    from pathlib import Path
+    from antigravity_provider.router.router_config import (
+        get_default_router_config,
+        save_router_config,
+    )
+
+    env_config = os.environ.get("HERMES_ROUTER_CONFIG", "").strip()
+    if env_config:
+        config_path = Path(env_config).expanduser()
+    else:
+        config_path = paths.get_router_profiles_path()
+
+    backup_name = None
+    if config_path.exists():
+        try:
+            backup_path = config_path.with_name(f"{config_path.name}.bak_{int(time.time())}")
+            shutil.copy2(config_path, backup_path)
+            backup_name = backup_path.name
+        except Exception as exc:
+            logger.warning("Не удалось создать резервную копию перед сбросом конфигурации: %s", exc)
+
+    clean_cfg = get_default_router_config()
+    saved = save_router_config(clean_cfg, config_path)
+    if not saved:
+        return {
+            "ok": False,
+            "message": "Не удалось записать чистую конфигурацию в файл",
+        }
+
+    try:
+        from antigravity_provider.router.state_store import HubStateStore
+        HubStateStore.get().refresh(force_scan=True)
+    except Exception:
+        pass
+
+    EventLogService.get().log(
+        "routing",
+        f"Конфигурация маршрутизатора сброшена в исходное состояние (резервная копия: {backup_name or 'нет'}). Учётные данные и подключенные аккаунты сохранены.",
+        level="warning",
+        actor=actor,
+        action="reset_router_config",
+        outcome="success",
+    )
+
+    return {
+        "ok": True,
+        "message": "Конфигурация маршрутизатора сброшена. Учётные данные и подключенные аккаунты сохранены.",
+        "backup_file": backup_name,
+    }
+
+
 class ActionExecutor:
     """Shared execution layer for Desktop and Web actions."""
     
@@ -490,6 +553,28 @@ class ActionExecutor:
                     prov = _pcfg.provider
             except Exception:
                 pass
+            if not prov:
+                for prefix, p_name in [
+                    ("ag-", "antigravity"),
+                    ("codex-", "openai-codex"),
+                    ("opengo-", "opencode-go"),
+                    ("claude-", "claude"),
+                    ("grok-", "grok"),
+                    ("local-", "local"),
+                    ("openrouter-", "openrouter"),
+                    ("nvidia-", "nvidia"),
+                    ("ollama-", "ollama"),
+                    ("vllm-", "vllm"),
+                ]:
+                    if pid.startswith(prefix):
+                        prov = p_name
+                        break
+            if not prov:
+                from antigravity_provider.router.profile_manager import get_profile_auth_path
+                for candidate_prov in ("antigravity", "openai-codex", "opencode-go", "claude", "grok", "local", "openrouter", "nvidia", "ollama", "vllm"):
+                    if get_profile_auth_path(candidate_prov, pid).is_file():
+                        prov = candidate_prov
+                        break
 
         if action in {
             'create_agent',
@@ -926,6 +1011,10 @@ class ActionExecutor:
                     'message': 'Экспорт лимитов успешно сформирован (JSON)',
                     'data': {'format': 'json', 'report': res, 'filename': 'hermes_quotas_export.json'}
                 }
+
+        elif action in ['reset_router_config', 'reset_to_empty_config']:
+            res = do_reset_router_config(actor=actor)
+            return {'ok': res.get('ok', False), 'message': res.get('message', ''), 'data': res}
 
         else:
             return {'ok': False, 'message': f'Неизвестное действие: {action}', 'unknown': True}

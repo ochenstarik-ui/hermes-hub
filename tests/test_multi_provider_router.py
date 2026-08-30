@@ -46,57 +46,33 @@ from antigravity_provider.router.cli_commands import (
 
 
 class TestRouterConfig:
-    """Test configuration schema, profile loading, and role definitions."""
+    """Test configuration schema, clean default config, and role definitions."""
 
-    def test_default_config_has_24_profiles(self):
+    def test_default_config_is_clean(self):
         config = get_default_router_config()
-        assert len(config.profiles) == 24
-        # 3 Codex
-        assert "codex-orch" in config.profiles
-        assert "codex-worker-1" in config.profiles
-        assert "codex-worker-2" in config.profiles
-        # 10 Antigravity (7 active, 3 cold)
-        assert "ag-orch-fallback" in config.profiles
-        assert "ag-w1" in config.profiles
-        assert "ag-w4" in config.profiles
-        assert "ag-spare-1" in config.profiles
-        assert "ag-cold-1" in config.profiles
-        assert config.profiles["ag-cold-1"].enabled is False
-        # 3 OpenCode Go
-        assert "opengo-1" in config.profiles
-        assert "opengo-2" in config.profiles
-        assert "opengo-3" in config.profiles
-        # 3 Claude
-        assert "claude-orch" in config.profiles
-        assert "claude-worker-1" in config.profiles
-        assert "claude-worker-2" in config.profiles
-        # 3 Grok
-        assert "grok-orch" in config.profiles
-        assert "grok-worker-1" in config.profiles
-        assert "grok-worker-2" in config.profiles
+        assert len(config.profiles) == 0
+        assert len(config.roles) == 13
+        assert config.default_role == "manager"
+        assert config.enabled is True
 
     def test_role_policies_chains(self):
         config = get_default_router_config()
         assert "manager" in config.roles
-        orch = config.roles["manager"]
-        assert "codex-orch" in orch.preferred_chain
-        assert "ag-orch-fallback" in orch.preferred_chain
-        assert "opengo-3" in orch.preferred_chain
+        assert "developer-1" in config.roles
+        assert "developer-2" in config.roles
+        assert "code-reviewer" in config.roles
+        assert "researcher" in config.roles
+        assert "tester" in config.roles
+        assert "tech-writer" in config.roles
+        assert "analyst" in config.roles
+        assert "guardian" in config.roles
+        assert "cost-controller" in config.roles
+        assert "integration-expert" in config.roles
+        assert "security-expert" in config.roles
+        assert "dependency-agent" in config.roles
 
-        coder = config.roles["developer-1"]
-        assert "codex-worker-1" in coder.preferred_chain
-        assert "ag-w1" in coder.preferred_chain
-        assert "opengo-1" in coder.preferred_chain
-
-        reviewer = config.roles["code-reviewer"]
-        assert "codex-worker-2" in reviewer.preferred_chain
-        assert "opengo-2" in reviewer.preferred_chain
-        assert "ag-w2" in reviewer.preferred_chain
-
-        research = config.roles["researcher"]
-        assert "opengo-1" in research.preferred_chain
-        assert "ag-w3" in research.preferred_chain
-        assert "opengo-2" in research.preferred_chain
+        for rname, rpol in config.roles.items():
+            assert rpol.preferred_chain == [], f"Expected empty chain for {rname} on clean install"
 
 
 class TestHealthTracker:
@@ -175,10 +151,30 @@ class TestSessionAffinityAndLeases:
 class TestRouterEngineFailover:
     """Test multi-provider role-aware failover execution loop."""
 
+    @staticmethod
+    def _get_test_config() -> RouterConfig:
+        return RouterConfig(
+            enabled=True,
+            default_role="manager",
+            roles={
+                "manager": RolePolicy(
+                    role_name="manager",
+                    preferred_chain=["codex-orch", "ag-orch-fallback", "opengo-3"],
+                    max_failover_attempts=3,
+                    session_affinity_enabled=True,
+                )
+            },
+            profiles={
+                "codex-orch": RouterProfileConfig(profile_id="codex-orch", provider="openai-codex"),
+                "ag-orch-fallback": RouterProfileConfig(profile_id="ag-orch-fallback", provider="antigravity"),
+                "opengo-3": RouterProfileConfig(profile_id="opengo-3", provider="opencode-go"),
+            },
+        )
+
     def test_orchestrator_failover_chain(self, tmp_path):
         state_file = tmp_path / "test_router_state.json"
         engine = RouterEngine(
-            config=get_default_router_config(),
+            config=self._get_test_config(),
             health=HealthTracker(state_file=state_file),
             affinity=SessionAffinityTracker(),
         )
@@ -217,7 +213,7 @@ class TestRouterEngineFailover:
     def test_session_affinity_retention_after_failover(self, tmp_path):
         state_file = tmp_path / "test_affinity_state.json"
         engine = RouterEngine(
-            config=get_default_router_config(),
+            config=self._get_test_config(),
             health=HealthTracker(state_file=state_file),
             affinity=SessionAffinityTracker(),
         )

@@ -68,219 +68,14 @@ class RouterConfig:
 
 
 def get_default_router_config() -> RouterConfig:
-    """Generate default built-in multi-provider configuration (16 profiles across 3 providers)."""
-    profiles: dict[str, RouterProfileConfig] = {
-        # 1. Codex Pool (3 accounts)
-        "codex-orch": RouterProfileConfig(
-            profile_id="codex-orch",
-            provider="openai-codex",
-            account_id="codex-acc-1",
-            capabilities=["orchestrator", "coding", "reasoning"],
-            preferred_models=["gpt-4o", "o3-mini", "codex"],
-            fallback_models=["gpt-4o-mini"],
-            max_concurrency=1,
-        ),
-        "codex-worker-1": RouterProfileConfig(
-            profile_id="codex-worker-1",
-            provider="openai-codex",
-            account_id="codex-acc-2",
-            capabilities=["coding", "coder-primary", "reasoning"],
-            preferred_models=["gpt-4o", "o3-mini", "codex"],
-            max_concurrency=1,
-        ),
-        "codex-worker-2": RouterProfileConfig(
-            profile_id="codex-worker-2",
-            provider="openai-codex",
-            account_id="codex-acc-3",
-            capabilities=["coding", "coder-secondary", "reviewer", "review"],
-            preferred_models=["gpt-4o", "o3-mini", "codex"],
-            max_concurrency=1,
-        ),
-        # 2. Antigravity Pool (10 accounts, 7 active, 3 cold)
-        "ag-orch-fallback": RouterProfileConfig(
-            profile_id="ag-orch-fallback",
-            provider="antigravity",
-            account_id="ag-acc-orch",
-            capabilities=["orchestrator", "reasoning", "coding"],
-            preferred_models=["gemini-3.7-flash", "claude-sonnet-4-6", "gemini-3.5-flash"],
-            max_concurrency=1,
-        ),
-        "ag-w1": RouterProfileConfig(
-            profile_id="ag-w1",
-            provider="antigravity",
-            account_id="ag-acc-w1",
-            capabilities=["coding", "coder-primary", "reasoning"],
-            preferred_models=["gemini-3.7-flash", "claude-sonnet-4-6", "gemini-3.5-flash"],
-            max_concurrency=1,
-        ),
-        "ag-w2": RouterProfileConfig(
-            profile_id="ag-w2",
-            provider="antigravity",
-            account_id="ag-acc-w2",
-            capabilities=["coding", "coder-secondary", "reviewer", "review"],
-            preferred_models=["gemini-3.7-flash", "gemini-3.5-flash"],
-            max_concurrency=1,
-        ),
-        "ag-w3": RouterProfileConfig(
-            profile_id="ag-w3",
-            provider="antigravity",
-            account_id="ag-acc-w3",
-            capabilities=["research", "reasoning", "search"],
-            preferred_models=["gemini-3.7-flash", "claude-sonnet-4-6"],
-            max_concurrency=1,
-        ),
-        "ag-w4": RouterProfileConfig(
-            profile_id="ag-w4",
-            provider="antigravity",
-            account_id="ag-acc-w4",
-            capabilities=["coding", "reasoning", "fast"],
-            preferred_models=["gemini-3.5-flash", "gemini-3.7-flash"],
-            max_concurrency=1,
-        ),
-        "ag-spare-1": RouterProfileConfig(
-            profile_id="ag-spare-1",
-            provider="antigravity",
-            account_id="ag-acc-sp1",
-            capabilities=["hot-spare", "coding", "reasoning", "orchestrator", "research", "fast"],
-            preferred_models=["gemini-3.7-flash", "gemini-3.5-flash"],
-            max_concurrency=1,
-        ),
-        "ag-spare-2": RouterProfileConfig(
-            profile_id="ag-spare-2",
-            provider="antigravity",
-            account_id="ag-acc-sp2",
-            capabilities=["hot-spare", "coding", "reasoning", "orchestrator", "research", "fast"],
-            preferred_models=["gemini-3.7-flash", "gemini-3.5-flash"],
-            max_concurrency=1,
-        ),
-        "ag-cold-1": RouterProfileConfig(
-            profile_id="ag-cold-1",
-            provider="antigravity",
-            account_id="ag-acc-c1",
-            capabilities=["cold-spare", "coding", "reasoning"],
-            preferred_models=["gemini-3.5-flash"],
-            enabled=False,
-            max_concurrency=1,
-        ),
-        "ag-cold-2": RouterProfileConfig(
-            profile_id="ag-cold-2",
-            provider="antigravity",
-            account_id="ag-acc-c2",
-            capabilities=["cold-spare", "coding", "reasoning"],
-            preferred_models=["gemini-3.5-flash"],
-            enabled=False,
-            max_concurrency=1,
-        ),
-        "ag-cold-3": RouterProfileConfig(
-            profile_id="ag-cold-3",
-            provider="antigravity",
-            account_id="ag-acc-c3",
-            capabilities=["cold-spare", "coding", "reasoning"],
-            preferred_models=["gemini-3.5-flash"],
-            enabled=False,
-            max_concurrency=1,
-        ),
-        # 3. OpenCode Go Pool (3 accounts)
-        "opengo-1": RouterProfileConfig(
-            profile_id="opengo-1",
-            provider="opencode-go",
-            account_id="opengo-acc-1",
-            capabilities=["coding", "fast", "multimodal"],
-            preferred_models=["deepseek-r1", "qwen-2.5-coder-32b", "deepseek-v3"],
-            max_concurrency=5,
-        ),
-        "opengo-2": RouterProfileConfig(
-            profile_id="opengo-2",
-            provider="opencode-go",
-            account_id="opengo-acc-2",
-            capabilities=["research", "coding", "multimodal"],
-            preferred_models=["deepseek-v3", "qwen-2.5-coder-32b", "deepseek-r1"],
-            max_concurrency=5,
-        ),
-        "opengo-3": RouterProfileConfig(
-            profile_id="opengo-3",
-            provider="opencode-go",
-            account_id="opengo-acc-3",
-            capabilities=["fallback", "coding", "reasoning"],
-            preferred_models=["deepseek-r1", "deepseek-v3", "qwen-2.5-coder-32b"],
-            max_concurrency=5,
-        ),
-        # 4. Claude Pool (3 accounts)
-        "claude-orch": RouterProfileConfig(
-            profile_id="claude-orch",
-            provider="claude",
-            account_id="claude-acc-1",
-            capabilities=["orchestrator", "coding", "reasoning"],
-            preferred_models=["claude-3-7-sonnet", "claude-3-5-haiku", "claude-sonnet-4-6"],
-            max_concurrency=2,
-        ),
-        "claude-worker-1": RouterProfileConfig(
-            profile_id="claude-worker-1",
-            provider="claude",
-            account_id="claude-acc-2",
-            capabilities=["coding", "coder-primary", "reasoning"],
-            preferred_models=["claude-3-7-sonnet", "claude-3-5-haiku", "claude-sonnet-4-6"],
-            max_concurrency=2,
-        ),
-        "claude-worker-2": RouterProfileConfig(
-            profile_id="claude-worker-2",
-            provider="claude",
-            account_id="claude-acc-3",
-            capabilities=["coding", "coder-secondary", "reviewer", "review"],
-            preferred_models=["claude-3-7-sonnet", "claude-3-5-haiku"],
-            max_concurrency=2,
-        ),
-        # 5. Grok Pool (3 accounts)
-        "grok-orch": RouterProfileConfig(
-            profile_id="grok-orch",
-            provider="grok",
-            account_id="grok-acc-1",
-            capabilities=["orchestrator", "coding", "reasoning"],
-            preferred_models=["grok-3", "grok-3-mini", "grok-4.5"],
-            max_concurrency=2,
-        ),
-        "grok-worker-1": RouterProfileConfig(
-            profile_id="grok-worker-1",
-            provider="grok",
-            account_id="grok-acc-2",
-            capabilities=["coding", "coder-primary", "reasoning"],
-            preferred_models=["grok-3", "grok-3-mini", "grok-4.5"],
-            max_concurrency=2,
-        ),
-        "grok-worker-2": RouterProfileConfig(
-            profile_id="grok-worker-2",
-            provider="grok",
-            account_id="grok-acc-3",
-            capabilities=["research", "reasoning", "fast"],
-            preferred_models=["grok-3", "grok-3-mini"],
-            max_concurrency=2,
-        ),
-        # 6. Local LLM Pool (2 accounts)
-        "local-1": RouterProfileConfig(
-            profile_id="local-1",
-            provider="local",
-            account_id="local-acc-1",
-            capabilities=["code-reviewer", "reviewer", "coder-secondary", "reasoning", "coding"],
-            preferred_models=["Qwen3.8-27B-Q4_K_M.gguf", "default"],
-            max_concurrency=1,
-        ),
-        "local-2": RouterProfileConfig(
-            profile_id="local-2",
-            provider="local",
-            account_id="local-acc-2",
-            capabilities=["tester", "fast", "research", "coding"],
-            preferred_models=["Qwen3-4B-Instruct-2507-Q4_K_M.gguf", "default"],
-            max_concurrency=1,
-        ),
-    }
-
+    """Generate default clean multi-provider configuration (0 profiles, 13 canonical roles with empty chains)."""
     roles = RoleRegistry.get_default_role_policies()
 
     return RouterConfig(
         enabled=True,
         default_role="manager",
         roles=roles,
-        profiles=profiles,
+        profiles={},
     )
 
 
@@ -364,24 +159,18 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
         if quota_threshold_action not in ("notify", "switch"):
             quota_threshold_action = "notify"
 
-        # Automatic Idempotent Migration (P0-0.1)
-        # Merge missing default profiles and roles into loaded user configuration
+        # Automatic Idempotent Migration (A41 Clean Install)
+        # Merge missing default roles into loaded user configuration without injecting fake profiles
         default_cfg = get_default_router_config()
         migration_needed = False
-        new_profiles_added: list[str] = []
         new_roles_added: list[str] = []
 
         if not profiles:
-            profiles = default_cfg.profiles
-        else:
-            for def_pid, def_pcfg in default_cfg.profiles.items():
-                if def_pid not in profiles:
-                    profiles[def_pid] = def_pcfg
-                    new_profiles_added.append(def_pid)
-                    migration_needed = True
+            profiles = {}
 
         if not roles:
             roles = default_cfg.roles
+            migration_needed = True
         else:
             # Сначала переименование старых ролей в канонические, и только
             # потом дополнение недостающими.

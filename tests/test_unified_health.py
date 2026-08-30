@@ -32,20 +32,18 @@ from antigravity_provider.router.router_config import load_router_config
 def test_profile_view_model_mapping():
     """Verify that scan_all creates ProfileViewModels for all configured profiles."""
     service = UnifiedHealthService.get()
-    profiles_by_prov = service.scan_all()
+    profiles_by_prov = service.scan_all(force=True)
 
     assert "antigravity" in profiles_by_prov
     assert "openai-codex" in profiles_by_prov
     assert "opencode-go" in profiles_by_prov
 
     all_profs = [p for profs in profiles_by_prov.values() for p in profs]
-    assert len(all_profs) >= 16
-
     for p in all_profs:
         assert isinstance(p, ProfileViewModel)
         assert p.profile_id
         assert p.display_name
-        assert p.provider in ("antigravity", "openai-codex", "opencode-go", "claude", "grok", "local")
+        assert p.provider in ("antigravity", "openai-codex", "opencode-go", "claude", "grok", "local", "openrouter", "nvidia", "ollama", "vllm")
         assert p.health_state in (
             "healthy", "quota_low", "quota_exhausted", "cooldown", "rate_limited",
             "auth_required", "auth_expired", "disabled", "cold_spare", "unhealthy", "not_tested", "not_configured"
@@ -55,7 +53,7 @@ def test_profile_view_model_mapping():
 def test_auth_required_never_healthy_without_credentials():
     """Verify that unauthenticated profiles are NEVER marked as HEALTHY."""
     service = UnifiedHealthService.get()
-    profiles_by_prov = service.scan_all()
+    profiles_by_prov = service.scan_all(force=True)
 
     for profs in profiles_by_prov.values():
         for p in profs:
@@ -65,8 +63,9 @@ def test_auth_required_never_healthy_without_credentials():
 
 def test_cold_spare_presentation():
     """Verify that cold spare slots are marked as cold_spare or auth_required, not active."""
+    AutoAssigner.ensure_profile_definition("antigravity", "ag-cold-1")
     service = UnifiedHealthService.get()
-    profiles_by_prov = service.scan_all()
+    profiles_by_prov = service.scan_all(force=True)
     ag_profs = {p.profile_id: p for p in profiles_by_prov["antigravity"]}
 
     cold_1 = ag_profs.get("ag-cold-1")

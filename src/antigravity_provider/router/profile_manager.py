@@ -322,7 +322,11 @@ class ProfileAuthManager:
             if base_url:
                 try:
                     from antigravity_provider.router.router_config import load_router_config, save_router_config
+                    from antigravity_provider.router.auto_assigner import AutoAssigner
                     rcfg = load_router_config()
+                    if profile_id not in rcfg.profiles:
+                        AutoAssigner.ensure_profile_definition(provider, profile_id)
+                        rcfg = load_router_config()
                     if profile_id in rcfg.profiles:
                         rcfg.profiles[profile_id].custom_base_url = str(base_url).strip()
                         if auth_data.get("models") and isinstance(auth_data["models"], list):

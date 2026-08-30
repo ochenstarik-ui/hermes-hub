@@ -34,6 +34,9 @@ def print_router_status() -> int:
     print("-" * 80)
 
     for rname, rpolicy in sorted(config.roles.items()):
+        if not rpolicy.preferred_chain:
+            print(f"{rname:<16} {'(не назначен)':<18} {'-':<15} {'not_configured':<18} {'-':<10}")
+            continue
         for idx, pid in enumerate(rpolicy.preferred_chain):
             pconfig = config.get_profile(pid)
             if not pconfig:
@@ -222,11 +225,6 @@ def test_profile_cli(profile_id: str) -> int:
 def simulate_quota_cli(profile_id: str, model_family: Optional[str] = None, duration: int = 600) -> int:
     """Simulate quota exhaustion on a profile for testing."""
     engine = get_router_engine()
-    pconfig = engine.config.get_profile(profile_id)
-    if not pconfig:
-        print(f"[ERROR] Profile '{profile_id}' not found.")
-        return 1
-
     engine.health.simulate_quota(profile_id, model_family=model_family, duration=duration)
     print(f"[OK] Simulated quota exhaustion activated for profile '{profile_id}' for {duration} seconds.")
     print("Use `hermes router clear-cooldown` to restore normal state.")

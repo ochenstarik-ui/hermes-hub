@@ -11,6 +11,7 @@ from pathlib import Path
 import pytest
 
 from antigravity_provider.router.action_handler import ActionExecutor, do_set_model
+from antigravity_provider.router.auto_assigner import AutoAssigner
 from antigravity_provider.router.model_discovery_service import ModelDiscoveryService
 from antigravity_provider.router.router_config import load_router_config, save_router_config
 
@@ -45,8 +46,9 @@ def temp_models_cache(tmp_path, monkeypatch):
 def test_set_model_success_and_config_persistence(temp_models_cache):
     """Verify setting valid discovered model succeeds and persists in router_config."""
     svc, _ = temp_models_cache
-    config = load_router_config()
     profile_id = "ag-w1"
+    AutoAssigner.ensure_profile_definition("antigravity", profile_id)
+    config = load_router_config()
     assert profile_id in config.profiles
 
     # Pick valid discovered model
@@ -69,8 +71,9 @@ def test_set_model_success_and_config_persistence(temp_models_cache):
 def test_set_model_rejects_nonexistent_model(temp_models_cache):
     """Verify nonexistent model is strictly rejected without modifying configuration."""
     svc, _ = temp_models_cache
-    config = load_router_config()
     profile_id = "ag-w1"
+    AutoAssigner.ensure_profile_definition("antigravity", profile_id)
+    config = load_router_config()
     orig_models = list(config.profiles[profile_id].preferred_models)
 
     # Attempt to set invalid/hallucinated model
