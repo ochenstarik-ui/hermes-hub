@@ -33,11 +33,46 @@ printf '%s' "$COMMIT" > "$STAGE/BUILD_COMMIT"
 #
 # Сборка идёт на Windows, где рабочая копия хранится с CRLF (core.autocrlf).
 # В git объекты лежат с LF, но сборщик копирует из РАБОЧЕЙ КОПИИ, поэтому
-# .gitattributes её не спасает. Установщик с  падает на первой же строке:
-# "$'': command not found", а строка-маркер с  не совпадает, и пролог не
-# находит границу вложенных данных. Именно так сломалась сборка 44808bd.
+# .gitattributes её не спасает. Установщик с возвратом каретки падает на
+# первой же строке, а строка-маркер перестаёт совпадать, и пролог не находит
+# границу вложенных данных. Именно так сломалась сборка 44808bd.
+#
+# Делается на Python, а не sed: sed -i из Git Bash на Windows молча не
+# убирает возврат каретки — после его работы в install-linux.sh оставалось
+# 207 таких строк, и в поставку снова уходил битый установщик.
+# python3 на Windows — заглушка Microsoft Store: она печатает "Python" и
+# ничего не выполняет, из-за чего нормализация тихо не срабатывала.
+PYBIN=""
+for cand in python3 python py; do
+    if command -v "$cand" >/dev/null 2>&1 && "$cand" -c "import sys" >/dev/null 2>&1; then
+        PYBIN="$cand"; break
+    fi
+done
+if [ -z "$PYBIN" ]; then
+    echo "ОШИБКА: не найден рабочий Python для нормализации переводов строк." >&2
+    echo "Собирать установщик без неё нельзя: он сломается на Linux." >&2
+    exit 1
+fi
 echo "Нормализация переводов строк..."
-find "$STAGE" -type f \( -name '*.sh' -o -name '*.py' -o -name '*.yaml' -o -name '*.yml' -o -name '*.json' \) -print0     | xargs -0 -r sed -i 's/$//'
+"$PYBIN" - "$STAGE" <<'NORMALIZE'
+import sys
+from pathlib import Path
+
+CRLF = bytes([13, 10])
+LF = bytes([10])
+root = Path(sys.argv[1])
+suffixes = {".sh", ".py", ".yaml", ".yml", ".json"}
+fixed = 0
+for path in root.rglob("*"):
+    if not path.is_file() or path.suffix not in suffixes:
+        continue
+    raw = path.read_bytes()
+    clean = raw.replace(CRLF, LF)
+    if clean != raw:
+        path.write_bytes(clean)
+        fixed += 1
+print("  переводы строк исправлены в %d файлах" % fixed)
+NORMALIZE
 
 find "$STAGE" -name '__pycache__' -type d -prune -exec rm -rf {} + 2>/dev/null || true
 find "$STAGE" -name '*.pyc' -delete 2>/dev/null || true
