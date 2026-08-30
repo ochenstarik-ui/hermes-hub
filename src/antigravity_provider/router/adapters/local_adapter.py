@@ -164,8 +164,14 @@ class LocalLLMAdapter(BaseProviderAdapter):
         payload: Dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "temperature": request.get("temperature", 0.7),
         }
+        if "temperature" in request:
+            payload["temperature"] = request["temperature"]
+        elif isinstance(profile.request_options, dict) and "temperature" in profile.request_options:
+            payload["temperature"] = profile.request_options["temperature"]
+        else:
+            payload["temperature"] = request.get("temperature", 0.7)
+
         if "tools" in request and request["tools"]:
             payload["tools"] = request["tools"]
         if "tool_choice" in request:
@@ -178,6 +184,42 @@ class LocalLLMAdapter(BaseProviderAdapter):
             payload["stream"] = request["stream"]
         if "stop" in request:
             payload["stop"] = request["stop"]
+
+        # Mix in request_options from profile (generic, supports any arbitrary keys & nested structures)
+        req_options = profile.request_options if isinstance(profile.request_options, dict) else {}
+        for opt_key, opt_val in req_options.items():
+            if opt_key == "temperature":
+                if "temperature" in request and request["temperature"] != opt_val:
+                    logger.warning(
+                        "Profile %s request_option '%s' (%r) ignored: request specified explicit value (%r)",
+                        profile.profile_id,
+                        opt_key,
+                        opt_val,
+                        request["temperature"],
+                    )
+                continue
+
+            if opt_key in request:
+                req_val = request[opt_key]
+                if req_val != opt_val:
+                    logger.warning(
+                        "Profile %s request_option '%s' (%r) ignored: request specified explicit value (%r)",
+                        profile.profile_id,
+                        opt_key,
+                        opt_val,
+                        req_val,
+                    )
+            elif opt_key in payload:
+                if payload[opt_key] != opt_val:
+                    logger.warning(
+                        "Profile %s request_option '%s' (%r) ignored: payload contains (%r)",
+                        profile.profile_id,
+                        opt_key,
+                        opt_val,
+                        payload[opt_key],
+                    )
+            else:
+                payload[opt_key] = opt_val
 
         headers: Dict[str, str] = {
             "Content-Type": "application/json",
@@ -326,6 +368,14 @@ class LocalLLMAdapter(BaseProviderAdapter):
             return ErrorClassification(
                 category=ErrorCategory.AUTH_REQUIRED,
                 message=err_msg,
+            )
+
+        # 400 / Bad request / Invalid parameter / Unknown parameter
+        if any(k in err_lower for k in ("400", "invalid_request", "bad request", "unknown parameter", "invalid parameter", "unknown field", "unrecognized field")):
+            return ErrorClassification(
+                category=ErrorCategory.INVALID_REQUEST,
+                message=err_msg,
+                retry_delay_seconds=300,
             )
 
         # Quota exhausted

@@ -98,6 +98,7 @@ class ProfileViewModel:
     quota_snapshot: Optional[Any] = None
     preferred_models: List[str] = field(default_factory=list)
     active_leases: int = 0
+    request_options: dict[str, Any] = field(default_factory=dict)
 
     @property
     def auth_label_ru(self) -> str:
@@ -529,6 +530,7 @@ class UnifiedHealthService:
                     quota_snapshot=snap,
                     preferred_models=pcfg.preferred_models,
                     active_leases=precord.active_leases,
+                    request_options=dict(pcfg.request_options or {}),
                 )
 
                 result.setdefault(prov, []).append(vm)

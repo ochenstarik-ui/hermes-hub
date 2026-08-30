@@ -79,39 +79,43 @@ class AddAccountWizard(HubModal):
             w.destroy()
 
     def _cancel_active_sessions(self):
-        if self.oauth_session_id:
+        oauth_id = getattr(self, "oauth_session_id", None)
+        if oauth_id:
             try:
                 from antigravity_provider.router.profile_oauth import cancel_oauth_session
 
-                cancel_oauth_session(self.oauth_session_id)
+                cancel_oauth_session(oauth_id)
             except Exception:
                 pass
             self.oauth_session_id = None
             self.oauth_port = None
 
-        if self.codex_session_id:
+        codex_id = getattr(self, "codex_session_id", None)
+        if codex_id:
             try:
                 from antigravity_provider.router.codex_oauth import cancel_codex_oauth_session
 
-                cancel_codex_oauth_session(self.codex_session_id)
+                cancel_codex_oauth_session(codex_id)
             except Exception:
                 pass
             self.codex_session_id = None
 
-        if self.claude_session_id:
+        claude_id = getattr(self, "claude_session_id", None)
+        if claude_id:
             try:
                 from antigravity_provider.router.claude_oauth import cancel_claude_oauth_session
 
-                cancel_claude_oauth_session(self.claude_session_id)
+                cancel_claude_oauth_session(claude_id)
             except Exception:
                 pass
             self.claude_session_id = None
 
-        if self.grok_session_id:
+        grok_id = getattr(self, "grok_session_id", None)
+        if grok_id:
             try:
                 from antigravity_provider.router.grok_oauth import cancel_grok_oauth_session
 
-                cancel_grok_oauth_session(self.grok_session_id)
+                cancel_grok_oauth_session(grok_id)
             except Exception:
                 pass
             self.grok_session_id = None

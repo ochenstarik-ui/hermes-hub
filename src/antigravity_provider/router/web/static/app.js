@@ -1452,6 +1452,303 @@ function initSettings() {
   }
 }
 
+function openAccountDetailsModal(profileId, isRedraw = false) {
+  _openAccountModalProfile = profileId;
+  if (!currentSnapshot) return;
+  const allProfiles = currentSnapshot.all_profiles || {};
+  const profile = allProfiles[profileId];
+  if (!profile) return;
+
+  const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === profile.provider);
+  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
+  const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
+  const qs = profile.quota_snapshot;
+  const buckets = (qs && qs.buckets) ? qs.buckets : [];
+
+  let modelBlockHtml = '';
+  if (discoveredModels.length > 0) {
+    modelBlockHtml = `
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
+        <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Предпочитаемая модель профиля:</label>
+        <div style="display:flex; gap:8px;">
+          <select id="modal-model-select" class="select-filter" style="flex:1;">
+            ${discoveredModels.map((m) => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="handleSaveProfileModel('${escapeHtml(profileId)}')">Сохранить</button>
+        </div>
+      </div>
+    `;
+  } else {
+    modelBlockHtml = `
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
+        <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
+          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}', '${escapeHtml(profileId)}')">↻ Запросить список моделей</button>
+      </div>
+    `;
+  }
+
+  // Local request options section
+  let requestOptionsHtml = '';
+  if (profile.provider === 'local') {
+    const rawOptions = profile.request_options || {};
+    const formattedJson = JSON.stringify(rawOptions, null, 2);
+    requestOptionsHtml = `
+      <div style="background:var(--surface-muted); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <label style="font-weight:700; font-size:12px;">Параметры запроса (JSON request_options):</label>
+          <span id="modal-options-validation-status" style="font-size:11px; color:var(--status-healthy);">✓ JSON валиден</span>
+        </div>
+        <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
+          Произвольные параметры, подмешиваемые в тело запроса (например, <code>{"chat_template_kwargs": {"enable_thinking": false}}</code>).
+        </div>
+        <textarea id="modal-request-options-input" class="input-text" style="width:100%; height:90px; font-family:var(--font-mono); font-size:11px; resize:vertical;" placeholder="{}" oninput="updateRequestOptionsPreview('${escapeHtml(profileId)}')">${escapeHtml(formattedJson)}</textarea>
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+          <button class="btn btn-secondary btn-sm" onclick="handleSaveRequestOptions('${escapeHtml(profileId)}')">💾 Сохранить параметры</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleRequestOptionsPreview()">👁 Предпросмотр тела запроса</button>
+        </div>
+
+        <div id="modal-payload-preview-box" style="display:none; margin-top:10px;">
+          <div style="font-size:11px; font-weight:600; color:var(--text-secondary); margin-bottom:4px;">Что отправится на сервер (/chat/completions):</div>
+          <pre id="modal-payload-preview-content" style="background:var(--surface-card); padding:8px 10px; border-radius:4px; font-size:11px; font-family:var(--font-mono); color:var(--text-accent); max-height:140px; overflow-y:auto; margin:0; border:1px solid var(--border-subtle);"></pre>
+        </div>
+      </div>
+    `;
+  }
+
+  let quotasHtml = '';
+  if (profile.provider !== 'local') {
+    quotasHtml = `
+      <h3 style="font-size:13px; font-weight:700; margin-bottom:8px; border-bottom:1px solid var(--border-subtle); padding-bottom:4px;">
+        Квоты и корзины провайдера
+      </h3>
+      <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
+        ${buckets.map((b) => `
+          <div style="background:var(--surface-muted); padding:8px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+            <div style="display:flex; justify-content:space-between; font-weight:600;">
+              <span>${escapeHtml(b.display_name)}</span>
+              <span>${b.remaining_percent !== null && b.remaining_percent !== undefined ? `${b.remaining_percent.toFixed(1)}%` : 'Н/Д'}</span>
+            </div>
+            <div class="quota-bar-track" style="margin:4px 0;">
+              <div class="quota-bar-fill" style="width:${b.remaining_percent || 0}%; background-color:var(--status-healthy);"></div>
+            </div>
+            <div style="font-size:10px; color:var(--text-muted);">
+              ${b.reset_at ? `Сброс: ${formatIsoDate(b.reset_at)}` : (b.period ? `Период: ${b.period}` : 'Без отметки сброса')}
+            </div>
+          </div>
+        `).join('') || '<div class="empty-text">Данные о квотах отсутствуют.</div>'}
+      </div>
+    `;
+  }
+
+  elements.modalTitle.textContent = `Учетная запись: ${profile.display_name || profileId}`;
+  elements.modalBody.innerHTML = `
+    <div id="modal-feedback-area"></div>
+    <div style="margin-bottom:14px;">
+      <div style="font-size:14px; font-weight:700;">${escapeHtml(profile.account_identity || profile.email || profileId)}</div>
+      <div style="font-size:12px; color:var(--text-muted);">
+        Провайдер: <strong>${escapeHtml(profile.provider_display_name || profile.provider)}</strong> •
+        Тариф: <strong>${escapeHtml(profile.plan || 'Неизвестen')}</strong> •
+        Статус: <strong class="text-healthy">${escapeHtml(profile.health_label_ru || 'Работает')}</strong>
+      </div>
+      <div style="font-size:12px; color:var(--text-secondary); margin-top:4px;">
+        Назначенные роли: <strong>${escapeHtml((profile.assigned_roles || []).join(', ') || 'Нет')}</strong>
+      </div>
+    </div>
+
+    ${modelBlockHtml}
+    ${requestOptionsHtml}
+    ${quotasHtml}
+  `;
+
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-secondary" id="btn-modal-test-profile" onclick="handleTestProfile('${escapeHtml(profileId)}')">⚡ Проверить подключение</button>
+    <button class="btn btn-secondary" onclick="executeAction('set_main', { profile_id: '${escapeHtml(profileId)}' })">★ Сделать основным</button>
+    <button class="btn btn-secondary" onclick="handleDeleteCredentials('${escapeHtml(profileId)}')">Удалить ключ</button>
+    <button class="btn btn-primary" onclick="closeModal()">Закрыть</button>
+  `;
+
+  if (!isRedraw) {
+    showModal();
+  }
+  if (profile.provider === 'local') {
+    updateRequestOptionsPreview(profileId);
+  }
+}
+
+function updateRequestOptionsPreview(profileId) {
+  const input = document.getElementById('modal-request-options-input');
+  const statusEl = document.getElementById('modal-options-validation-status');
+  const previewContent = document.getElementById('modal-payload-preview-content');
+  if (!input) return;
+
+  const raw = input.value.trim();
+  let parsed = {};
+  let isValid = true;
+  let errorMsg = '';
+
+  if (raw) {
+    try {
+      parsed = JSON.parse(raw);
+      if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
+        isValid = false;
+        errorMsg = 'JSON должен быть объектом {...}';
+      }
+    } catch (e) {
+      isValid = false;
+      errorMsg = e.message;
+    }
+  }
+
+  if (statusEl) {
+    if (isValid) {
+      statusEl.style.color = 'var(--status-healthy)';
+      statusEl.textContent = '✓ JSON валиден';
+    } else {
+      statusEl.style.color = 'var(--status-error)';
+      statusEl.textContent = `⚠ Ошибка: ${errorMsg}`;
+    }
+  }
+
+  if (previewContent) {
+    const profile = (currentSnapshot && currentSnapshot.all_profiles) ? currentSnapshot.all_profiles[profileId] : null;
+    const model = (profile && profile.preferred_models && profile.preferred_models[0]) || 'default';
+    const samplePayload = {
+      model: model,
+      messages: [{ role: 'user', content: 'Тестовое сообщение' }],
+      temperature: 0.7,
+      max_tokens: 1500,
+    };
+    if (isValid && typeof parsed === 'object' && parsed !== null) {
+      Object.assign(samplePayload, parsed);
+    }
+    previewContent.textContent = JSON.stringify(samplePayload, null, 2);
+  }
+}
+
+function toggleRequestOptionsPreview() {
+  const box = document.getElementById('modal-payload-preview-box');
+  if (box) {
+    box.style.display = box.style.display === 'none' ? 'block' : 'none';
+  }
+}
+
+async function handleSaveRequestOptions(profileId) {
+  const input = document.getElementById('modal-request-options-input');
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (!input) return;
+
+  const raw = input.value.trim();
+  let parsed = {};
+  if (raw) {
+    try {
+      parsed = JSON.parse(raw);
+      if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
+        throw new Error('Параметры должны быть JSON-объектом {...}');
+      }
+    } catch (e) {
+      if (feedbackArea) {
+        feedbackArea.innerHTML = `<div class="modal-feedback error">❌ Некорректный JSON: ${escapeHtml(e.message)}</div>`;
+      }
+      return;
+    }
+  }
+
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение параметров запроса...</div>';
+  }
+
+  const res = await executeAction('save_request_options', {
+    profile_id: profileId,
+    request_options: parsed,
+  });
+
+  if (feedbackArea) {
+    if (res && res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Параметры сохранены')}</div>`;
+      showToast('Параметры запроса сохранены', 'success');
+      if (currentSnapshot && currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
+        currentSnapshot.all_profiles[profileId].request_options = parsed;
+      }
+    } else {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Ошибка сохранения')}</div>`;
+    }
+  }
+}
+
+async function handleTestProfile(profileId) {
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  const btn = document.getElementById('btn-modal-test-profile');
+  if (btn) btn.disabled = true;
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Выполняется проверка подключения и тестовый запрос...</div>';
+  }
+
+  const profile = (currentSnapshot && currentSnapshot.all_profiles) ? currentSnapshot.all_profiles[profileId] : null;
+  const prov = profile ? profile.provider : '';
+
+  const res = await executeAction('test', {
+    profile_id: profileId,
+    provider: prov,
+  });
+
+  if (btn) btn.disabled = false;
+  if (feedbackArea) {
+    const data = (res && res.data) || {};
+    const dur = data.duration_sec ? ` (${data.duration_sec}с)` : '';
+    if (res && res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Подключение успешно')}${dur}</div>`;
+      showToast('Проверка подключения успешна', 'success');
+    } else {
+      const errMsg = (res && (res.message || (res.data && res.data.error))) || 'Ошибка подключения';
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml(errMsg)}${dur}</div>`;
+      showToast(`Сбой проверки: ${errMsg}`, 'error');
+    }
+  }
+}
+
+async function handleSaveProfileModel(profileId) {
+  const sel = document.getElementById('modal-model-select');
+  if (!sel) return;
+  const model = sel.value;
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение модели...</div>';
+  }
+  const res = await executeAction('set_model', { profile_id: profileId, model: model });
+  if (feedbackArea) {
+    if (res && res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Модель сохранена')}</div>`;
+      if (currentSnapshot && currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
+        currentSnapshot.all_profiles[profileId].preferred_models = [model];
+      }
+    } else {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Ошибка сохранения модели')}</div>`;
+    }
+  }
+}
+
+async function handleRefreshProviderModels(provider, profileId) {
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Запрос списка моделей от сервера...</div>';
+  }
+  const res = await executeAction('refresh_models', { provider: provider });
+  if (res && res.ok) {
+    showToast('Список моделей обновлен', 'success');
+    await fetchSnapshot();
+    if (_openAccountModalProfile) {
+      openAccountDetailsModal(_openAccountModalProfile, true);
+    }
+  } else {
+    if (feedbackArea) {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Не удалось получить модели')}</div>`;
+    }
+  }
+}
+
 // ── MODAL HELPERS ──
 function showModal() {
   if (elements.modalBackdrop) elements.modalBackdrop.classList.remove('hidden');

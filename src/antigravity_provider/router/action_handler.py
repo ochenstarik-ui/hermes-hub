@@ -277,6 +277,42 @@ def do_set_model(profile_id: str, model: str, role_id: Optional[str] = None) -> 
     return False, "Не удалось сохранить файл конфигурации"
 
 
+def do_save_request_options(profile_id: str, request_options: Any) -> Tuple[bool, str]:
+    if not profile_id or not str(profile_id).strip():
+        return False, "Не указан идентификатор профиля"
+
+    if isinstance(request_options, str):
+        try:
+            request_options = json.loads(request_options)
+        except Exception as exc:
+            return False, f"Некорректный JSON параметров запроса: {exc}"
+
+    if not isinstance(request_options, dict):
+        return False, "Параметры запроса должны быть объектом (словарём)"
+
+    cfg = load_router_config()
+    if profile_id not in cfg.profiles:
+        return False, f"Профиль '{profile_id}' не найден в конфигурации"
+
+    pcfg = cfg.profiles[profile_id]
+    pcfg.request_options = request_options
+    cfg.profiles[profile_id] = pcfg
+
+    if save_router_config(cfg):
+        try:
+            from antigravity_provider.router.state_store import HubStateStore
+            HubStateStore.get().refresh(force_scan=True)
+        except Exception:
+            pass
+        EventLogService.get().log(
+            "account",
+            f"Параметры запроса для профиля {profile_id} ({pcfg.provider}) сохранены.",
+            level="info",
+        )
+        return True, f"Параметры запроса для профиля {profile_id} успешно сохранены"
+    return False, "Не удалось сохранить файл конфигурации"
+
+
 # Подключённый аккаунт обязан появиться в списке сразу.
 #
 # Учётные данные сохраняются на диск, но состояние профилей берётся из кэша
@@ -664,6 +700,12 @@ class ActionExecutor:
                 
         elif action == 'save_settings':
             ok, msg = do_save_settings(data)
+            return {'ok': ok, 'message': msg}
+
+        elif action in ['save_request_options', 'set_request_options']:
+            options = data.get('request_options', {})
+            target_pid = pid or data.get('profile_id', '')
+            ok, msg = do_save_request_options(target_pid, options)
             return {'ok': ok, 'message': msg}
             
         elif action == 'discover_local_models':

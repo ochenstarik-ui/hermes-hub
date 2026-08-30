@@ -470,7 +470,10 @@ class HubModal(ctk.CTkToplevel):
         self.configure(fg_color=Theme.BG_WINDOW)
         self.resizable(False, False)
         self.transient(parent)
-        self.grab_set()
+        try:
+            self.grab_set()
+        except Exception:
+            pass
 
         self.update_idletasks()
         px = parent.winfo_x() + (parent.winfo_width() - width) // 2
