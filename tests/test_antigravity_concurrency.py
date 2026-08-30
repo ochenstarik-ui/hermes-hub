@@ -77,3 +77,62 @@ def test_credential_restoration_on_subprocess_exception(tmp_path, monkeypatch):
 
         # Must be cleanly restored
         assert True
+
+def test_antigravity_profiles_run_in_parallel():
+    """Вызовы разных профилей Antigravity идут одновременно, а не по очереди.
+
+    В adapters/antigravity_adapter.py жил модульный _AGY_INVOCATION_LOCK. Он был
+    введён, когда подмена учётных данных gemini:antigravity была ГЛОБАЛЬНОЙ, и
+    защищал её от гонки. Позже подмена стала попрофильной — agy_subprocess
+    пишет в profile_dir/.gemini/oauth_creds.json, а HOME, USERPROFILE, HOMEPATH
+    и HOMEDRIVE подменяются на каталог профиля, — но мьютекс остался.
+
+    Цена измерялась: три параллельных вызова по одной секунде занимали 3.01 с.
+    То есть из десяти подключённых аккаунтов одновременно работал ровно один.
+
+    Тест удерживает это свойство: три вызова по 0.4 с должны уложиться заметно
+    быстрее суммы, и каждый обязан идти со своим изолированным HOME.
+    """
+    import threading
+    import time
+    from unittest.mock import patch
+
+    import antigravity_provider.router.adapters.antigravity_adapter as adapter_mod
+
+    auth = {"token": {"access_token": "a", "refresh_token": "r", "expires_at": 9999999999}}
+
+    class _Profile:
+        def __init__(self, pid):
+            self.profile_id = pid
+            self.preferred_models = ["gemini-3.7-flash"]
+            self.provider = "antigravity"
+
+    homes = []
+
+    def _slow(req, custom_env=None, profile_id=None):
+        env = custom_env or {}
+        homes.append(env.get("HOME") or env.get("USERPROFILE"))
+        time.sleep(0.4)
+        return {"content": "ok"}
+
+    with patch.object(adapter_mod, "agy_generate", side_effect=_slow), patch.object(
+        adapter_mod.ProfileAuthManager, "load_profile_auth", return_value=auth
+    ):
+        started = time.time()
+        threads = [
+            threading.Thread(target=lambda pid=f"ag-w{i}": adapter_mod.AntigravityAdapter().invoke(
+                _Profile(pid), {"messages": []}
+            ))
+            for i in range(1, 4)
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+        elapsed = time.time() - started
+
+    assert elapsed < 0.9, (
+        f"вызовы разных профилей сериализуются ({elapsed:.2f} с при трёх по 0.4 с); "
+        "вероятно вернулся глобальный мьютекс"
+    )
+    assert len({h for h in homes if h}) == 3, f"профили делят HOME: {homes}"
