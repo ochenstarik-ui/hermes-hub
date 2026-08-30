@@ -55,10 +55,11 @@ app = FastAPI(title="Hermes Hub Web API", version="1.0.0")
 # Собственному интерфейсу CORS не нужен: он отдаётся тем же сервером. Список
 # разрешённых источников оставлен настройкой — он понадобится, когда одна
 # панель будет смотреть на несколько хабов.
+_raw_cors = str(_bootstrap_settings().get("web_api_allowed_origins", "")).split(",")
 _cors_origins = [
     o.strip()
-    for o in str(_bootstrap_settings().get("web_api_allowed_origins", "")).split(",")
-    if o.strip()
+    for o in _raw_cors
+    if o.strip() and o.strip() != "*"
 ]
 if _cors_origins:
     app.add_middleware(
@@ -66,7 +67,7 @@ if _cors_origins:
         allow_origins=_cors_origins,
         allow_credentials=True,
         allow_methods=["GET", "POST", "OPTIONS"],
-        allow_headers=["X-Hub-Token", "Content-Type"],
+        allow_headers=["X-Hub-Token", "Content-Type", "X-Hub-Actor"],
     )
 
 
@@ -194,6 +195,19 @@ def get_snapshot(authorized: bool = Depends(get_auth_token)):
     snap_dict = dataclasses.asdict(snapshot)
     snap_dict = sanitize_snapshot(snap_dict)
     
+    server_host = _web_settings().get("web_api_host", "127.0.0.1")
+    is_external = (server_host != "127.0.0.1" and server_host != "localhost")
+    snap_dict["network_security"] = {
+        "is_external_bind": is_external,
+        "is_tls": False,
+        "host": server_host,
+        "warning": (
+            f"Внимание: Web API привязан к внешнему сетевому интерфейсу ({server_host}) поверх открытого HTTP. Токен авторизации и почты аккаунтов передаются по сети в открытом виде. Рекомендуется использовать HTTPS, VPN или SSH-туннель."
+            if is_external
+            else None
+        ),
+    }
+    
     return JSONResponse(content=jsonable_encoder(snap_dict))
 
 @app.post("/api/action")
@@ -210,7 +224,8 @@ async def handle_action(request: Request, authorized: bool = Depends(get_auth_to
     def _async_runner(func, name):
         threading.Thread(target=func, name=name, daemon=True).start()
         
-    result = ActionExecutor.execute(action, data.get("data", {}), async_runner=_async_runner)
+    actor = request.headers.get("X-Hub-Actor") or (f"web:{request.client.host}" if request.client else "user:web")
+    result = ActionExecutor.execute(action, data.get("data", {}), async_runner=_async_runner, actor=actor)
     if result.get("unknown"):
         raise HTTPException(status_code=404, detail="Неизвестное действие")
         
@@ -261,8 +276,10 @@ def get_settings(authorized: bool = Depends(get_auth_token)):
     raw = _web_settings()
     has_token = bool(raw.get("web_api_token"))
     last_check = UpdateManager.get_last_check_result()
+    server_host = raw.get("web_api_host", "127.0.0.1")
+    is_external = (server_host != "127.0.0.1" and server_host != "localhost")
     settings_out: Dict[str, Any] = {
-        "web_api_host": raw.get("web_api_host", "127.0.0.1"),
+        "web_api_host": server_host,
         "web_api_port": raw.get("web_api_port", 5800),
         "web_api_token_configured": has_token,
         "theme": raw.get("theme", "system"),
@@ -273,6 +290,16 @@ def get_settings(authorized: bool = Depends(get_auth_token)):
         "installed_commit": get_installed_commit(),
         "version": __version__,
         "last_update_check": last_check.to_dict() if last_check else None,
+        "network_security": {
+            "is_external_bind": is_external,
+            "is_tls": False,
+            "host": server_host,
+            "warning": (
+                f"Внимание: Web API привязан к внешнему сетевому интерфейсу ({server_host}) поверх открытого HTTP. Токен авторизации и почты аккаунтов передаются по сети в открытом виде. Рекомендуется использовать HTTPS, VPN или SSH-туннель."
+                if is_external
+                else None
+            ),
+        },
     }
     for k, v in raw.items():
         if k not in settings_out and not any(secret in k.lower() for secret in ['token', 'secret', 'key', 'password', 'jwt']):

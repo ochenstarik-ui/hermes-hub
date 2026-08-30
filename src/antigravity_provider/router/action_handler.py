@@ -105,7 +105,7 @@ def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
         EventLogService.get().log('system', f'Сбой проверки {profile_id} ({model}): {e}', level='error')
         return {'success': False, 'model': model, 'duration_sec': round(time.time() - t0, 2), 'error': str(e)}
 
-def do_delete_credentials(provider: str, profile_id: str) -> Tuple[bool, str]:
+def do_delete_credentials(provider: str, profile_id: str, actor: str = "system") -> Tuple[bool, str]:
     # Сигнатура get_profile_dir — (profile_id, provider), а здесь её звали
     # наоборот. Внутри есть костыль, молча исправляющий перестановку, но только
     # для antigravity, openai-codex и opencode-go. Для grok, claude и local путь
@@ -118,9 +118,26 @@ def do_delete_credentials(provider: str, profile_id: str) -> Tuple[bool, str]:
     if auth_p.is_file():
         try:
             auth_p.unlink()
-            EventLogService.get().log('account', f'Учетные данные для {profile_id} удалены.', level='warning')
+            EventLogService.get().log(
+                'account',
+                f'Учетные данные для {profile_id} удалены.',
+                level='warning',
+                actor=actor,
+                action='delete_credentials',
+                target_profile=profile_id,
+                outcome='success',
+            )
             return True, f"Учетные данные для '{profile_id}' удалены"
         except Exception as e:
+            EventLogService.get().log(
+                'account',
+                f'Ошибка удаления учётных данных {profile_id}: {e}',
+                level='error',
+                actor=actor,
+                action='delete_credentials',
+                target_profile=profile_id,
+                outcome='failed',
+            )
             return False, f'Ошибка удаления: {e}'
     # Отсутствие файла — это не успех удаления. Раньше такой ответ выглядел
     # для пользователя как «сработало», хотя аккаунт оставался подключённым.
@@ -418,7 +435,7 @@ class ActionExecutor:
     """Shared execution layer for Desktop and Web actions."""
     
     @classmethod
-    def execute(cls, action: str, data: Dict[str, Any], async_runner: Optional[Callable] = None) -> Dict[str, Any]:
+    def execute(cls, action: str, data: Dict[str, Any], async_runner: Optional[Callable] = None, actor: str = "user:web") -> Dict[str, Any]:
         """
         Execute the specified action.
         If async_runner is provided, long actions will be dispatched to it.
@@ -678,8 +695,61 @@ class ActionExecutor:
                 return {'ok': res.get('success', False), 'message': res.get('response') or res.get('error'), 'data': res}
                 
         elif action == 'delete_credentials':
-            ok, msg = do_delete_credentials(prov, pid)
+            dry_run = bool(data.get('dry_run', False))
+            confirmed = bool(data.get('confirmed', True))
+            from antigravity_provider.router.profile_manager import get_profile_auth_path
+            auth_p = get_profile_auth_path(prov, pid)
+            if dry_run:
+                exists = auth_p.is_file()
+                EventLogService.get().log(
+                    'security',
+                    f'Сухой прогон удаления учётных данных {pid}',
+                    actor=actor,
+                    action='delete_credentials',
+                    target_profile=pid,
+                    outcome='dry_run',
+                    level='info',
+                )
+                return {
+                    'ok': True,
+                    'dry_run': True,
+                    'message': f"Сухой прогон: будет удалён файл {auth_p.name} ({'найден' if exists else 'не найден'})",
+                    'data': {'path': str(auth_p), 'exists': exists, 'provider': prov, 'profile_id': pid},
+                }
+            if not confirmed:
+                EventLogService.get().log(
+                    'security',
+                    f'Запрошено подтверждение удаления учётных данных {pid}',
+                    actor=actor,
+                    action='delete_credentials',
+                    target_profile=pid,
+                    outcome='denied',
+                    level='warning',
+                )
+                return {
+                    'ok': False,
+                    'confirmation_required': True,
+                    'message': f"Требуется подтверждение удаления учётных данных для '{pid}'",
+                    'data': {'path': str(auth_p), 'provider': prov, 'profile_id': pid},
+                }
+
+            ok, msg = do_delete_credentials(prov, pid, actor=actor)
             return {'ok': ok, 'message': msg}
+
+        elif action == 'dry_run_delete':
+            from antigravity_provider.router.security_guard import get_workspace_guard
+            targets = data.get('paths') or ([data.get('path')] if data.get('path') else [])
+            guard = get_workspace_guard()
+            res = guard.dry_run_deletion(targets)
+            EventLogService.get().log(
+                'security',
+                f"Сухой прогон удаления: {res['total_files']} файлов, {res['total_dirs']} каталогов (риск: {res['risk_level']})",
+                actor=actor,
+                action='dry_run_delete',
+                outcome='dry_run',
+                level='info',
+            )
+            return {'ok': True, 'message': 'Сухой прогон выполнен', 'data': res}
             
         elif action == 'auto_assign_all':
             if async_runner:

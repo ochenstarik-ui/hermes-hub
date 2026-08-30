@@ -23,6 +23,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "quota_threshold_percent": 10.0,
     "quota_threshold_action": "notify",
     "email_masking_mode": "none",
+    "default_role": "manager",
 }
 
 
@@ -104,6 +105,9 @@ def get_hub_settings() -> Dict[str, Any]:
     if email_mode not in ("none", "partial", "full"):
         email_mode = "none"
     merged["email_masking_mode"] = email_mode
+
+    default_role = str(merged.get("default_role", "manager")).strip().lower()
+    merged["default_role"] = default_role or "manager"
 
     _SETTINGS_CACHE = dict(merged)
     _SETTINGS_CACHE_MTIME = current_mtime

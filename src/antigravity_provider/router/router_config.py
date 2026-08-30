@@ -36,7 +36,7 @@ class RolePolicy:
 @dataclass
 class RouterConfig:
     enabled: bool = True
-    default_role: str = "orchestrator"
+    default_role: str = "manager"
     quota_cooldown_seconds: int = 1800  # 30 min default
     rate_limit_cooldown_seconds: int = 60  # 1 min default
     max_failover_attempts: int = 3
@@ -277,7 +277,7 @@ def get_default_router_config() -> RouterConfig:
 
     return RouterConfig(
         enabled=True,
-        default_role="orchestrator",
+        default_role="manager",
         roles=roles,
         profiles=profiles,
     )
@@ -343,7 +343,8 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
                     }
 
         enabled = bool(r_block.get("enabled", data.get("enabled", True)))
-        default_role = str(r_block.get("default_role", data.get("default_role", "orchestrator")))
+        raw_default_role = str(r_block.get("default_role", data.get("default_role", "manager"))).strip().lower()
+        default_role = RoleRegistry.resolve_canonical_role(raw_default_role) if raw_default_role else "manager"
         max_failover = int(r_block.get("max_failover_attempts", data.get("max_failover_attempts", 3)))
         cooldown_base = int(r_block.get("cooldown_base_seconds", data.get("cooldown_base_seconds", 300)))
         cooldown_max = int(r_block.get("cooldown_max_seconds", data.get("cooldown_max_seconds", 3600)))
