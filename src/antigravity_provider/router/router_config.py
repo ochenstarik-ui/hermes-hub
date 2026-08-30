@@ -21,6 +21,7 @@ class RouterProfileConfig:
     enabled: bool = True
     max_concurrency: int = 1  # 1 for stateful process, >1 for stateless REST
     custom_base_url: Optional[str] = None
+    request_options: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -307,6 +308,9 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
             max_concurrency = int(pdata.get("max_concurrency", 1))
             if provider == "local":
                 max_concurrency = 1
+            req_opts = pdata.get("request_options")
+            if not isinstance(req_opts, dict):
+                req_opts = {}
             profiles[pid] = RouterProfileConfig(
                 profile_id=pid,
                 provider=provider,
@@ -318,6 +322,7 @@ def load_router_config(config_path: Optional[Path] = None) -> RouterConfig:
                 enabled=bool(pdata.get("enabled", True)),
                 max_concurrency=max_concurrency,
                 custom_base_url=pdata.get("custom_base_url"),
+                request_options=dict(req_opts),
             )
 
         roles_raw = data.get("roles", {})
@@ -483,6 +488,8 @@ def save_router_config(config: RouterConfig, config_path: Optional[Path] = None)
             }
             if pcfg.custom_base_url:
                 profiles_data[pid]["custom_base_url"] = pcfg.custom_base_url
+            if pcfg.request_options:
+                profiles_data[pid]["request_options"] = pcfg.request_options
 
         roles_data = {}
         for rname, rpol in config.roles.items():
