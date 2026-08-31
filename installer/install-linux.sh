@@ -22,6 +22,60 @@ echo "Hermes Home : $HERMES_HOME"
 echo "Source Root : $REPO_ROOT"
 echo ""
 
+# 0. Остановка работающего хаба.
+#
+# Установщик копировал файлы, но работающий сервер не трогал: он продолжал
+# крутить старый код в памяти, и владелец видел прежний интерфейс при новом
+# номере сборки. Три сборки подряд ставились в файлы, но не в работу.
+echo "[0/6] Остановка работающего Hermes Hub..."
+
+stop_running_hub() {
+    local pattern="antigravity_provider.router.web|hermes_hub_web_entry"
+    local pids
+    # Только процессы ЭТОГО пользователя и только те, что относятся к хабу.
+    pids="$(pgrep -u "$(id -u)" -f "$pattern" 2>/dev/null | tr '
+' ' ')"
+
+    if [ -z "$pids" ]; then
+        echo "      Работающий хаб не найден — останавливать нечего."
+        return 0
+    fi
+
+    echo "      Найдены процессы хаба: $pids"
+    # shellcheck disable=SC2086
+    kill $pids 2>/dev/null || true
+
+    local waited=0
+    while [ "$waited" -lt 10 ]; do
+        sleep 1
+        waited=$((waited + 1))
+        pids="$(pgrep -u "$(id -u)" -f "$pattern" 2>/dev/null | tr '
+' ' ')"
+        [ -z "$pids" ] && break
+    done
+
+    if [ -n "$pids" ]; then
+        echo "      Не завершились за 10 секунд, снимаю принудительно: $pids"
+        # shellcheck disable=SC2086
+        kill -9 $pids 2>/dev/null || true
+        sleep 1
+        pids="$(pgrep -u "$(id -u)" -f "$pattern" 2>/dev/null | tr '
+' ' ')"
+    fi
+
+    if [ -n "$pids" ]; then
+        # Не прерываем установку: файлы обновятся, а владельцу скажем правду.
+        echo "      ⚠ Остались процессы: $pids. Снимите их вручную, иначе будет работать старый код."
+        return 1
+    fi
+
+    echo "      Хаб остановлен."
+    return 0
+}
+
+stop_running_hub || true
+echo ""
+
 # 1. Check / Discover Python Runtime and Hermes Environment
 echo "[1/6] Checking Python and Hermes environment..."
 PYTHON_BIN=""
@@ -203,5 +257,12 @@ echo "To launch the Web Application window:"
 echo "  $LAUNCHER_BIN"
 echo ""
 echo "Or open 'Hermes Hub Web' from your Applications menu."
+echo ""
+echo "ВАЖНО: работавший хаб был остановлен перед установкой, иначе он"
+echo "продолжал бы выполнять прежний код из памяти. Запустите его заново"
+echo "командой выше — только тогда новая сборка начнёт работать."
+echo ""
+echo "Проверить, что поднялся новый код:"
+echo "  curl -s -D - -o /dev/null http://127.0.0.1:5800/workspace.js | grep -i cache-control"
 echo "======================================================================"
 exit 0
