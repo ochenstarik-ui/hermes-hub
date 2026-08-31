@@ -200,6 +200,15 @@ class HubStateStore:
                     active_leases_total = 0
                     active_leases_by_profile = {}
 
+            try:
+                from .settings_service import get_hermes_config_status, get_hub_settings
+                hermes_cfg = get_hermes_config_status()
+                hub_settings = get_hub_settings()
+                default_role = hub_settings.get("default_role", "manager")
+            except Exception:
+                hermes_cfg = {"exists": False, "model": None, "provider": None}
+                default_role = "manager"
+
             metrics = {
                 "generation": gen,
                 "seq": request_seq,
@@ -214,6 +223,8 @@ class HubStateStore:
                 "host": host_data,
                 "active_calls_total": active_leases_total,
                 "active_calls_by_profile": active_leases_by_profile,
+                "hermes_config": hermes_cfg,
+                "default_role": default_role,
             }
             try:
                 from .workflow_service import WorkflowService

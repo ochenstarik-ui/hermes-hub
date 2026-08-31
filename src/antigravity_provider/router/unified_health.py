@@ -156,6 +156,10 @@ class RolePipeline:
     session_affinity: bool
     active_profile_id: str
     nodes: List[PipelineNode]
+    effective_answering_profile: Optional[str] = None
+    effective_answering_model: Optional[str] = None
+    will_bypass: bool = False
+    bypass_reason: Optional[str] = None
 
 
 @dataclass
@@ -349,8 +353,9 @@ class UnifiedHealthService:
 
             role_assignments: Dict[str, List[str]] = {}
             for rname, rpol in config.roles.items():
+                role_name_ru = RoleRegistry.get_role_short_name_ru(rname) or RoleRegistry.get_role_name_ru(rname, rname)
                 for idx, pid in enumerate(rpol.preferred_chain):
-                    tag = f"{rname} (primary)" if idx == 0 else f"{rname} (fallback {idx})"
+                    tag = f"{role_name_ru} (Основной, #1)" if idx == 0 else f"{role_name_ru} (Запасной, #{idx + 1})"
                     role_assignments.setdefault(pid, []).append(tag)
 
             orch_role_name = RoleRegistry.resolve_canonical_role("orchestrator")
@@ -526,14 +531,17 @@ class UnifiedHealthService:
 
                 last_success_str = datetime.datetime.fromtimestamp(precord.last_success).strftime("%H:%M:%S") if precord.last_success else None
 
+                assigned = role_assignments.get(pid, [])
+                primary_r = assigned[0] if assigned else "unassigned"
+
                 vm = ProfileViewModel(
                     profile_id=pid,
                     display_name=display_name,
                     account_identity=ident.primary_identifier() if is_authenticated else identity,
                     provider=prov,
                     provider_display_name=prov_display,
-                    assigned_roles=role_assignments.get(pid, [log_role]),
-                    primary_role=log_role,
+                    assigned_roles=assigned,
+                    primary_role=primary_r,
                     is_main_account=is_main_acc,
                     is_main_orchestrator=is_main_orch,
                     auth_state=auth_state,
@@ -894,12 +902,35 @@ class UnifiedHealthService:
 
         for rname, rpol in config.roles.items():
             nodes: List[PipelineNode] = []
-            active_pid = ""
+            effective_answering_profile = None
+            effective_answering_model = None
+            will_bypass = False
+            bypass_reason = None
+
             for pid in rpol.preferred_chain:
                 pvm = self._cached_profiles.get(pid)
-                if pvm and pvm.health_state == STATUS_HEALTHY:
-                    active_pid = pid
+                pcfg = config.profiles.get(pid)
+                if (
+                    pcfg
+                    and pcfg.enabled
+                    and pvm
+                    and pvm.enabled
+                    and pvm.auth_state == "AUTHENTICATED"
+                    and pvm.health_state not in (STATUS_QUOTA_EXHAUSTED, STATUS_COOLDOWN, STATUS_RATE_LIMITED, STATUS_DISABLED, STATUS_AUTH_REQUIRED, STATUS_AUTH_EXPIRED)
+                    and pvm.cooldown_remaining_sec <= 0
+                ):
+                    effective_answering_profile = pid
+                    effective_answering_model = pvm.preferred_models[0] if pvm.preferred_models else (rpol.default_model or "default")
                     break
+
+            if effective_answering_profile is None:
+                will_bypass = True
+                if not rpol.preferred_chain:
+                    bypass_reason = "Цепочка пуста — вызов уйдёт мимо хаба в Hermes"
+                else:
+                    bypass_reason = "Все аккаунты цепочки недоступны или исчерпали квоту — вызов уйдёт мимо хаба в Hermes"
+
+            active_pid = effective_answering_profile or ""
 
             for idx, pid in enumerate(rpol.preferred_chain):
                 pvm = self._cached_profiles.get(pid)
@@ -950,6 +981,10 @@ class UnifiedHealthService:
                 session_affinity=rpol.session_affinity_enabled,
                 active_profile_id=active_pid,
                 nodes=nodes,
+                effective_answering_profile=effective_answering_profile,
+                effective_answering_model=effective_answering_model,
+                will_bypass=will_bypass,
+                bypass_reason=bypass_reason,
             )
 
         return pipelines

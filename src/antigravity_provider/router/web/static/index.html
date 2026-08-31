@@ -76,6 +76,7 @@
             <span class="status-dot"></span>
             <span id="header-readiness-text">Инициализация...</span>
           </span>
+          <span class="header-hermes-config-badge hidden" id="header-hermes-config-badge" style="display:inline-flex; align-items:center; font-size:12px; color:var(--text-muted); background:var(--surface-muted); padding:3px 8px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-left:6px;"></span>
           <button class="header-update-badge hidden" id="header-update-badge" title="Нажмите, чтобы посмотреть детали обновления">
             <span class="status-dot warning"></span>
             <span id="header-update-text">Доступно обновление</span>
@@ -196,6 +197,28 @@
         <!-- 3. ROUTING VIEW (Main Control Center) -->
         
           <section id="view-routing" class="view-pane">
+            <div class="routing-toolbar-actions">
+              <div style="display:flex; align-items:center; gap:8px;">
+                <label for="routing-default-role-select" style="font-weight:600; font-size:12px;">Роль по умолчанию:</label>
+                <select id="routing-default-role-select" class="select-filter" style="font-size:12px;">
+                  <option value="manager">Главный менеджер (manager)</option>
+                  <option value="developer-1">Кодер 1 (developer-1)</option>
+                  <option value="developer-2">Кодер 2 (developer-2)</option>
+                  <option value="code-reviewer">Ревьюер кода (code-reviewer)</option>
+                  <option value="researcher">Исследователь (researcher)</option>
+                  <option value="tester">Тестировщик (tester)</option>
+                  <option value="integration-expert">Интегратор (integration-expert)</option>
+                  <option value="security-expert">Эксперт по безопасности (security-expert)</option>
+                  <option value="tech-writer">Технический писатель (tech-writer)</option>
+                  <option value="analyst">Аналитик требований (analyst)</option>
+                  <option value="dependency-agent">Агент зависимостей (dependency-agent)</option>
+                </select>
+              </div>
+              <button class="btn btn-secondary btn-sm" id="btn-routing-auto-assign" onclick="openAutoAssignPreviewModal()" title="Автоматическое распределение подключенных аккаунтов по ролям">
+                <span>⚡ Авто-распределение</span>
+              </button>
+            </div>
+
             <div class="view-header-note" style="display:flex; justify-content: space-between; align-items: center;">
               <div>
                 <i class="fa-solid fa-circle-info" style="color:var(--status-warning);"></i>
@@ -438,6 +461,27 @@
                   <option value="none" selected>Без маскирования (по умолчанию)</option>
                   <option value="partial">Частичное (v***@gmail.com)</option>
                   <option value="full">Полное (***@***.***)</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Роль по умолчанию (Default Role)</div>
+                <div class="setting-desc">Целевая роль при отсутствии явного указания роли в запросе Hermes</div>
+              </div>
+              <div class="setting-control">
+                <select id="setting-default-role" class="select-filter">
+                  <option value="manager" selected>Главный менеджер (manager)</option>
+                  <option value="developer-1">Кодер 1 (developer-1)</option>
+                  <option value="developer-2">Кодер 2 (developer-2)</option>
+                  <option value="code-reviewer">Ревьюер кода (code-reviewer)</option>
+                  <option value="researcher">Исследователь (researcher)</option>
+                  <option value="tester">Тестировщик (tester)</option>
+                  <option value="integration-expert">Интегратор (integration-expert)</option>
+                  <option value="security-expert">Эксперт по безопасности (security-expert)</option>
+                  <option value="tech-writer">Технический писатель (tech-writer)</option>
+                  <option value="analyst">Аналитик требований (analyst)</option>
+                  <option value="dependency-agent">Агент зависимостей (dependency-agent)</option>
                 </select>
               </div>
             </div>

@@ -25,6 +25,7 @@ def test_check_memory_freshness_real_repo():
     canonical_memory = Path("/srv/projects/AI-Memory/01_PROJECTS/hermes-hub/CURRENT_STATE.md")
 
     if canonical_memory.exists():
+        recorded = extract_recorded_commit(canonical_memory.read_text(encoding="utf-8"))
         is_fresh, summary = check_memory_freshness(
             repo_path=REPO_ROOT,
             memory_file=canonical_memory,
@@ -32,7 +33,8 @@ def test_check_memory_freshness_real_repo():
         )
         assert is_fresh is True
         assert "FRESH" in summary
-        assert "80aab00" in summary
+        if recorded:
+            assert recorded in summary
 
 
 def test_check_memory_freshness_missing_file_strict_vs_non_strict(tmp_path):

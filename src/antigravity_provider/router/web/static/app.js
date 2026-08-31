@@ -555,6 +555,21 @@ function updateGlobalHeader() {
       : 'Н/Д: состояние ещё не измерено';
   }
 
+  const hermesCfg = (currentSnapshot.metrics || {}).hermes_config;
+  const hermesBadge = document.getElementById('header-hermes-config-badge');
+  if (hermesBadge) {
+    if (hermesCfg && hermesCfg.exists && hermesCfg.model) {
+      hermesBadge.innerHTML = `🤖 В Hermes: <strong>${escapeHtml(hermesCfg.model)}</strong> (${escapeHtml(hermesCfg.provider || 'default')})`;
+      hermesBadge.classList.remove('hidden');
+    } else if (hermesCfg && hermesCfg.exists) {
+      hermesBadge.innerHTML = `🤖 В Hermes: (модель не выбрана)`;
+      hermesBadge.classList.remove('hidden');
+    } else {
+      hermesBadge.innerHTML = `🤖 В Hermes: конфигурация не найдена`;
+      hermesBadge.classList.remove('hidden');
+    }
+  }
+
   const kpiReadiness = document.getElementById('kpi-system-readiness');
   const kpiSummary = document.getElementById('kpi-readiness-summary');
   const kpiTotalAccounts = document.getElementById('kpi-total-accounts');
@@ -724,7 +739,8 @@ function renderAccountsView() {
 
 function renderAccountCard(profile) {
   const isMain = profile.is_main_account || profile.is_main_orchestrator;
-  const roles = (profile.assigned_roles || []).join(', ') || 'Роль: Н/Д';
+  const isAssigned = profile.assigned_roles && profile.assigned_roles.length > 0;
+  const roles = isAssigned ? profile.assigned_roles.join(', ') : 'Не назначен';
   const identity = profile.email || profile.account_identity || profile.display_name || profile.profile_id;
   const healthState = profile.health_state || 'unknown';
   const healthLabel = profile.health_label_ru || 'Н/Д: состояние не проверялось';
@@ -768,6 +784,8 @@ function renderAccountCard(profile) {
     `;
   }
 
+  const unassignedBadge = !isAssigned ? '<span class="badge badge-unassigned">Не назначен</span>' : '';
+
   return `
     <div class="account-card ${isMain ? 'main-account' : ''}" data-profile-id="${escapeHtml(profile.profile_id)}">
       <div class="account-card-header">
@@ -776,6 +794,7 @@ function renderAccountCard(profile) {
         </div>
         <div class="account-badges">
           ${plan ? `<span class="badge badge-plan">${escapeHtml(plan)}</span>` : ''}
+          ${unassignedBadge}
           <span class="badge badge-status ${healthState}">● ${escapeHtml(healthLabel)}</span>
         </div>
       </div>
@@ -1191,6 +1210,77 @@ async function handleAddNodeToChain(roleId) {
   }
 }
 
+async function openAutoAssignPreviewModal() {
+  if (elements.modalTitle) elements.modalTitle.textContent = '⚡ Предварительный просмотр авто-распределения';
+  elements.modalBody.innerHTML = '<div class="modal-feedback info">⏳ Расчёт плана распределения аккаунтов...</div>';
+  elements.modalFooter.innerHTML = '<button class="btn btn-ghost" onclick="closeModal()">Отмена</button>';
+  showModal();
+
+  const res = await executeAction('preview_auto_assign', {});
+  if (!res || !res.ok || !res.data || !res.data.success) {
+    elements.modalBody.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Не удалось сформировать план авто-распределения')}</div>`;
+    return;
+  }
+
+  const data = res.data;
+  const changes = data.changes || [];
+  if (changes.length === 0) {
+    elements.modalBody.innerHTML = '<div class="view-header-note">Нет изменений для применения. Все роли уже распределены оптимально.</div>';
+    return;
+  }
+
+  let tableHtml = `
+    <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+      Будет распределено <strong>${data.total_authenticated}</strong> подключённых аккаунтов по ролям:
+    </div>
+    <div style="max-height:360px; overflow-y:auto; border:1px solid var(--border-subtle); border-radius:var(--radius-sm);">
+      <table class="data-table" style="width:100%; font-size:12px;">
+        <thead>
+          <tr>
+            <th>Роль</th>
+            <th>Текущая цепочка</th>
+            <th>Предлагаемая цепочка</th>
+          </tr>
+        </thead>
+        <tbody>
+  `;
+
+  changes.forEach((ch) => {
+    const cur = (ch.current_chain && ch.current_chain.length) ? ch.current_chain.join(' → ') : '<span class="text-muted">пусто</span>';
+    const prop = (ch.proposed_chain && ch.proposed_chain.length) ? ch.proposed_chain.join(' → ') : '<span class="text-muted">пусто</span>';
+    tableHtml += `
+      <tr>
+        <td><strong>${escapeHtml(ch.role_name_ru || ch.role)}</strong></td>
+        <td>${cur}</td>
+        <td style="color:var(--status-healthy); font-weight:600;">${prop}</td>
+      </tr>
+    `;
+  });
+
+  tableHtml += '</tbody></table></div>';
+  elements.modalBody.innerHTML = tableHtml;
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+    <button class="btn btn-primary" id="btn-apply-auto-assign" onclick="applyAutoAssign()">Применить</button>
+  `;
+}
+
+async function applyAutoAssign() {
+  const btn = document.getElementById('btn-apply-auto-assign');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Применение...';
+  }
+  const res = await executeAction('auto_assign_all', {});
+  if (res && res.ok) {
+    showToast('Авто-распределение успешно применено', 'success');
+    closeModal();
+    await fetchSnapshot();
+  } else {
+    showToast((res && res.message) || 'Ошибка применения', 'error');
+  }
+}
+
 // ── ANALYTICS VIEW ──
 function renderAnalyticsView() {
   if (!currentSnapshot) return;
@@ -1209,10 +1299,12 @@ function renderAnalyticsView() {
 
   if (global.total_calls !== undefined) {
     if (totalCallsEl) totalCallsEl.textContent = new Intl.NumberFormat('ru-RU').format(global.total_calls);
-    if (callsBreakdownEl) callsBreakdownEl.textContent = `Успешно: ${global.successful_calls ?? 0} · Сбоев: ${global.failed_calls ?? 0}`;
+    const routedCount = global.routed_calls_count ?? (global.total_calls - (global.bypassed_calls_count ?? 0));
+    const bypassCount = global.bypassed_calls_count ?? 0;
+    if (callsBreakdownEl) callsBreakdownEl.textContent = `Через хаб: ${routedCount} · Мимо хаба (Bypass): ${bypassCount}`;
     const errRate = global.total_calls > 0 && global.failed_calls != null ? ((global.failed_calls / global.total_calls) * 100).toFixed(1) : null;
     if (errorRateEl) errorRateEl.textContent = errRate === null ? 'Н/Д' : `${errRate}%`;
-    if (errorRateSubEl) errorRateSubEl.textContent = `${global.failed_calls ?? 0} сбоев из ${global.total_calls} вызовов`;
+    if (errorRateSubEl) errorRateSubEl.textContent = `${global.failed_calls ?? 0} сбоев из ${global.total_calls} вызовов (Bypass: ${bypassCount})`;
   } else {
     if (totalCallsEl) totalCallsEl.textContent = '—';
     if (callsBreakdownEl) callsBreakdownEl.textContent = 'Нет данных за 24 ч';
@@ -1455,6 +1547,7 @@ function renderSettingsView() {
   const quotaActionSel = document.getElementById('setting-quota-threshold-action');
   const emailMaskingSel = document.getElementById('setting-email-masking-mode');
   const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
+  const defaultRoleSel = document.getElementById('setting-default-role');
 
   if (quotaThresholdSel && s.quota_threshold_percent !== undefined) {
     quotaThresholdSel.value = String(Math.round(s.quota_threshold_percent));
@@ -1468,6 +1561,10 @@ function renderSettingsView() {
   if (monitorIntervalInput && s.monitoring_interval_seconds !== undefined) {
     monitorIntervalInput.value = s.monitoring_interval_seconds;
   }
+  if (defaultRoleSel) {
+    const currentDef = s.default_role || currentSnapshot.metrics?.default_role || 'manager';
+    defaultRoleSel.value = currentDef;
+  }
 }
 
 async function saveHubServerSettings() {
@@ -1475,12 +1572,14 @@ async function saveHubServerSettings() {
   const quotaActionSel = document.getElementById('setting-quota-threshold-action');
   const emailMaskingSel = document.getElementById('setting-email-masking-mode');
   const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
+  const defaultRoleSel = document.getElementById('setting-default-role');
 
   const newSettings = {};
   if (quotaThresholdSel?.value) newSettings.quota_threshold_percent = Number(quotaThresholdSel.value);
   if (quotaActionSel?.value) newSettings.quota_threshold_action = quotaActionSel.value;
   if (emailMaskingSel?.value) newSettings.email_masking_mode = emailMaskingSel.value;
   if (monitorIntervalInput?.value) newSettings.monitoring_interval_seconds = Number(monitorIntervalInput.value);
+  if (defaultRoleSel?.value) newSettings.default_role = defaultRoleSel.value;
   if (!Object.keys(newSettings).length) { showToast('Нет выбранных изменений', 'info'); return; }
 
   showToast('Сохранение настроек сервера...', 'info');
@@ -1748,7 +1847,7 @@ function openAccountDetailsModal(profileId, isRedraw = false) {
         Статус: <strong class="text-healthy">${escapeHtml(profile.health_label_ru || 'Работает')}</strong>
       </div>
       <div style="font-size:12px; color:var(--text-secondary); margin-top:4px;">
-        Назначенные роли: <strong>${escapeHtml((profile.assigned_roles || []).join(', ') || 'Нет')}</strong>
+        Назначенные роли: <strong>${escapeHtml((profile.assigned_roles && profile.assigned_roles.length > 0) ? profile.assigned_roles.join(', ') : 'Не назначен')}</strong>
       </div>
     </div>
 

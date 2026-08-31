@@ -647,6 +647,46 @@ body {
 .badge-status.auth_required { color: var(--status-warning); }
 .badge-status.disabled { color: var(--status-disabled); }
 
+.badge-unassigned {
+  background-color: var(--surface-muted);
+  color: var(--text-muted);
+  border: 1px solid var(--border-subtle);
+}
+
+.role-answering-status {
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  margin: 6px 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.role-answering-status.healthy {
+  background-color: rgba(114, 201, 67, 0.1);
+  color: var(--status-healthy);
+  border: 1px solid rgba(114, 201, 67, 0.25);
+}
+
+.role-answering-status.warning {
+  background-color: rgba(225, 166, 43, 0.1);
+  color: var(--status-warning);
+  border: 1px solid rgba(225, 166, 43, 0.25);
+}
+
+.routing-toolbar-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  background-color: var(--surface-muted);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-subtle);
+}
+
 .account-identity-row {
   margin: 2px 0;
 }

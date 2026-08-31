@@ -27,42 +27,6 @@ from antigravity_provider.router.router_config import (
 
 logger = logging.getLogger("hermes.router.auto_assigner")
 
-HUMAN_ROLE_LABELS = RoleRegistry.get_human_role_labels()
-
-DEFAULT_SLOT_ROLES = {
-    "codex-orch": ("Главный оркестратор", "orchestrator", "primary"),
-    "ag-orch-fallback": ("Резервный оркестратор", "orchestrator", "fallback"),
-    "claude-orch": ("Оркестратор (Claude)", "orchestrator", "fallback"),
-    "grok-orch": ("Оркестратор (Grok)", "orchestrator", "fallback"),
-    "codex-worker-1": ("Кодер 1", "coder", "primary"),
-    "claude-worker-1": ("Кодер (Claude)", "coder", "primary"),
-    "ag-w1": ("Кодер 2", "coder", "fallback"),
-    "grok-worker-1": ("Кодер (Grok)", "coder", "fallback"),
-    "codex-worker-2": ("Ревьюер", "reviewer", "primary"),
-    "claude-worker-2": ("Ревьюер (Claude)", "reviewer", "primary"),
-    "ag-w2": ("Исследователь", "researcher", "primary"),
-    "grok-worker-2": ("Исследователь (Grok)", "researcher", "primary"),
-    "ag-w3": ("Быстрый агент", "general", "primary"),
-    "ag-w4": ("Универсальный субагент", "general", "primary"),
-    "opengo-1": ("Кодер (OpenCode)", "coder", "fallback_2"),
-    "opengo-2": ("Исследователь (OpenCode)", "researcher", "fallback"),
-    "opengo-3": ("Резервный роутер (OpenCode)", "orchestrator", "fallback_2"),
-    "local-1": ("Локальный сервер 1", "coder", "primary"),
-    "local-2": ("Локальный сервер 2", "fast", "primary"),
-    "openrouter-1": ("Кодер (OpenRouter 1)", "coder", "primary"),
-    "openrouter-2": ("Исследователь (OpenRouter 2)", "researcher", "fallback"),
-    "nvidia-1": ("Кодер (NVIDIA NIM 1)", "coder", "primary"),
-    "nvidia-2": ("Быстрый агент (NVIDIA NIM 2)", "fast", "fallback"),
-    "nvidia-nim-1": ("Кодер (NVIDIA NIM 1)", "coder", "primary"),
-    "nvidia-nim-2": ("Быстрый агент (NVIDIA NIM 2)", "fast", "fallback"),
-    "ag-spare-1": ("Резерв 1", "spare", "spare"),
-    "ag-spare-2": ("Резерв 2", "spare", "spare"),
-    "ag-cold-1": ("Холодный резерв 1", "spare", "cold"),
-    "ag-cold-2": ("Холодный резерв 2", "spare", "cold"),
-    "ag-cold-3": ("Холодный резерв 3", "spare", "cold"),
-}
-
-
 CANONICAL_ROLE_MAP = RoleRegistry.get_canonical_role_map()
 
 
@@ -72,8 +36,6 @@ class AutoAssigner:
     @staticmethod
     def get_display_name_and_role(profile_id: str) -> Tuple[str, str, str]:
         """Get human-readable display name, logical role, and tier for a profile."""
-        if profile_id in DEFAULT_SLOT_ROLES:
-            return DEFAULT_SLOT_ROLES[profile_id]
         prov_map = {
             "ag": "Antigravity",
             "codex": "Codex",
@@ -89,9 +51,9 @@ class AutoAssigner:
         parts = profile_id.split("-")
         if len(parts) == 2 and parts[0] in prov_map and parts[1].isdigit():
             clean_name = f"{prov_map[parts[0]]} {parts[1]}"
-            return (clean_name, "worker", "primary")
+            return (clean_name, "unassigned", "spare")
         clean_name = profile_id.replace("-", " ").title()
-        return (clean_name, "worker", "primary")
+        return (clean_name, "unassigned", "spare")
 
     @staticmethod
     def check_duplicate_identity(provider: str, email_or_id: str, exclude_profile_id: Optional[str] = None) -> Optional[str]:
@@ -331,6 +293,188 @@ class AutoAssigner:
         return True, f"Профиль '{profile_id}' назначен на роль '{canonical_role}' ({'основной' if is_primary else 'резервный'})"
 
     @staticmethod
+    def _calculate_auto_assignment(config: RouterConfig) -> Tuple[bool, List[Tuple[str, RouterProfileConfig]], Dict[str, List[str]], List[Dict[str, Any]]]:
+        """Compute candidate auto-assignment chains and changes without writing to disk."""
+        authenticated_profiles: List[Tuple[str, RouterProfileConfig]] = []
+        for pid, pcfg in config.profiles.items():
+            if not pcfg.enabled:
+                continue
+            st = ProfileAuthManager.get_profile_status(pcfg.provider, pid)
+            if st.get("authenticated"):
+                authenticated_profiles.append((pid, pcfg))
+
+        if not authenticated_profiles:
+            return False, [], {}, []
+
+        canonical_roles = [r for r in RoleRegistry.get_role_ids() if RoleRegistry.is_role_implemented(r)]
+        proposed_chains: Dict[str, List[str]] = {}
+        changes: List[Dict[str, Any]] = []
+
+        def _norm_prov(p: str) -> str:
+            p = (p or "").lower().strip()
+            if p in ("openai-codex", "codex"):
+                return "codex"
+            if p in ("opencode-go", "opencode"):
+                return "opencode"
+            if p in ("local-llm", "llama.cpp", "ollama", "vllm", "local"):
+                return "local"
+            if p in ("claude", "anthropic"):
+                return "claude"
+            if p in ("grok", "xai"):
+                return "grok"
+            if p in ("nvidia-nim", "nvidia"):
+                return "nvidia"
+            return p
+
+        unique_providers = set(_norm_prov(pcfg.provider) for _, pcfg in authenticated_profiles)
+
+        if len(authenticated_profiles) == 1:
+            single_pid, _ = authenticated_profiles[0]
+            for role_name in canonical_roles:
+                proposed_chains[role_name] = [single_pid]
+                curr = list(config.roles[role_name].preferred_chain) if role_name in config.roles else []
+                changes.append({
+                    "role": role_name,
+                    "role_name_ru": RoleRegistry.get_role_name_ru(role_name, role_name),
+                    "current_chain": curr,
+                    "proposed_chain": [single_pid],
+                    "primary_profile": single_pid,
+                    "message": f"Профиль '{single_pid}' назначен основным на роль '{role_name}'",
+                })
+        elif len(unique_providers) == 1:
+            pids = [pid for pid, _ in authenticated_profiles]
+            num_accs = len(pids)
+            for idx, role_name in enumerate(canonical_roles):
+                primary_pid = pids[idx % num_accs]
+                fallbacks = [p for p in pids if p != primary_pid]
+                chain = [primary_pid] + fallbacks
+                proposed_chains[role_name] = chain
+                curr = list(config.roles[role_name].preferred_chain) if role_name in config.roles else []
+                changes.append({
+                    "role": role_name,
+                    "role_name_ru": RoleRegistry.get_role_name_ru(role_name, role_name),
+                    "current_chain": curr,
+                    "proposed_chain": chain,
+                    "primary_profile": primary_pid,
+                    "message": f"Профиль '{primary_pid}' назначен на роль '{role_name}' с ротацией квот",
+                })
+        else:
+            role_provider_preferences = {
+                "manager": ["codex", "antigravity", "opencode", "claude", "grok", "local", "openrouter", "nvidia"],
+                "developer-1": ["codex", "antigravity", "opencode", "claude", "grok", "local", "openrouter", "nvidia"],
+                "developer-2": ["codex", "antigravity", "opencode", "claude", "grok", "local", "openrouter", "nvidia"],
+                "code-reviewer": ["codex", "opencode", "antigravity", "claude", "grok", "local", "openrouter", "nvidia"],
+                "researcher": ["opencode", "antigravity", "grok", "claude", "codex", "local", "openrouter", "nvidia"],
+                "tester": ["opencode", "antigravity", "local", "grok", "codex", "claude", "openrouter", "nvidia"],
+                "integration-expert": ["codex", "antigravity", "opencode", "claude", "grok", "local", "openrouter", "nvidia"],
+                "security-expert": ["claude", "codex", "antigravity", "grok", "opencode", "local", "openrouter", "nvidia"],
+                "tech-writer": ["claude", "antigravity", "codex", "grok", "opencode", "local", "openrouter", "nvidia"],
+                "analyst": ["claude", "antigravity", "codex", "grok", "opencode", "local", "openrouter", "nvidia"],
+                "dependency-agent": ["antigravity", "codex", "opencode", "local", "claude", "grok", "openrouter", "nvidia"],
+            }
+
+            by_prov: Dict[str, List[str]] = {}
+            for pid, pcfg in authenticated_profiles:
+                norm = _norm_prov(pcfg.provider)
+                by_prov.setdefault(norm, []).append(pid)
+
+            prov_cursors: Dict[str, int] = {k: 0 for k in by_prov}
+
+            for role_name in canonical_roles:
+                pref_order = role_provider_preferences.get(role_name, ["codex", "antigravity", "opencode"])
+                chain: List[str] = []
+
+                chosen_primary = None
+                for prov in pref_order:
+                    if prov in by_prov and by_prov[prov]:
+                        acc_list = by_prov[prov]
+                        cur = prov_cursors[prov]
+                        chosen_primary = acc_list[cur % len(acc_list)]
+                        prov_cursors[prov] = cur + 1
+                        break
+
+                if not chosen_primary:
+                    all_pids = [pid for pid, _ in authenticated_profiles]
+                    chosen_primary = all_pids[0]
+
+                chain.append(chosen_primary)
+
+                for prov in pref_order:
+                    if prov in by_prov:
+                        for p in by_prov[prov]:
+                            if p not in chain:
+                                chain.append(p)
+                for pid, _ in authenticated_profiles:
+                    if pid not in chain:
+                        chain.append(pid)
+
+                proposed_chains[role_name] = chain
+                curr = list(config.roles[role_name].preferred_chain) if role_name in config.roles else []
+                changes.append({
+                    "role": role_name,
+                    "role_name_ru": RoleRegistry.get_role_name_ru(role_name, role_name),
+                    "current_chain": curr,
+                    "proposed_chain": chain,
+                    "primary_profile": chosen_primary,
+                    "message": f"Профиль '{chosen_primary}' назначен основным на роль '{role_name}'",
+                })
+
+        return True, authenticated_profiles, proposed_chains, changes
+
+    @staticmethod
+    def preview_auto_assign() -> Dict[str, Any]:
+        """Calculate proposed auto-assignment changes without modifying configuration on disk."""
+        config = load_router_config()
+        # Scan on-disk profiles and ensure their definition in in-memory config
+        prov_prefix_map = {
+            "antigravity": "agy_profiles",
+            "openai-codex": "codex_profiles",
+            "opencode-go": "opengo_profiles",
+            "claude": "claude_profiles",
+            "grok": "grok_profiles",
+            "local": "local_profiles",
+            "openrouter": "openrouter_profiles",
+            "nvidia": "nvidia_profiles",
+            "ollama": "ollama_profiles",
+            "vllm": "vllm_profiles",
+        }
+        for prov, subdir in prov_prefix_map.items():
+            base_dir = paths.get_hermes_home() / subdir
+            if base_dir.is_dir():
+                for p_entry in base_dir.iterdir():
+                    if p_entry.is_dir():
+                        pid = p_entry.name
+                        if pid not in config.profiles:
+                            st = ProfileAuthManager.get_profile_status(prov, pid)
+                            if st.get("authenticated"):
+                                config.profiles[pid] = RouterProfileConfig(
+                                    profile_id=pid,
+                                    provider=prov,
+                                    account_id=pid,
+                                    enabled=True,
+                                )
+
+        ok, auth_profs, proposed_chains, changes = AutoAssigner._calculate_auto_assignment(config)
+        if not ok or not auth_profs:
+            return {
+                "success": False,
+                "message": "Нет подключённых аккаунтов для распределения",
+                "total_authenticated": 0,
+                "assigned_count": 0,
+                "changes": [],
+                "proposed_chains": {},
+            }
+
+        return {
+            "success": True,
+            "total_authenticated": len(auth_profs),
+            "assigned_count": len(changes),
+            "changes": changes,
+            "proposed_chains": proposed_chains,
+            "message": f"Сформирован план распределения {len(auth_profs)} аккаунтов",
+        }
+
+    @staticmethod
     def auto_assign_all() -> Dict[str, Any]:
         """Automatically distribute all authenticated profiles across canonical router roles (P0-4)."""
         config = load_router_config()
@@ -359,15 +503,8 @@ class AutoAssigner:
                                 AutoAssigner.ensure_profile_definition(prov, pid)
 
         config = load_router_config()
-        authenticated_profiles: List[Tuple[str, RouterProfileConfig]] = []
-        for pid, pcfg in config.profiles.items():
-            if not pcfg.enabled:
-                continue
-            st = ProfileAuthManager.get_profile_status(pcfg.provider, pid)
-            if st.get("authenticated"):
-                authenticated_profiles.append((pid, pcfg))
-
-        if not authenticated_profiles:
+        ok, auth_profs, proposed_chains, changes = AutoAssigner._calculate_auto_assignment(config)
+        if not ok or not auth_profs:
             return {
                 "success": False,
                 "message": "Нет подключённых аккаунтов для распределения",
@@ -376,107 +513,10 @@ class AutoAssigner:
                 "changes": [],
             }
 
-        canonical_roles = [r for r in RoleRegistry.get_role_ids() if RoleRegistry.is_role_implemented(r)]
-        changes: List[Dict[str, Any]] = []
-
-        # Ensure canonical roles exist in config
-        for rname in canonical_roles:
+        for rname, chain in proposed_chains.items():
             if rname not in config.roles:
                 config.roles[rname] = RolePolicy(role_name=rname)
-
-        def _norm_prov(p: str) -> str:
-            p = (p or "").lower().strip()
-            if p in ("openai-codex", "codex"):
-                return "codex"
-            if p in ("opencode-go", "opencode"):
-                return "opencode"
-            if p in ("local-llm", "llama.cpp", "ollama", "vllm", "local"):
-                return "local"
-            if p in ("claude", "anthropic"):
-                return "claude"
-            if p in ("grok", "xai"):
-                return "grok"
-            return p
-
-        unique_providers = set(_norm_prov(pcfg.provider) for _, pcfg in authenticated_profiles)
-
-        if len(authenticated_profiles) == 1:
-            # Case 1: Exactly 1 account connected -> assign as primary to all 6 roles
-            single_pid, _ = authenticated_profiles[0]
-            for role_name in canonical_roles:
-                config.roles[role_name].preferred_chain = [single_pid]
-                changes.append({
-                    "profile_id": single_pid,
-                    "role": role_name,
-                    "message": f"Профиль '{single_pid}' назначен основным во все 6 ролей",
-                })
-        elif len(unique_providers) == 1:
-            # Case 2: Multiple accounts of the same provider -> distribute / rotate across roles
-            pids = [pid for pid, _ in authenticated_profiles]
-            num_accs = len(pids)
-            for idx, role_name in enumerate(canonical_roles):
-                primary_pid = pids[idx % num_accs]
-                fallbacks = [p for p in pids if p != primary_pid]
-                config.roles[role_name].preferred_chain = [primary_pid] + fallbacks
-                changes.append({
-                    "profile_id": primary_pid,
-                    "role": role_name,
-                    "message": f"Профиль '{primary_pid}' назначен на роль '{role_name}' с ротацией квот",
-                })
-        else:
-            # Case 3: Multiple providers connected -> distribute by role provider preferences
-            role_provider_preferences = {
-                "manager": ["codex", "antigravity", "opencode", "claude", "grok", "local"],
-                "developer-1": ["codex", "antigravity", "opencode", "claude", "grok", "local"],
-                "developer-2": ["codex", "antigravity", "opencode", "claude", "grok", "local"],
-                "code-reviewer": ["codex", "opencode", "antigravity", "claude", "grok", "local"],
-                "researcher": ["opencode", "antigravity", "grok", "claude", "codex", "local"],
-                "tester": ["opencode", "antigravity", "local", "grok", "codex", "claude"],
-            }
-
-            by_prov: Dict[str, List[str]] = {}
-            for pid, pcfg in authenticated_profiles:
-                norm = _norm_prov(pcfg.provider)
-                by_prov.setdefault(norm, []).append(pid)
-
-            prov_cursors: Dict[str, int] = {k: 0 for k in by_prov}
-
-            for role_name in canonical_roles:
-                pref_order = role_provider_preferences.get(role_name, ["codex", "antigravity", "opencode"])
-                chain: List[str] = []
-
-                # Find primary for this role
-                chosen_primary = None
-                for prov in pref_order:
-                    if prov in by_prov and by_prov[prov]:
-                        acc_list = by_prov[prov]
-                        cur = prov_cursors[prov]
-                        chosen_primary = acc_list[cur % len(acc_list)]
-                        prov_cursors[prov] = cur + 1
-                        break
-
-                if not chosen_primary:
-                    all_pids = [pid for pid, _ in authenticated_profiles]
-                    chosen_primary = all_pids[0]
-
-                chain.append(chosen_primary)
-
-                # Add remaining profiles as fallbacks in preference order
-                for prov in pref_order:
-                    if prov in by_prov:
-                        for p in by_prov[prov]:
-                            if p not in chain:
-                                chain.append(p)
-                for pid, _ in authenticated_profiles:
-                    if pid not in chain:
-                        chain.append(pid)
-
-                config.roles[role_name].preferred_chain = chain
-                changes.append({
-                    "profile_id": chosen_primary,
-                    "role": role_name,
-                    "message": f"Профиль '{chosen_primary}' назначен основным на роль '{role_name}'",
-                })
+            config.roles[rname].preferred_chain = list(chain)
 
         save_router_config(config)
 
@@ -490,7 +530,7 @@ class AutoAssigner:
             from antigravity_provider.router.unified_health import EventLogService
             EventLogService.get().log(
                 "routing",
-                f"Авто-распределение завершено: {len(authenticated_profiles)} аккаунтов распределены по 6 ролям.",
+                f"Авто-распределение завершено: {len(auth_profs)} аккаунтов распределены по ролям.",
                 level="info",
             )
         except Exception:
@@ -498,9 +538,10 @@ class AutoAssigner:
 
         return {
             "success": True,
-            "total_authenticated": len(authenticated_profiles),
+            "total_authenticated": len(auth_profs),
             "assigned_count": len(changes),
             "changes": changes,
+            "message": f"Успешно распределено {len(auth_profs)} аккаунтов",
         }
 
     @staticmethod
@@ -650,5 +691,21 @@ def ensure_profile_in_routing(profile_id: str) -> tuple[bool, str]:
     )
     if assigned_role:
         return True, f"Профиль уже входит в цепочку '{assigned_role}'"
-    _display_name, role_code, tier = AutoAssigner.get_display_name_and_role(profile_id)
-    return AutoAssigner.assign_profile_to_role(profile_id, role_code, is_primary=tier == "primary")
+
+    pcfg = config.get_profile(profile_id)
+    provider = pcfg.provider if pcfg else ""
+    if not provider:
+        provider = profile_id.split("-")[0]
+
+    target_role = "developer-1"
+    pid_lower = profile_id.lower()
+    if "orch" in pid_lower or "manager" in pid_lower or provider in ("claude", "anthropic"):
+        target_role = "manager"
+    elif "worker" in pid_lower or "coder" in pid_lower or provider in ("grok", "xai", "openai-codex", "codex", "opencode-go", "opencode"):
+        target_role = "developer-1"
+    elif "research" in pid_lower or provider in ("openrouter",):
+        target_role = "researcher"
+    elif "reviewer" in pid_lower or provider in ("local", "ollama", "vllm"):
+        target_role = "code-reviewer"
+
+    return AutoAssigner.assign_profile_to_role(profile_id, target_role, is_primary=True)

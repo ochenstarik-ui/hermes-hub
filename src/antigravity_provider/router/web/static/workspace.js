@@ -128,16 +128,43 @@ function renderAccountRouting() {
   const profiles = snapshot.all_profiles || {};
   const routing = snapshot.routing || {};
   const left = document.getElementById('routing-roles-container');
+
+  const defRoleSelect = document.getElementById('routing-default-role-select');
+  if (defRoleSelect) {
+    const currentDef = snapshot.metrics?.default_role || 'manager';
+    defRoleSelect.value = currentDef;
+    defRoleSelect.onchange = async () => {
+      const res = await executeAction('set_default_role', { default_role: defRoleSelect.value });
+      if (res && res.ok) {
+        showToast(`Роль по умолчанию изменена на '${defRoleSelect.value}'`, 'success');
+        await fetchSnapshot();
+      }
+    };
+  }
+
   left.innerHTML = Object.entries(routing).map(([roleId,pipeline]) => {
     const agent = (snapshot.workflow?.agents || []).find(item => item.role === roleId);
     const role = (snapshot.agents || []).find(item => item.role_id === roleId);
+
+    let responderStatusHtml = '';
+    if (!pipeline.will_bypass && pipeline.effective_answering_profile) {
+      const respProfile = profiles[pipeline.effective_answering_profile] || { profile_id: pipeline.effective_answering_profile };
+      const respModel = pipeline.effective_answering_model || 'default';
+      const nodeIdx = (pipeline.nodes || []).findIndex(n => n.profile_id === pipeline.effective_answering_profile);
+      const prioLabel = nodeIdx === 0 ? 'Основной (#1)' : `Запасной (#${nodeIdx + 1})`;
+      responderStatusHtml = `<div class="role-answering-status healthy">🟢 Сейчас ответит: <strong>${escapeHtml(respProfile.display_name || pipeline.effective_answering_profile)}</strong> (${escapeHtml(respModel)}) — ${prioLabel}</div>`;
+    } else {
+      const reason = pipeline.bypass_reason || 'цепочка пуста — вызов уйдёт мимо хаба в Hermes';
+      responderStatusHtml = `<div class="role-answering-status warning">⚠️ Сейчас ответит: <strong>никто</strong> (${escapeHtml(reason)})</div>`;
+    }
+
     const rows = (pipeline.nodes || []).map((node,index) => {
       const profile = profiles[node.profile_id] || {profile_id:node.profile_id,provider:node.provider};
       const quota = profile.quota_snapshot || snapshot.quotas?.[node.profile_id] || {};
       const reset = (quota.buckets || []).map(b => b.reset_time_formatted || b.reset_after_formatted).filter(Boolean).join('; ');
       return `<div class="account-row draggable-item" draggable="true" data-pid="${escapeHtml(node.profile_id)}" data-role="${escapeHtml(roleId)}"><div class="drag-handle">⠿</div><div class="route-priority">${index ? 'Резерв '+index : 'Основной'}</div><div><strong>${escapeHtml(profile.display_name || node.profile_id)}</strong><div class="text-muted">${escapeHtml(node.account_identity || profile.account_identity || node.provider)}</div></div><div><select data-route-model="${escapeHtml(node.profile_id)}" data-role="${escapeHtml(roleId)}" aria-label="Модель ${escapeHtml(node.profile_id)}">${modelOptions(snapshot,profile,node.model)}</select></div><div>${routeQuota(profile,snapshot)}</div><div class="text-muted">${escapeHtml(reset || 'Н/Д: нет времени сброса')}</div><div><span class="status-dot ${healthDotClass(node.status)}"></span> ${escapeHtml(node.status_label_ru || 'Не проверялся')}${node.is_active ? '<br>Используется' : ''}</div><button class="route-remove" data-remove-profile="${escapeHtml(node.profile_id)}" data-role="${escapeHtml(roleId)}" aria-label="Удалить из маршрута">×</button></div>`;
     }).join('');
-    return `<section class="role-section"><header class="role-header"><div><h4>${escapeHtml(agent?.name || pipeline.role_name_ru || roleId)}</h4><p class="text-muted">${escapeHtml(agent?.description || role?.role_description_ru || '')}</p></div><button class="btn btn-secondary btn-sm" data-add-role="${escapeHtml(roleId)}">+ Добавить аккаунт</button></header><div class="grid-header"><span></span><span>Приоритет</span><span>Аккаунт</span><span>Модель</span><span>Квота · остаток</span><span>Сброс</span><span>Статус</span><span></span></div><div class="role-chain-list">${rows || '<p class="inspector-value">Аккаунты не назначены. Добавьте подключённый аккаунт.</p>'}</div><div class="drop-zone" data-role="${escapeHtml(roleId)}">+ Перетащите аккаунт в конец маршрута</div><p class="inspector-value">Session Affinity: ${pipeline.session_affinity ? 'включена' : 'отключена'} · Порядок применяется к следующим назначениям</p></section>`;
+    return `<section class="role-section"><header class="role-header"><div><h4>${escapeHtml(agent?.name || pipeline.role_name_ru || roleId)}</h4><p class="text-muted">${escapeHtml(agent?.description || role?.role_description_ru || '')}</p></div><button class="btn btn-secondary btn-sm" data-add-role="${escapeHtml(roleId)}">+ Добавить аккаунт</button></header>${responderStatusHtml}<div class="grid-header"><span></span><span>Приоритет</span><span>Аккаунт</span><span>Модель</span><span>Квота · остаток</span><span>Сброс</span><span>Статус</span><span></span></div><div class="role-chain-list">${rows || '<p class="inspector-value">Аккаунты не назначены. Добавьте подключённый аккаунт.</p>'}</div><div class="drop-zone" data-role="${escapeHtml(roleId)}">+ Перетащите аккаунт в конец маршрута</div><p class="inspector-value">Session Affinity: ${pipeline.session_affinity ? 'включена' : 'отключена'} · Порядок применяется к следующим назначениям</p></section>`;
   }).join('') || '<p class="view-header-note">Агенты ещё не созданы. Добавьте агента на «Обзоре».</p>';
   left.querySelectorAll('[data-add-role]').forEach(button => button.onclick = () => openAddNodeToChainModal(button.dataset.addRole));
   left.querySelectorAll('[data-remove-profile]').forEach(button => button.onclick = () => removeProfileFromChain(button.dataset.role,button.dataset.removeProfile));
@@ -199,7 +226,7 @@ function arrangeSettingsPanels() {
   const view = document.getElementById('view-settings');
   const first = view.querySelector('.settings-card');
   const groups = [
-    ['Общие настройки',['setting-theme']],
+    ['Общие настройки',['setting-default-role','setting-theme']],
     ['Управление квотами',['setting-quota-interval','setting-quota-threshold-percent','setting-quota-threshold-action']],
     ['Безопасность и API',['setting-server-host','setting-server-token-input','setting-email-masking-mode']],
   ];
