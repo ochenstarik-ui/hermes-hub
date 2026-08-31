@@ -1,0 +1,100 @@
+[
+  {
+    "name": "Qwen3.8-27B",
+    "model_path": "/srv/ai/models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf",
+    "ctx": 32768,
+    "process_vram_mib": 19250,
+    "total_gpu_mib": 24694,
+    "status": "OK"
+  },
+  {
+    "name": "Qwen3.8-27B (192k ctx)",
+    "model_path": "/srv/ai/models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf",
+    "ctx": 196608,
+    "process_vram_mib": 25490,
+    "total_gpu_mib": 30934,
+    "status": "OK"
+  },
+  {
+    "name": "Qwen2.5-Coder-32B",
+    "model_path": "/srv/ai/models/qwen2.5-coder-32b/Qwen2.5-Coder-32B-Instruct-Q4_K_M.gguf",
+    "ctx": 32768,
+    "status": "START_FAILED"
+  },
+  {
+    "name": "Qwen2.5-Coder-14B",
+    "model_path": "/srv/ai/models/qwen2.5-coder-14b/qwen2.5-coder-14b-instruct-q4_k_m.gguf",
+    "ctx": 32768,
+    "process_vram_mib": 11980,
+    "total_gpu_mib": 17424,
+    "status": "OK"
+  },
+  {
+    "name": "Qwen2.5-Coder-14B (64k ctx)",
+    "model_path": "/srv/ai/models/qwen2.5-coder-14b/qwen2.5-coder-14b-instruct-q4_k_m.gguf",
+    "ctx": 65536,
+    "process_vram_mib": 15404,
+    "total_gpu_mib": 20848,
+    "status": "OK"
+  },
+  {
+    "name": "Phi-4-14B",
+    "model_path": "/srv/ai/models/phi-4-14b/phi-4-Q4_K_M.gguf",
+    "ctx": 16384,
+    "process_vram_mib": 10412,
+    "total_gpu_mib": 15856,
+    "status": "OK"
+  },
+  {
+    "name": "DeepSeek-Coder-V2-Lite",
+    "model_path": "/srv/ai/models/deepseek-coder-v2-lite/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf",
+    "ctx": 32768,
+    "status": "START_FAILED"
+  },
+  {
+    "name": "DeepSeek-Coder-V2-Lite (64k ctx)",
+    "model_path": "/srv/ai/models/deepseek-coder-v2-lite/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf",
+    "ctx": 65536,
+    "status": "START_FAILED"
+  },
+  {
+    "name": "Granite-4.2-8B",
+    "model_path": "/srv/ai/models/granite-4.2-8b/granite-4.2-8b-Q4_K_M.gguf",
+    "ctx": 32768,
+    "process_vram_mib": 8334,
+    "total_gpu_mib": 13778,
+    "status": "OK"
+  },
+  {
+    "name": "Granite-4.2-8B (64k ctx)",
+    "model_path": "/srv/ai/models/granite-4.2-8b/granite-4.2-8b-Q4_K_M.gguf",
+    "ctx": 65536,
+    "process_vram_mib": 11214,
+    "total_gpu_mib": 16658,
+    "status": "OK"
+  },
+  {
+    "name": "Granite-3.2-8B-Preview",
+    "model_path": "/srv/ai/models/granite-3.2-8b/granite-3.2-8b-instruct-preview.Q4_K_M.gguf",
+    "ctx": 32768,
+    "process_vram_mib": 8100,
+    "total_gpu_mib": 13544,
+    "status": "OK"
+  },
+  {
+    "name": "Qwen3-4B-Compressor",
+    "model_path": "/srv/ai/models/qwen3-4b-compressor/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "ctx": 32768,
+    "process_vram_mib": 5368,
+    "total_gpu_mib": 10812,
+    "status": "OK"
+  },
+  {
+    "name": "LFM2.5-2.6B",
+    "model_path": "/srv/ai/models/lfm2.5-2.6b/LFM2.5-2.6B-Q4_K_M.gguf",
+    "ctx": 16384,
+    "process_vram_mib": 2170,
+    "total_gpu_mib": 7614,
+    "status": "OK"
+  }
+]
