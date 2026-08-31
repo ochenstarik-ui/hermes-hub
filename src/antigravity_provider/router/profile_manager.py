@@ -423,6 +423,17 @@ class ProfileAuthManager:
             except Exception as e:
                 logger.warning("Error reading %s: %s", auth_file, e)
 
+        if not auth_file.is_file() and provider in ("antigravity", "google-antigravity"):
+            pdir = get_profile_dir(profile_id, provider)
+            gemini_creds = pdir / ".gemini" / "oauth_creds.json"
+            if gemini_creds.is_file():
+                try:
+                    data = json.loads(gemini_creds.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        return {"provider": provider, "profile_id": profile_id, "token": data}
+                except Exception as e:
+                    logger.warning("Error reading %s: %s", gemini_creds, e)
+
         # Fallbacks for specific providers
         if provider == "openai-codex":
             env_var = f"CODEX_TOKEN_{profile_id.upper().replace('-', '_')}"
@@ -655,11 +666,24 @@ class ProfileAuthManager:
             }
 
         if provider in ("antigravity", "google-antigravity"):
-            tokens = auth_data.get("token") or auth_data.get("tokens", {})
-            acc_token = tokens.get("access_token") if isinstance(tokens, dict) else (auth_data.get("access_token") or "")
-            id_token = tokens.get("id_token") if isinstance(tokens, dict) else (auth_data.get("id_token") or "")
-            refresh_tok = tokens.get("refresh_token") if isinstance(tokens, dict) else (auth_data.get("refresh_token") or "")
-            email = auth_data.get("email")
+            tokens = auth_data.get("token") or auth_data.get("tokens")
+            if not isinstance(tokens, dict):
+                tokens = {}
+            acc_token = tokens.get("access_token") or auth_data.get("access_token") or ""
+            id_token = tokens.get("id_token") or auth_data.get("id_token") or ""
+            refresh_tok = tokens.get("refresh_token") or auth_data.get("refresh_token") or ""
+            key = auth_data.get("api_key", "")
+            email = auth_data.get("email") or auth_data.get("user_email")
+            is_auth = bool(acc_token or refresh_tok or key or (email and auth_data.get("auth_method") == "oauth"))
+            if not is_auth:
+                return {
+                    "authenticated": False,
+                    "provider": provider,
+                    "profile_id": profile_id,
+                    "status": "NOT_CONFIGURED",
+                    "error": None,
+                }
+
             acc_id = None
             if id_token:
                 email_from_jwt, acc_id = cls.extract_jwt_identity(id_token)
@@ -668,11 +692,14 @@ class ProfileAuthManager:
                 email_from_jwt, acc_id = cls.extract_jwt_identity(acc_token)
                 email = email or email_from_jwt
 
-            expiry = tokens.get("expiry_date") if isinstance(tokens, dict) else auth_data.get("expiry_date")
-            if not expiry and isinstance(tokens, dict):
-                expiry = tokens.get("expires_at")
+            expiry = (
+                tokens.get("expiry_date")
+                or auth_data.get("expiry_date")
+                or tokens.get("expires_at")
+                or auth_data.get("expires_at")
+            )
             if not expiry:
-                expiry_str = tokens.get("expiry") if isinstance(tokens, dict) else auth_data.get("expiry")
+                expiry_str = tokens.get("expiry") or auth_data.get("expiry")
                 if expiry_str:
                     try:
                         dt = datetime.fromisoformat(str(expiry_str).replace("Z", "+00:00"))
@@ -688,7 +715,7 @@ class ProfileAuthManager:
                     is_expired = not bool(refresh_tok)
 
             return {
-                "authenticated": True,
+                "authenticated": not is_expired,
                 "provider": provider,
                 "profile_id": profile_id,
                 "email_masked": mask_email(email) if email else None,

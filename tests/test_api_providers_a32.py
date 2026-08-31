@@ -86,7 +86,7 @@ def test_ollama_invoke_default_base_url():
 
     assert resp["choices"][0]["message"]["content"] == "pong"
     req_arg = mock_urlopen.call_args[0][0]
-    assert req_arg.get_full_url() == f"{DEFAULT_OLLAMA_BASE_URL}/chat/completions"
+    assert req_arg.get_full_url() == f"{DEFAULT_OLLAMA_BASE_URL}/v1/chat/completions"
     assert req_arg.get_method() == "POST"
     assert "Authorization" not in req_arg.headers
 

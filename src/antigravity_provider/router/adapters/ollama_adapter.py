@@ -14,7 +14,7 @@ from .local_adapter import LocalLLMAdapter
 
 logger = logging.getLogger("hermes.router.adapter.ollama")
 
-DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434/v1"
+DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
 DEFAULT_OLLAMA_MODELS = ["llama3:latest"]
 
 
@@ -54,21 +54,24 @@ class OllamaAdapter(LocalLLMAdapter):
 
     def _get_native_host(self, base_url: str) -> str:
         """Strip trailing /v1 from base_url to get native Ollama host."""
-        if base_url.endswith("/v1"):
-            return base_url[:-3]
-        return base_url
+        b = base_url.rstrip("/")
+        if b.endswith("/v1"):
+            return b[:-3].rstrip("/")
+        return b
 
     def _get_chat_url(self, base_url: str) -> str:
         """Get standard chat completions endpoint URL."""
-        if base_url.endswith("/v1"):
-            return f"{base_url}/chat/completions"
-        return f"{base_url}/v1/chat/completions"
+        b = base_url.rstrip("/")
+        if b.endswith("/v1"):
+            return f"{b}/chat/completions"
+        return f"{b}/v1/chat/completions"
 
     def _get_models_url(self, base_url: str) -> str:
         """Get OpenAI-compatible models endpoint URL."""
-        if base_url.endswith("/v1"):
-            return f"{base_url}/models"
-        return f"{base_url}/v1/models"
+        b = base_url.rstrip("/")
+        if b.endswith("/v1"):
+            return f"{b}/models"
+        return f"{b}/v1/models"
 
     def invoke(self, profile: RouterProfileConfig, request: Dict[str, Any]) -> Dict[str, Any]:
         base_url = self._resolve_base_url(profile)

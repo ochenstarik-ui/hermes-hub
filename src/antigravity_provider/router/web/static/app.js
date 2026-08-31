@@ -71,6 +71,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initNavigation();
   initEventListeners();
   initSettings();
+  fetchSettings();
   fetchSnapshot();
   startPolling();
   checkUpdates(true);
@@ -112,6 +113,10 @@ function switchView(viewName) {
 
   if (viewName === 'skills') {
     fetchSkills();
+  }
+
+  if (viewName === 'settings') {
+    fetchSettings();
   }
 
   if (currentSnapshot) {
@@ -620,6 +625,12 @@ function updateGlobalHeader() {
   if (kpiReadyRoles) kpiReadyRoles.textContent = `${readyRoles}/${totalRoles}`;
   if (kpiRolesSub) kpiRolesSub.textContent = `${readyRoles} из ${totalRoles} ролей маршрутизации активны`;
   if (kpiProvidersCount) kpiProvidersCount.textContent = (currentSnapshot.providers || []).length;
+
+  const curVer = (currentSnapshot && (currentSnapshot.version || (currentSnapshot.metrics || {}).version)) || (currentSettings && currentSettings.version) || '';
+  const versionTag = document.getElementById('version-tag');
+  if (versionTag) {
+    versionTag.textContent = curVer ? `Hermes Hub Web v${curVer}` : 'Hermes Hub Web — Н/Д: версия не передана сервером';
+  }
 }
 
 // ── VIEW ROUTER ──
@@ -1616,86 +1627,166 @@ function renderLogsList(events) {
 }
 
 // ── SETTINGS MANAGEMENT ──
+async function fetchSettings() {
+  try {
+    const headers = authToken ? { 'X-Hub-Token': authToken } : {};
+    const res = await fetch('/api/settings', { headers });
+    if (res.ok) {
+      currentSettings = await res.json();
+      if (activeView === 'settings') {
+        renderSettingsView();
+      }
+      return currentSettings;
+    }
+  } catch (err) {
+    console.error('Failed to fetch settings:', err);
+  }
+  return null;
+}
+
 function renderSettingsView() {
-  if (!currentSnapshot) return;
-  const paths = {}; // HubSnapshot does not expose filesystem paths.
-  const s = currentSettings;
+  const s = currentSettings || {};
+  const sysPaths = s.system_paths || (currentSnapshot && currentSnapshot.system_paths) || {};
 
   const elHome = document.getElementById('path-hermes-home');
   const elConfig = document.getElementById('path-config-dir');
   const elLog = document.getElementById('path-log-file');
 
-  if (elHome) elHome.textContent = paths.hermes_home || 'Н/Д: API не передаёт путь';
-  if (elConfig) elConfig.textContent = paths.config_dir || 'Н/Д: API не передаёт путь';
-  if (elLog) elLog.textContent = paths.log_file || 'Н/Д: API не передаёт путь';
+  const homePath = sysPaths.hermes_home || s.hermes_home;
+  const configPath = sysPaths.config_dir || s.config_dir;
+  const logPath = sysPaths.log_file || s.log_file;
 
-  const quotaThresholdSel = document.getElementById('setting-quota-threshold-percent');
-  const quotaActionSel = document.getElementById('setting-quota-threshold-action');
-  const emailMaskingSel = document.getElementById('setting-email-masking-mode');
-  const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
+  if (elHome) elHome.textContent = homePath || 'Н/Д: путь не передан сервером';
+  if (elConfig) elConfig.textContent = configPath || 'Н/Д: путь не передан сервером';
+  if (elLog) elLog.textContent = logPath || 'Н/Д: путь не передан сервером';
+
+  // Server Host & Port
+  const hostInput = document.getElementById('setting-server-host');
+  const portInput = document.getElementById('setting-server-port');
+  if (hostInput && s.web_api_host !== undefined) {
+    hostInput.value = s.web_api_host;
+  }
+  if (portInput && s.web_api_port !== undefined) {
+    portInput.value = s.web_api_port;
+  }
+
+  // Token Badge
+  const tokenBadge = document.getElementById('setting-token-status-badge');
+  if (tokenBadge) {
+    const isTokenSet = Boolean(s.web_api_token_configured || s.web_api_token);
+    if (isTokenSet) {
+      tokenBadge.textContent = '✓ Задан';
+      tokenBadge.className = 'badge healthy';
+    } else {
+      tokenBadge.textContent = 'Не задан';
+      tokenBadge.className = 'badge';
+    }
+  }
+
+  // Account Check Interval
   const accountIntervalInput = document.getElementById('setting-account-check-interval');
-  const defaultRoleSel = document.getElementById('setting-default-role');
+  if (accountIntervalInput) {
+    const accVal = s.account_check_interval_seconds ?? s.account_interval;
+    if (accVal !== undefined && Number.isFinite(Number(accVal))) {
+      accountIntervalInput.value = accVal;
+      accountIntervalInput.disabled = false;
+      accountIntervalInput.placeholder = '300';
+    } else {
+      accountIntervalInput.placeholder = 'Н/Д: не передан сервером';
+    }
+  }
 
+  // Quota Interval
+  const quotaIntervalSel = document.getElementById('setting-quota-interval');
+  if (quotaIntervalSel) {
+    const qVal = s.quota_refresh_interval_sec ?? s.quota_interval ?? s.account_check_interval_seconds;
+    if (qVal !== undefined) {
+      quotaIntervalSel.value = String(qVal);
+    }
+  }
+
+  // Quota Threshold Percent
+  const quotaThresholdSel = document.getElementById('setting-quota-threshold-percent');
   if (quotaThresholdSel && s.quota_threshold_percent !== undefined) {
     quotaThresholdSel.value = String(Math.round(s.quota_threshold_percent));
   }
+
+  // Quota Threshold Action
+  const quotaActionSel = document.getElementById('setting-quota-threshold-action');
   if (quotaActionSel && s.quota_threshold_action) {
     quotaActionSel.value = s.quota_threshold_action;
   }
+
+  // Email Masking Mode
+  const emailMaskingSel = document.getElementById('setting-email-masking-mode');
   if (emailMaskingSel && s.email_masking_mode) {
     emailMaskingSel.value = s.email_masking_mode;
   }
-  if (accountIntervalInput && !accountIntervalInput.dataset.loaded) {
-    accountIntervalInput.dataset.loaded = 'loading';
-    fetch('/api/settings', {headers: authToken ? {'X-Hub-Token': authToken} : {}})
-      .then(response => { if (!response.ok) throw new Error('Настройки недоступны'); return response.json(); })
-      .then(settings => {
-        if (!Number.isFinite(Number(settings.account_check_interval_seconds))) throw new Error('Период не передан сервером');
-        accountIntervalInput.value = settings.account_check_interval_seconds;
-        accountIntervalInput.disabled = false;
-        accountIntervalInput.dataset.loaded = 'yes';
-      }).catch(error => { accountIntervalInput.placeholder = 'Н/Д: ' + error.message; accountIntervalInput.dataset.loaded = ''; });
+
+  // Default Role
+  const defaultRoleSel = document.getElementById('setting-default-role');
+  if (defaultRoleSel) {
+    const currentDef = s.default_role || (currentSnapshot && currentSnapshot.metrics && currentSnapshot.metrics.default_role) || 'manager';
+    defaultRoleSel.value = currentDef;
   }
+
+  // Theme
+  const themeSel = document.getElementById('setting-theme');
+  if (themeSel && s.theme) {
+    themeSel.value = s.theme;
+  }
+
+  // Monitor Interval
+  const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
   if (monitorIntervalInput && s.monitoring_interval_seconds !== undefined) {
     monitorIntervalInput.value = s.monitoring_interval_seconds;
   }
 
+  // Obsidian Vault Path
   const vaultPathInput = document.getElementById('setting-obsidian-vault-path');
   if (vaultPathInput) {
     vaultPathInput.value = s.obsidian_vault_path || '/srv/projects/AI-Memory';
   }
-  if (defaultRoleSel) {
-    const currentDef = s.default_role || currentSnapshot.metrics?.default_role || 'manager';
-    defaultRoleSel.value = currentDef;
-  }
 }
 
 async function saveHubServerSettings() {
+  const hostInput = document.getElementById('setting-server-host');
+  const portInput = document.getElementById('setting-server-port');
+  const tokenInput = document.getElementById('setting-server-token-input');
   const quotaThresholdSel = document.getElementById('setting-quota-threshold-percent');
   const quotaActionSel = document.getElementById('setting-quota-threshold-action');
   const emailMaskingSel = document.getElementById('setting-email-masking-mode');
+  const quotaIntervalSel = document.getElementById('setting-quota-interval');
   const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
   const vaultPathInput = document.getElementById('setting-obsidian-vault-path');
   const accountIntervalInput = document.getElementById('setting-account-check-interval');
   const defaultRoleSel = document.getElementById('setting-default-role');
+  const themeSel = document.getElementById('setting-theme');
 
   const newSettings = {};
-  if (accountIntervalInput?.value) newSettings.account_check_interval_seconds = Math.max(60, Number(accountIntervalInput.value));
-  if (quotaThresholdSel?.value) newSettings.quota_threshold_percent = Number(quotaThresholdSel.value);
-  if (quotaActionSel?.value) newSettings.quota_threshold_action = quotaActionSel.value;
-  if (emailMaskingSel?.value) newSettings.email_masking_mode = emailMaskingSel.value;
-  if (monitorIntervalInput?.value) newSettings.monitoring_interval_seconds = Number(monitorIntervalInput.value);
-  if (vaultPathInput?.value) newSettings.obsidian_vault_path = vaultPathInput.value.trim();
-  if (defaultRoleSel?.value) newSettings.default_role = defaultRoleSel.value;
+  if (hostInput && hostInput.value.trim()) newSettings.web_api_host = hostInput.value.trim();
+  if (portInput && portInput.value) newSettings.web_api_port = Number(portInput.value);
+  if (tokenInput && tokenInput.value.trim()) newSettings.web_api_token = tokenInput.value.trim();
+  if (accountIntervalInput && accountIntervalInput.value) newSettings.account_check_interval_seconds = Math.max(60, Number(accountIntervalInput.value));
+  if (quotaIntervalSel && quotaIntervalSel.value) newSettings.quota_refresh_interval_sec = Number(quotaIntervalSel.value);
+  if (quotaThresholdSel && quotaThresholdSel.value) newSettings.quota_threshold_percent = Number(quotaThresholdSel.value);
+  if (quotaActionSel && quotaActionSel.value) newSettings.quota_threshold_action = quotaActionSel.value;
+  if (emailMaskingSel && emailMaskingSel.value) newSettings.email_masking_mode = emailMaskingSel.value;
+  if (monitorIntervalInput && monitorIntervalInput.value) newSettings.monitoring_interval_seconds = Number(monitorIntervalInput.value);
+  if (vaultPathInput && vaultPathInput.value.trim()) newSettings.obsidian_vault_path = vaultPathInput.value.trim();
+  if (defaultRoleSel && defaultRoleSel.value) newSettings.default_role = defaultRoleSel.value;
+  if (themeSel && themeSel.value) newSettings.theme = themeSel.value;
+
   if (!Object.keys(newSettings).length) { showToast('Нет выбранных изменений', 'info'); return; }
 
   showToast('Сохранение настроек сервера...', 'info');
   const res = await executeAction('save_settings', newSettings);
-  if (res.ok) {
+  if (res && res.ok) {
     showToast('Настройки сервера успешно сохранены', 'success');
+    await fetchSettings();
     fetchSnapshot();
   } else {
-    showToast(res.message || 'Ошибка сохранения настроек сервера', 'error');
+    showToast((res && res.message) || 'Ошибка сохранения настроек сервера', 'error');
   }
 }
 
@@ -2826,7 +2917,7 @@ function showWizardStep2(providerId) {
       </div>
       <div style="margin-bottom:10px;">
         <label style="display:block; font-weight:600; margin-bottom:4px;">Слот, в который войти:</label>
-        <select class="input-text" style="width:100%;" id="wiz-redirect-slot">${buildSlotOptions(providerId)}</select>
+        <select class="input-text" style="width:100%;" id="wiz-redirect-slot" onchange="startRedirectAuth('${escapeHtml(providerId)}')">${buildSlotOptions(providerId)}</select>
         <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
           Вход в занятый слот заменит учётные данные, которые в нём сейчас.
         </div>
@@ -2835,7 +2926,18 @@ function showWizardStep2(providerId) {
         <button class="btn btn-primary btn-sm" onclick="startRedirectAuth('${escapeHtml(providerId)}')">Получить ссылку</button>
       </div>
       <div id="redirect-auth-box" style="background:var(--surface-muted); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
-        <div style="color:var(--text-secondary);">Выберите слот и нажмите «Получить ссылку».</div>
+        <div style="font-weight:700; margin-bottom:6px;">1. Откройте ссылку:</div>
+        <div style="display:flex; gap:8px; margin-bottom:12px;">
+          <input type="text" class="input-text" style="flex:1;" id="wiz-redirect-url" placeholder="Получение ссылки авторизации…" readonly>
+          <button class="btn btn-secondary btn-sm" onclick="window.open(document.getElementById('wiz-redirect-url').value, '_blank')">Открыть</button>
+          <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(document.getElementById('wiz-redirect-url').value, 'Ссылка скопирована')">Копировать</button>
+        </div>
+        <div style="font-weight:700; margin-bottom:6px;">2. Вставьте адрес из браузера или код:</div>
+        <div style="display:flex; gap:8px; margin-bottom:6px;">
+          <input type="text" class="input-text" style="flex:1;" id="wiz-redirect-paste" placeholder="http://127.0.0.1:…/oauth-callback?code=…">
+          <button class="btn btn-primary btn-sm" onclick="submitRedirectCallback()">Завершить вход</button>
+        </div>
+        <div id="redirect-auth-status" style="font-size:12px; color:var(--text-muted); margin-top:10px;"></div>
       </div>
     `;
     footerHtml = `
@@ -2850,10 +2952,14 @@ function showWizardStep2(providerId) {
       </div>
       <div style="margin-bottom:12px;">
         <label style="display:block; font-weight:600; margin-bottom:4px;">URL сервера (Base URL):</label>
-        <input type="text" class="input-text" style="width:100%;" id="wiz-base-url-input" placeholder="http://127.0.0.1:11434/v1" value="http://127.0.0.1:11434/v1">
+        <div style="display:flex; gap:8px;">
+          <input type="text" class="input-text" style="flex:1;" id="wiz-base-url-input" placeholder="http://127.0.0.1:11434" value="http://127.0.0.1:11434">
+          <button class="btn btn-secondary btn-sm" id="wiz-test-ollama-btn" onclick="testOllamaConnection()">Проверить адрес</button>
+        </div>
+        <div id="wiz-ollama-check-result" style="margin-top:6px; font-size:12px;"></div>
       </div>
       <div style="margin-bottom:10px; font-size:12px; color:var(--text-muted);">
-        Поиск серверов выполняется на машине, где запущен Hub (не в браузере).
+        По умолчанию указан адрес на машине с Hub (127.0.0.1:11434). Если Ollama работает на сервере или другом компьютере (например, http://192.168.1.81:11434), укажите его сетевой адрес.
       </div>
       <div style="margin-bottom:12px;">
         <button class="btn btn-secondary" style="width:100%;" id="wiz-discover-btn" onclick="discoverLocalServers('discover_local_models')" data-action="discover_local_models">🔍 Найти на этом компьютере</button>
@@ -2948,6 +3054,42 @@ function showWizardStep2(providerId) {
     ${bodyHtml}
   `;
   elements.modalFooter.innerHTML = footerHtml;
+  if (providerId === 'antigravity' || providerId === 'claude') {
+    startRedirectAuth(providerId);
+  }
+}
+
+async function testOllamaConnection() {
+  const urlInput = document.getElementById('wiz-base-url-input');
+  const tokenInput = document.getElementById('wiz-token-input');
+  const resultEl = document.getElementById('wiz-ollama-check-result');
+  const btn = document.getElementById('wiz-test-ollama-btn');
+  if (!urlInput || !resultEl) return;
+  const baseUrl = (urlInput.value || '').trim() || 'http://127.0.0.1:11434';
+  const token = tokenInput ? tokenInput.value.trim() : '';
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Проверка…'; }
+  resultEl.innerHTML = '<span style="color:var(--text-secondary);">Проверяем подключение…</span>';
+  try {
+    const res = await executeAction('validate_connection', {
+      provider: 'ollama',
+      base_url: baseUrl,
+      token: token,
+    });
+    if (res && res.ok) {
+      const models = (res.data && res.data.models) || [];
+      window._wiz_models = models;
+      window._wiz_base_url = baseUrl;
+      resultEl.innerHTML = `<span style="color:var(--status-healthy); font-weight:600;">✓ Подключение успешно. Моделей: ${models.length}</span>`;
+      showToast('Ollama подключена успешно', 'success');
+    } else {
+      const errMsg = (res && res.message) || 'Не удалось подключиться к Ollama';
+      resultEl.innerHTML = `<span style="color:var(--status-error);">${escapeHtml(errMsg)}</span>`;
+    }
+  } catch (err) {
+    resultEl.innerHTML = `<span style="color:var(--status-error);">Ошибка: ${escapeHtml(String(err))}</span>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Проверить адрес'; }
+  }
 }
 
 async function proceedToWizardStep3(providerId) {
@@ -2968,11 +3110,14 @@ async function proceedToWizardStep3(providerId) {
   // Only read slot elements for providers that have them (grok/openai-codex have wiz-device-slot,
   // antigravity/claude/openrouter/nvidia have wiz-redirect-slot). Local providers have no slot elements.
   const isDeviceAuthFlow = providerId === 'grok' || providerId === 'openai-codex';
-  const isRedirectAuthFlow = providerId === 'antigravity' || providerId === 'claude' || providerId === 'openrouter' || providerId === 'nvidia';
+  const isRedirectAuthFlow = providerId === 'antigravity' || providerId === 'claude';
   if (isDeviceAuthFlow) {
     const deviceSlot = document.getElementById('wiz-device-slot');
-    window._wiz_device_profile = deviceSlot?.value || '';
+    window._wiz_device_profile = window._wiz_device_profile || deviceSlot?.value || '';
   } else if (isRedirectAuthFlow) {
+    const redirectSlot = document.getElementById('wiz-redirect-slot');
+    window._wiz_device_profile = window._wiz_redirect_slot_id || window._wiz_device_profile || redirectSlot?.value || '';
+  } else if (providerId === 'openrouter' || providerId === 'nvidia') {
     const redirectSlot = document.getElementById('wiz-redirect-slot');
     window._wiz_device_profile = redirectSlot?.value || '';
   }
@@ -3055,6 +3200,8 @@ async function finishAddAccount(providerId) {
   let selectedProfileId;
   if (isLocalProvider) {
     selectedProfileId = '';
+  } else if (providerId === 'antigravity' || providerId === 'claude') {
+    selectedProfileId = window._wiz_redirect_slot_id || window._wiz_device_profile || document.getElementById('wiz-redirect-slot')?.value || '';
   } else {
     const deviceSlot = document.getElementById('wiz-device-slot');
     const redirectSlot = document.getElementById('wiz-redirect-slot');
@@ -3278,6 +3425,7 @@ async function startRedirectAuth(providerId) {
   window._wiz_redirect_session = d.session_id;
   window._wiz_redirect_provider = providerId;
   window._wiz_redirect_slot_id = d.profile_id;
+  window._wiz_device_profile = d.profile_id;
 
   const pastesUrl = d.paste_kind !== 'code';
   const label = pastesUrl
@@ -3363,6 +3511,7 @@ async function submitRedirectCallback() {
 
   if (res && res.ok) {
     stopRedirectAuthPolling();
+    window._wiz_device_profile = window._wiz_redirect_slot_id;
     status.innerHTML = '<span style="color:var(--status-healthy); font-weight:600;">Аккаунт подключён</span>' + redirectSlotRoleNote();
     showToast('Аккаунт подключён', 'success');
     fetchSnapshot();
@@ -3405,6 +3554,7 @@ async function pollRedirectAuth() {
 
   if (res.ok && (res.data || {}).status === 'completed') {
     stopRedirectAuthPolling();
+    window._wiz_device_profile = window._wiz_redirect_slot_id;
     status.innerHTML = '<span style="color:var(--status-healthy); font-weight:600;">Аккаунт подключён</span>';
     showToast('Аккаунт подключён', 'success');
     fetchSnapshot();

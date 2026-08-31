@@ -11,6 +11,8 @@ import time
 from dataclasses import dataclass, field, replace
 from typing import Any, Dict, List, Optional, Tuple
 
+from antigravity_provider.version import __version__
+
 from antigravity_provider.router.event_bus import (
     EventBus,
     EVENT_ACCOUNT_UPDATED,
@@ -213,7 +215,9 @@ class HubStateStore:
                 hermes_cfg = {"exists": False, "model": None, "provider": None}
                 default_role = "manager"
 
+            from antigravity_provider.version import __version__
             metrics = {
+                "version": __version__,
                 "generation": gen,
                 "seq": request_seq,
                 "duration_ms": round((time.time() - t0) * 1000, 2),
@@ -311,6 +315,7 @@ class HubStateStore:
             routing={},
             quotas={},
             metrics={
+                "version": __version__,
                 "generation": 0,
                 "seq": 0,
                 "telemetry": telemetry_data,

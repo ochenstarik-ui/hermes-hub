@@ -234,6 +234,13 @@ def get_snapshot(authorized: bool = Depends(get_auth_token)):
         ),
     }
     
+    snap_dict["version"] = __version__
+    snap_dict["commit"] = get_installed_commit()
+    snap_dict["system_paths"] = {
+        "hermes_home": str(paths.get_hermes_home()),
+        "config_dir": str(paths.get_config_dir()),
+        "log_file": str(paths.get_log_file()),
+    }
     return JSONResponse(content=jsonable_encoder(snap_dict))
 
 @app.post("/api/action")
@@ -387,15 +394,21 @@ def get_settings(authorized: bool = Depends(get_auth_token)):
     last_check = UpdateManager.get_last_check_result()
     server_host = raw.get("web_api_host", "127.0.0.1")
     is_external = (server_host != "127.0.0.1" and server_host != "localhost")
+    system_paths = {
+        "hermes_home": str(paths.get_hermes_home()),
+        "config_dir": str(paths.get_config_dir()),
+        "log_file": str(paths.get_log_file()),
+    }
     settings_out: Dict[str, Any] = {
+        "system_paths": system_paths,
         "web_api_host": server_host,
         "web_api_port": raw.get("web_api_port", 5800),
         "web_api_token_configured": has_token,
         "theme": raw.get("theme", "system"),
-        "quota_refresh_interval_sec": raw.get("quota_refresh_interval_sec", 300),
-        "hermes_home": str(paths.get_hermes_home()),
-        "config_dir": str(paths.get_config_dir()),
-        "log_file": str(paths.get_log_file()),
+        "quota_refresh_interval_sec": raw.get("quota_refresh_interval_sec", raw.get("account_check_interval_seconds", 300)),
+        "hermes_home": system_paths["hermes_home"],
+        "config_dir": system_paths["config_dir"],
+        "log_file": system_paths["log_file"],
         "installed_commit": get_installed_commit(),
         "version": __version__,
         "last_update_check": last_check.to_dict() if last_check else None,

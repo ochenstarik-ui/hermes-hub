@@ -95,6 +95,14 @@ def validate_connection(provider, token="", base_url="", preferred_model=""):
         message = f"Подключено и проверено. Получено моделей: {len(models)}" if models else "Сервер отвечает; моделей пока нет"
         return {"ok": True, "message": message, "data": {"models": models, "base_url": base_url}}
     except Exception as exc:
+        exc_str = str(exc)
+        exc_lower = exc_str.lower()
+        if provider == "ollama" and any(k in exc_lower for k in ("connection refused", "winerror 10061", "errno 111", "111", "refused", "failed to connect", "target machine actively refused")):
+            return {
+                "ok": False,
+                "message": f"Не удалось подключиться к {base_url} (Connection refused). Если Ollama работает на сервере или другой машине, укажите её сетевой адрес (например, http://192.168.1.81:11434).",
+                "data": {"models": []},
+            }
         if isinstance(exc, urllib.error.HTTPError):
             reason = exc.reason or 'провайдер отклонил запрос'
             try:

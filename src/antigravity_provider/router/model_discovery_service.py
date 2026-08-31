@@ -369,9 +369,56 @@ class ModelDiscoveryService:
 
         if prov in ("antigravity", "google-antigravity"):
             from antigravity_provider.agy_subprocess import discover_models
-            main_p = getattr(self._probe_context, "profile_id", None) or ProfileAuthManager.get_main_profile("antigravity") or "ag-orch-fallback"
+            from antigravity_provider.paths import get_hermes_home
+            from antigravity_provider.router.router_config import load_router_config
+
+            candidate_pids: List[str] = []
+            req_p = getattr(self._probe_context, "profile_id", None)
+            if req_p:
+                candidate_pids.append(req_p)
+
             try:
-                res = discover_models(profile_id=main_p)
+                cfg = load_router_config()
+                for pid, pcfg in cfg.profiles.items():
+                    if pcfg.provider.lower() in ("antigravity", "google-antigravity") and pid not in candidate_pids:
+                        candidate_pids.append(pid)
+            except Exception:
+                pass
+
+            main_p = ProfileAuthManager.get_main_profile("antigravity")
+            if main_p and main_p not in candidate_pids:
+                candidate_pids.append(main_p)
+
+            standard_slots = (
+                ["ag-orch-primary", "ag-orch-fallback"]
+                + [f"ag-{i}" for i in range(1, 21)]
+                + [f"ag-w{i}" for i in range(1, 11)]
+            )
+            for s in standard_slots:
+                if s not in candidate_pids:
+                    candidate_pids.append(s)
+
+            try:
+                agy_dir = get_hermes_home() / "agy_profiles"
+                if agy_dir.is_dir():
+                    for sub in sorted(agy_dir.iterdir()):
+                        if sub.is_dir() and sub.name not in candidate_pids:
+                            candidate_pids.append(sub.name)
+            except Exception:
+                pass
+
+            target_pid = None
+            for cand in candidate_pids:
+                st = ProfileAuthManager.get_profile_status("antigravity", cand)
+                if st.get("authenticated") or ProfileAuthManager.load_profile_auth("antigravity", cand):
+                    target_pid = cand
+                    break
+
+            if not target_pid:
+                target_pid = candidate_pids[0] if candidate_pids else "ag-orch-fallback"
+
+            try:
+                res = discover_models(profile_id=target_pid)
                 if res:
                     return sorted(list(set(res.values()))), None
                 return None, "Модели Google Antigravity не обнаружены"

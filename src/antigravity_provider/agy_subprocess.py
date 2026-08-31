@@ -124,17 +124,57 @@ def discover_models(profile_id: str | None = None) -> dict[str, str]:
     # отвечала «Please sign in to view available models» — при шести рабочих
     # OAuth-профилях. Список моделей поэтому был пуст всегда.
     target_profile_id = profile_id
-    if not target_profile_id:
+    if target_profile_id:
         try:
             from antigravity_provider.router.profile_manager import ProfileAuthManager
+            st = ProfileAuthManager.get_profile_status("antigravity", target_profile_id)
+            if not st.get("authenticated") and not ProfileAuthManager.load_profile_auth("antigravity", target_profile_id):
+                target_profile_id = None
+        except Exception:
+            pass
+
+    if not target_profile_id:
+        try:
+            from antigravity_provider.paths import get_hermes_home
+            from antigravity_provider.router.profile_manager import ProfileAuthManager
+            from antigravity_provider.router.router_config import load_router_config
+
+            candidate_pids: list[str] = []
+            try:
+                cfg = load_router_config()
+                for pid, pcfg in cfg.profiles.items():
+                    if pcfg.provider.lower() in ("antigravity", "google-antigravity") and pid not in candidate_pids:
+                        candidate_pids.append(pid)
+            except Exception:
+                pass
+
             main_p = ProfileAuthManager.get_main_profile("antigravity")
-            if main_p and ProfileAuthManager.load_profile_auth("antigravity", main_p):
-                target_profile_id = main_p
-            else:
-                for candidate in ["ag-orch-primary", "ag-w1", "ag-w2", "ag-w3", "ag-w4", "ag-w5"]:
-                    if ProfileAuthManager.load_profile_auth("antigravity", candidate):
-                        target_profile_id = candidate
-                        break
+            if main_p and main_p not in candidate_pids:
+                candidate_pids.append(main_p)
+
+            standard_slots = (
+                ["ag-orch-primary", "ag-orch-fallback"]
+                + [f"ag-{i}" for i in range(1, 21)]
+                + [f"ag-w{i}" for i in range(1, 11)]
+            )
+            for s in standard_slots:
+                if s not in candidate_pids:
+                    candidate_pids.append(s)
+
+            try:
+                agy_dir = get_hermes_home() / "agy_profiles"
+                if agy_dir.is_dir():
+                    for sub in sorted(agy_dir.iterdir()):
+                        if sub.is_dir() and sub.name not in candidate_pids:
+                            candidate_pids.append(sub.name)
+            except Exception:
+                pass
+
+            for candidate in candidate_pids:
+                st = ProfileAuthManager.get_profile_status("antigravity", candidate)
+                if st.get("authenticated") or ProfileAuthManager.load_profile_auth("antigravity", candidate):
+                    target_profile_id = candidate
+                    break
         except Exception:
             target_profile_id = None
 

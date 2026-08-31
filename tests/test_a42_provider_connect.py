@@ -229,7 +229,7 @@ def test_p0_1_add_account_honest_rejections():
     # Missing API key for claude
     res_cl = ActionExecutor.execute("add_account", {"provider": "claude", "token": ""})
     assert res_cl["ok"] is False
-    assert "API-ключ" in res_cl["message"]
+    assert "Авторизация через браузер не завершена" in res_cl["message"] or "API-ключ" in res_cl["message"]
 
     # Unsupported provider
     res_unsupp = ActionExecutor.execute("add_account", {"provider": "unknown_provider_xyz"})

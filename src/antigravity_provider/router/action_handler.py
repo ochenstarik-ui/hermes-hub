@@ -51,11 +51,11 @@ def do_test_profile(provider: str, profile_id: str, timeout: float = 10.0, disco
         return {'success': False, 'error': f"Профиль '{profile_id}' не найден"}
 
     status = ProfileAuthManager.get_profile_status(pcfg.provider, profile_id)
-    if not status.get('authenticated'):
-        return {'success': False, 'error': 'Аккаунт не добавлен. Сначала выполните подключение.'}
-
     if status.get('is_expired') or status.get('expired') or status.get('status') == 'EXPIRED':
         return {'success': False, 'error': 'Авторизация истекла, требуется повторный вход.'}
+
+    if not status.get('authenticated'):
+        return {'success': False, 'error': 'Аккаунт не добавлен. Сначала выполните подключение.'}
 
     candidates = discovered_models if discovered_models is not None else pcfg.preferred_models
     if not candidates:
@@ -753,6 +753,8 @@ class ActionExecutor:
                 return {'ok': False, 'message': f'Провайдер {prov_norm} не поддерживается для прямого добавления учетных данных'}
             existing_status = ProfileAuthManager.get_profile_status(prov_norm, slot) if slot else {}
             if not token and prov_norm not in ('local', 'vllm', 'ollama') and not existing_status.get('authenticated'):
+                if prov_norm in ('antigravity', 'google-antigravity', 'claude', 'anthropic'):
+                    return {'ok': False, 'message': 'Авторизация через браузер не завершена. Пожалуйста, откройте ссылку входа или вставьте адрес возврата.'}
                 return {'ok': False, 'message': 'Не указан API-ключ или не завершена авторизация'}
             validation = None
             if token or prov_norm in ('local', 'vllm', 'ollama'):
@@ -790,7 +792,7 @@ class ActionExecutor:
                         return {'ok': False, 'message': 'Не указан API-ключ для NVIDIA NIM'}
                 elif prov_norm in ('claude', 'anthropic'):
                     if not token:
-                        return {'ok': False, 'message': 'Не указан API-ключ для Claude'}
+                        return {'ok': False, 'message': 'Авторизация через браузер не завершена. Пожалуйста, откройте ссылку входа или вставьте адрес возврата.'}
                 elif prov_norm in ('opencode-go', 'opencode'):
                     if not token:
                         return {'ok': False, 'message': 'Не указан API-ключ для OpenCode Go'}
@@ -802,7 +804,7 @@ class ActionExecutor:
                         return {'ok': False, 'message': f'Не указан API-ключ для {prov_norm}'}
                 elif prov_norm in ('antigravity', 'google-antigravity'):
                     if not token and not is_authenticated:
-                        return {'ok': False, 'message': 'Не выполнена авторизация для Antigravity'}
+                        return {'ok': False, 'message': 'Авторизация через браузер не завершена. Пожалуйста, откройте ссылку входа или вставьте адрес возврата.'}
                 else:
                     return {'ok': False, 'message': f'Провайдер {prov_norm} не поддерживается для прямого добавления учетных данных'}
 
