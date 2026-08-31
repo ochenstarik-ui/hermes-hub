@@ -53,10 +53,10 @@ def setup_test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 @pytest.mark.unit
 def test_unlimited_provider_slots_p0_1(tmp_path: Path):
     """P0-1: Connecting 4th and 5th account of a provider removes slot ceiling and dynamically registers profiles."""
-    # Pre-authenticate default 3 codex slots: codex-orch, codex-worker-1, codex-worker-2
-    ProfileAuthManager.save_profile_auth("openai-codex", "codex-orch", {"api_key": "sk-1"})
-    ProfileAuthManager.save_profile_auth("openai-codex", "codex-worker-1", {"api_key": "sk-2"})
-    ProfileAuthManager.save_profile_auth("openai-codex", "codex-worker-2", {"api_key": "sk-3"})
+    # Pre-authenticate 3 codex slots: codex-1, codex-2, codex-3
+    ProfileAuthManager.save_profile_auth("openai-codex", "codex-1", {"api_key": "sk-1"})
+    ProfileAuthManager.save_profile_auth("openai-codex", "codex-2", {"api_key": "sk-2"})
+    ProfileAuthManager.save_profile_auth("openai-codex", "codex-3", {"api_key": "sk-3"})
 
     # 4th slot should be generated dynamically (e.g. codex-4)
     slot_4 = AutoAssigner.find_free_slot("openai-codex")

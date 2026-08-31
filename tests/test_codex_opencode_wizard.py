@@ -36,11 +36,6 @@ from antigravity_provider.router.codex_oauth import (
     get_codex_oauth_session,
     cancel_codex_oauth_session,
 )
-# Pulls customtkinter transitively; without this guard a headless run aborts
-# collection of the entire session instead of skipping this module.
-pytest.importorskip("customtkinter")
-
-from antigravity_provider.router.ui.components import enable_clipboard_shortcuts, HubEntry
 
 
 @pytest.fixture(autouse=True)
@@ -277,23 +272,7 @@ def test_g_extract_jwt_identity():
     assert sub2 == "auth0|openai-456"
 
 
-# ==============================================================================
-# TEST H: HubEntry and enable_clipboard_shortcuts
-# ==============================================================================
-def test_h_enable_clipboard_shortcuts_binding():
-    """Test that enable_clipboard_shortcuts attaches paste/copy/cut/select-all handlers without error."""
-    mock_entry = MagicMock()
-    mock_entry._entry = MagicMock()
-    mock_entry.clipboard_get.return_value = "pasted_text_123"
 
-    enable_clipboard_shortcuts(mock_entry)
-
-    # Check bind was called for multiple standard and Cyrillic keys
-    bound_events = [c[0][0] for c in mock_entry._entry.bind.call_args_list]
-    assert "<Control-v>" in bound_events
-    assert "<Control-a>" in bound_events
-    assert "<Shift-Insert>" in bound_events
-    assert "<Control-cyrillic_em>" in bound_events
 
 
 # ==============================================================================

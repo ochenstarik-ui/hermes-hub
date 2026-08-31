@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 
 from antigravity_provider import paths
 from antigravity_provider.version import __version__
-from fastapi import FastAPI, Request, HTTPException, Depends, Header
+from fastapi import FastAPI, Request, HTTPException, Depends, Header, Response
 from pathlib import Path
 
 from fastapi.responses import FileResponse, JSONResponse
@@ -246,6 +246,30 @@ def get_events(limit: int = 100, category: Optional[str] = None, authorized: boo
     return JSONResponse(content=jsonable_encoder({"events": sanitized}))
 
 
+@app.get("/api/quotas/export")
+def export_quotas_endpoint(
+    format: str = "json",
+    authorized: bool = Depends(get_auth_token),
+):
+    """Export full quotas and limits report across all providers and profiles."""
+    from antigravity_provider.router.action_handler import generate_quotas_export
+    fmt = format.lower().strip()
+    if fmt == "csv":
+        csv_data = generate_quotas_export(format="csv")
+        return Response(
+            content=csv_data,
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": "attachment; filename=hermes_quotas_export.csv"},
+        )
+    else:
+        json_data = generate_quotas_export(format="json")
+        sanitized = sanitize_snapshot(json_data)
+        return JSONResponse(
+            content=jsonable_encoder(sanitized),
+            headers={"Content-Disposition": "attachment; filename=hermes_quotas_export.json"},
+        )
+
+
 @app.get("/api/settings")
 def get_settings(authorized: bool = Depends(get_auth_token)):
     """Return current server and hub settings without exposing raw auth tokens."""
@@ -282,19 +306,44 @@ def get_settings(authorized: bool = Depends(get_auth_token)):
             settings_out[k] = v
     return JSONResponse(content=jsonable_encoder(settings_out))
 
-def run_server():
+def run_web_server(host: Optional[str] = None, port: Optional[int] = None, open_browser: bool = False) -> None:
     import uvicorn
+    import webbrowser
     settings = _web_settings()
-    host = settings.get('web_api_host', '127.0.0.1')
-    port = int(settings.get('web_api_port', 5800))
+    host = host or settings.get('web_api_host', '127.0.0.1')
+    port = port or int(settings.get('web_api_port', 5800))
     token = settings.get('web_api_token', '')
     
     if host != '127.0.0.1' and not token:
         logger.error("Cannot bind Web API externally without web_api_token")
         sys.exit(1)
         
-    logger.info(f"Starting Hermes Hub Web API on {host}:{port}")
+    url = f"http://{host}:{port}"
+    logger.info(f"Starting Hermes Hub Web on {url}")
+    print(f"Hermes Hub running at {url}")
+
+    if open_browser:
+        def _open():
+            time.sleep(0.5)
+            try:
+                webbrowser.open(url)
+            except Exception:
+                pass
+        threading.Thread(target=_open, daemon=True).start()
+
     uvicorn.run(app, host=host, port=port, log_level="warning")
+
+
+def start_web_server_background(host: Optional[str] = None, port: Optional[int] = None) -> threading.Thread:
+    """Start web server in a daemon thread."""
+    t = threading.Thread(target=run_web_server, kwargs={"host": host, "port": port, "open_browser": False}, daemon=True)
+    t.start()
+    return t
+
+
+def run_server() -> None:
+    run_web_server(open_browser=False)
+
 
 
 # ─────────────────────────────────────────────────────────────

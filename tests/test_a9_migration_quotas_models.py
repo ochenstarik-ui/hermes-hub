@@ -43,7 +43,7 @@ class TestA9ConfigMigration(unittest.TestCase):
         shutil.rmtree(self.tmp_dir, ignore_errors=True)
 
     def test_migration_16_profiles_preserves_antigravity_and_adds_claude_grok(self):
-        # 1. Prepare legacy 16-profile configuration (no claude, no grok)
+        # 1. Prepare legacy configuration with 16 user profiles
         legacy_profiles = {}
         for pid in [
             "codex-orch", "codex-worker-1", "codex-worker-2",
@@ -60,33 +60,32 @@ class TestA9ConfigMigration(unittest.TestCase):
                 max_concurrency=3,
             )
 
+        # Legacy role configuration missing some canonical roles
+        legacy_roles = {
+            "manager": get_default_router_config().roles["manager"],
+            "developer-1": get_default_router_config().roles["developer-1"],
+        }
+
         legacy_cfg = RouterConfig(
             enabled=True,
             default_role="manager",
-            roles=get_default_router_config().roles,
+            roles=legacy_roles,
             profiles=legacy_profiles,
         )
         save_router_config(legacy_cfg, self.config_path)
 
         self.assertEqual(len(legacy_cfg.profiles), 16)
-        self.assertNotIn("grok-orch", legacy_cfg.profiles)
-        self.assertNotIn("claude-orch", legacy_cfg.profiles)
 
-        # 2. Load configuration (triggers migration)
+        # 2. Load configuration (triggers migration for missing canonical roles)
         migrated_cfg = load_router_config(self.config_path)
 
-        # 3. Verify backup file created
+        # 3. Verify backup file created on role migration
         backups = list(Path(self.tmp_dir).glob("router_profiles.yaml.bak_*"))
         self.assertGreaterEqual(len(backups), 1, "Backup file was not created on migration")
 
-        # 4. Verify Claude and Grok profiles added
-        self.assertIn("grok-orch", migrated_cfg.profiles)
-        self.assertIn("grok-worker-1", migrated_cfg.profiles)
-        self.assertIn("grok-worker-2", migrated_cfg.profiles)
-        self.assertIn("claude-orch", migrated_cfg.profiles)
-        self.assertIn("claude-worker-1", migrated_cfg.profiles)
-        self.assertIn("claude-worker-2", migrated_cfg.profiles)
-        self.assertEqual(len(migrated_cfg.profiles), 24)
+        # 4. Verify user profiles are preserved untouched (16 profiles preserved, no fake profiles injected)
+        self.assertEqual(len(migrated_cfg.profiles), 16)
+        self.assertEqual(len(migrated_cfg.roles), 13)
 
         # 5. Verify existing 10 antigravity profiles are 100% untouched
         for pid in ["ag-orch-fallback", "ag-w1", "ag-w2", "ag-w3", "ag-w4", "ag-spare-1", "ag-spare-2", "ag-cold-1", "ag-cold-2", "ag-cold-3"]:
@@ -96,17 +95,17 @@ class TestA9ConfigMigration(unittest.TestCase):
             self.assertEqual(p.preferred_models, ["custom-model-1"], f"Models mutated for {pid}")
             self.assertEqual(p.max_concurrency, 3, f"Concurrency mutated for {pid}")
 
-        # 6. Verify AutoAssigner.find_free_slot finds free slots for grok and claude
+        # 6. Verify AutoAssigner.find_free_slot dynamically allocates clean slots for grok and claude
         with patch.dict(os.environ, {"HERMES_ROUTER_CONFIG": str(self.config_path)}):
             slot_grok = AutoAssigner.find_free_slot("grok")
-            self.assertEqual(slot_grok, "grok-orch")
+            self.assertEqual(slot_grok, "grok-1")
             slot_claude = AutoAssigner.find_free_slot("claude")
-            self.assertEqual(slot_claude, "claude-orch")
+            self.assertEqual(slot_claude, "claude-1")
 
         # 7. Verify Idempotence: subsequent loads do not create extra backups
         backup_count_before = len(backups)
         reload_cfg = load_router_config(self.config_path)
-        self.assertEqual(len(reload_cfg.profiles), 24)
+        self.assertEqual(len(reload_cfg.profiles), 18)  # 16 + grok-1 + claude-1 registered during find_free_slot
         backup_count_after = len(list(Path(self.tmp_dir).glob("router_profiles.yaml.bak_*")))
         self.assertEqual(backup_count_before, backup_count_after)
 

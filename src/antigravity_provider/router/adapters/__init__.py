@@ -9,7 +9,10 @@ from .codex_adapter import CodexAdapter
 from .deepseek_adapter import DeepSeekResponsesAdapter
 from .grok_adapter import GrokAdapter
 from .local_adapter import LocalLLMAdapter
+from .nvidia_adapter import NvidiaAdapter
+from .ollama_adapter import OllamaAdapter
 from .opencode_adapter import OpenCodeGoAdapter
+from .openrouter_adapter import OpenRouterAdapter
 
 _ADAPTERS: dict[str, BaseProviderAdapter] = {
     "antigravity": AntigravityAdapter(),
@@ -28,8 +31,11 @@ _ADAPTERS: dict[str, BaseProviderAdapter] = {
     "local": LocalLLMAdapter(),
     "local-llm": LocalLLMAdapter(),
     "llama.cpp": LocalLLMAdapter(),
-    "ollama": LocalLLMAdapter(),
+    "ollama": OllamaAdapter(),
     "vllm": LocalLLMAdapter(),
+    "openrouter": OpenRouterAdapter(),
+    "nvidia": NvidiaAdapter(),
+    "nvidia-nim": NvidiaAdapter(),
 }
 
 

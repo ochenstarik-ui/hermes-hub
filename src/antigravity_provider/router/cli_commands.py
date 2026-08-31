@@ -34,6 +34,9 @@ def print_router_status() -> int:
     print("-" * 80)
 
     for rname, rpolicy in sorted(config.roles.items()):
+        if not rpolicy.preferred_chain:
+            print(f"{rname:<16} {'(не назначен)':<18} {'-':<15} {'not_configured':<18} {'-':<10}")
+            continue
         for idx, pid in enumerate(rpolicy.preferred_chain):
             pconfig = config.get_profile(pid)
             if not pconfig:
@@ -222,11 +225,6 @@ def test_profile_cli(profile_id: str) -> int:
 def simulate_quota_cli(profile_id: str, model_family: Optional[str] = None, duration: int = 600) -> int:
     """Simulate quota exhaustion on a profile for testing."""
     engine = get_router_engine()
-    pconfig = engine.config.get_profile(profile_id)
-    if not pconfig:
-        print(f"[ERROR] Profile '{profile_id}' not found.")
-        return 1
-
     engine.health.simulate_quota(profile_id, model_family=model_family, duration=duration)
     print(f"[OK] Simulated quota exhaustion activated for profile '{profile_id}' for {duration} seconds.")
     print("Use `hermes router clear-cooldown` to restore normal state.")
@@ -254,7 +252,7 @@ def print_diagnostics_cli() -> int:
         reasons.append(f"Отсутствуют зависимости: {', '.join(missing_deps)}")
         has_fatal_error = True
     else:
-        print("[PASS] Зависимости venv: все необходимые пакеты установлены (customtkinter, Pillow, psutil, pyyaml)")
+        print("[PASS] Зависимости venv: все необходимые пакеты установлены (fastapi, uvicorn, psutil, pyyaml)")
 
     # 2. Deployed Plugin Freshness Check
     hermes_home = paths.get_hermes_home()
@@ -478,8 +476,10 @@ def main(argv: Optional[list[str]] = None) -> int:
     args = parser.parse_args(argv)
 
     if args.subcommand in ("hub", "cockpit", "gui"):
-        from antigravity_provider.router.hermes_hub_app import launch_hub
-        launch_hub()
+        from antigravity_provider.router.web.server import run_web_server
+        port = getattr(args, "port", None)
+        no_browser = getattr(args, "no_browser", False)
+        run_web_server(port=port, open_browser=not no_browser)
         return 0
     elif args.subcommand == "status":
         return print_router_status()

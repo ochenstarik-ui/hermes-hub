@@ -188,6 +188,12 @@ function initEventListeners() {
   if (btnPreflight) {
     btnPreflight.addEventListener('click', () => runPreflightChecks());
   }
+
+  // Reset router config listener (P0-4)
+  const btnResetConfig = document.getElementById('btn-reset-router-config');
+  if (btnResetConfig) {
+    btnResetConfig.addEventListener('click', () => openResetConfigModal());
+  }
 }
 
 
@@ -336,6 +342,16 @@ function startPolling() {
 // пустого слота и у холодного резерва NOT_CONFIGURED. Состояния
 // AUTH_REQUIRED и AUTH_EXPIRED означают подключённый аккаунт, которому нужен
 // повторный вход, — их показываем.
+// Цвет индикатора по измеренному состоянию. Неизвестное состояние остаётся
+// серым (базовый .status-dot), а не выдаёт себя за здоровое.
+function healthDotClass(state) {
+  const st = String(state || '').toLowerCase();
+  if (st === 'healthy') return 'healthy';
+  if (['quota_exhausted', 'rate_limited', 'auth_required', 'auth_expired'].includes(st)) return 'warning';
+  if (['error', 'unhealthy'].includes(st)) return 'error';
+  return '';
+}
+
 function isConnectedProfile(p) {
   if (!p) return false;
   const st = String(p.auth_state || '').toUpperCase();
@@ -780,7 +796,13 @@ function renderQuotaCell(bucket, unavailableReason) {
   let barWidth = 0;
   let colorClass = 'var(--status-disabled)';
 
-  if (typeof remaining === 'number') {
+  const isUnlimited = bucket.status === 'unlimited' || bucket.period === 'unlimited' || (unavailableReason && unavailableReason.includes('Без ограничений'));
+
+  if (isUnlimited) {
+    formattedValue = 'Без ограничений';
+    barWidth = 100;
+    colorClass = 'var(--status-healthy)';
+  } else if (typeof remaining === 'number') {
     formattedValue = `${remaining.toFixed(1)}%`;
     barWidth = Math.max(0, Math.min(100, remaining));
     if (remaining <= 0) colorClass = 'var(--status-error)';
@@ -790,9 +812,11 @@ function renderQuotaCell(bucket, unavailableReason) {
     formattedValue = 'Н/Д';
   }
 
-  let resetText = bucket.reset_at
-    ? `Сброс: ${formatIsoDate(bucket.reset_at)}`
-    : (bucket.period ? `Период: ${bucket.period}` : (unavailableReason || 'Период провайдера'));
+  let resetText = isUnlimited
+    ? (unavailableReason || 'Без ограничений')
+    : (bucket.reset_at
+        ? `Сброс: ${formatIsoDate(bucket.reset_at)}`
+        : (bucket.period ? `Период: ${bucket.period}` : (unavailableReason || 'Период провайдера')));
 
   return `
     <div class="quota-cell">
@@ -982,7 +1006,17 @@ function renderRoutingView() {
 
   const routing = currentSnapshot.routing || {};
   const agents = currentSnapshot.agents || [];
-  const profiles = currentSnapshot.profiles || {};
+  // Снапшот отдаётся как dataclasses.asdict(HubSnapshot): профили лежат в
+  // all_profiles. Ключа profiles в ответе нет — правая колонка была всегда
+  // пуста, счётчик оставался литеральным «0 аккаунтов» из разметки, а строки
+  // цепочек получали пустой профиль и рисовались иконкой-заглушкой.
+  // Показываем только подключённые аккаунты — правило A26.
+  // Для строк цепочек берём полный список: цепочка может ссылаться на
+  // аккаунт, который сейчас не подключён, и его надо показать как есть,
+  // а не подменять пустым профилем.
+  const profiles = currentSnapshot.all_profiles || {};
+  // В колонку «доступные» идут только подключённые — правило A26.
+  const availableProfiles = Object.entries(profiles).filter(([, p]) => isConnectedProfile(p));
 
   // Render Left Column (Roles)
   let rolesHtml = '';
@@ -1081,7 +1115,7 @@ function renderRoutingView() {
   const q = searchEl ? searchEl.value.toLowerCase() : '';
   
   let count = 0;
-  for (const [pid, prof] of Object.entries(profiles)) {
+  for (const [pid, prof] of availableProfiles) {
     if (q && !pid.toLowerCase().includes(q) && !(prof.provider||'').toLowerCase().includes(q)) continue;
     count++;
     const icon = getProviderIcon(prof.provider);
@@ -1093,7 +1127,10 @@ function renderRoutingView() {
           <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(prof.provider || '')}</div>
         </div>
         <div style="width:40px;">
-           <div class="cell-bar-track"><div class="cell-bar-fill" style="width:80%; background:var(--status-healthy);"></div></div>
+           <!-- Здесь стояла полоса с зашитым width:80% — одинаковая у всех
+                аккаунтов и ни на чём не основанная. Показываем измеренное
+                состояние здоровья, а не выдуманный процент. -->
+           <span class="status-dot ${healthDotClass(prof.health_state)}" title="${escapeHtml(prof.health_label_ru || 'Н/Д: состояние не проверялось')}"></span>
         </div>
         <button class="btn btn-secondary btn-sm" style="padding:2px 6px;" onclick="quickAddProfile('${escapeHtml(pid)}')"><i class="fa-solid fa-plus"></i></button>
       </div>
@@ -1360,6 +1397,67 @@ async function saveHubServerSettings() {
   }
 }
 
+// ── RESET CONFIGURATION (P0-2 & P0-4) ──
+function openResetConfigModal() {
+  elements.modalTitle.textContent = 'Начать настройку заново';
+  elements.modalBody.innerHTML = `
+    <div class="modal-feedback warning" style="margin-bottom:14px; line-height:1.5;">
+      ⚠️ <strong>Вы собираетесь сбросить конфигурацию маршрутизатора в исходное чистое состояние.</strong>
+    </div>
+    <div style="font-size:13px; margin-bottom:12px;">
+      <div style="font-weight:600; color:var(--status-error); margin-bottom:4px;">Будет сброшено:</div>
+      <ul style="margin:0 0 12px 18px; padding:0; color:var(--text-secondary);">
+        <li>Цепочки всех 13 ролей (будут очищены).</li>
+        <li>Список профилей в <code>router_profiles.yaml</code> (0 профилей).</li>
+        <li>Перед сбросом создаётся резервная копия <code>router_profiles.yaml.bak_...</code>.</li>
+      </ul>
+      <div style="font-weight:600; color:var(--status-healthy); margin-bottom:4px;">Будет сохранено (НЕ затрагивается):</div>
+      <ul style="margin:0 0 0 18px; padding:0; color:var(--text-secondary);">
+        <li>Все учётные данные, токены, ключи и подключённые аккаунты.</li>
+        <li>Файлы авторизации в <code>~/.hermes/agy_profiles/</code>, <code>codex_profiles/</code> и др.</li>
+        <li>Общие настройки хаба в <code>hub_settings.json</code>.</li>
+      </ul>
+    </div>
+    <div id="reset-config-feedback-area"></div>
+  `;
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+    <button class="btn btn-danger" id="btn-modal-confirm-reset" onclick="confirmResetConfig()">Сбросить и начать заново</button>
+  `;
+  showModal();
+}
+
+async function confirmResetConfig() {
+  const btn = document.getElementById('btn-modal-confirm-reset');
+  const feedback = document.getElementById('reset-config-feedback-area');
+  if (btn) btn.disabled = true;
+  if (feedback) {
+    feedback.innerHTML = '<div class="modal-feedback info">⏳ Выполняется сброс конфигурации...</div>';
+  }
+  try {
+    const res = await executeAction('reset_router_config', {});
+    if (res && res.ok) {
+      if (feedback) {
+        feedback.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Конфигурация успешно сброшена')}</div>`;
+      }
+      setTimeout(() => {
+        closeModal();
+        fetchSnapshot();
+      }, 1000);
+    } else {
+      if (btn) btn.disabled = false;
+      if (feedback) {
+        feedback.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Ошибка сброса конфигурации')}</div>`;
+      }
+    }
+  } catch (err) {
+    if (btn) btn.disabled = false;
+    if (feedback) {
+      feedback.innerHTML = `<div class="modal-feedback error">❌ Ошибка: ${escapeHtml(err.message || String(err))}</div>`;
+    }
+  }
+}
+
 // ── PREFLIGHT READINESS CHECKS ──
 async function runPreflightChecks() {
   const container = document.getElementById('preflight-results-container');
@@ -1452,6 +1550,303 @@ function initSettings() {
   }
 }
 
+function openAccountDetailsModal(profileId, isRedraw = false) {
+  _openAccountModalProfile = profileId;
+  if (!currentSnapshot) return;
+  const allProfiles = currentSnapshot.all_profiles || {};
+  const profile = allProfiles[profileId];
+  if (!profile) return;
+
+  const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === profile.provider);
+  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
+  const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
+  const qs = profile.quota_snapshot;
+  const buckets = (qs && qs.buckets) ? qs.buckets : [];
+
+  let modelBlockHtml = '';
+  if (discoveredModels.length > 0) {
+    modelBlockHtml = `
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
+        <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Предпочитаемая модель профиля:</label>
+        <div style="display:flex; gap:8px;">
+          <select id="modal-model-select" class="select-filter" style="flex:1;">
+            ${discoveredModels.map((m) => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="handleSaveProfileModel('${escapeHtml(profileId)}')">Сохранить</button>
+        </div>
+      </div>
+    `;
+  } else {
+    modelBlockHtml = `
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
+        <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
+          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}', '${escapeHtml(profileId)}')">↻ Запросить список моделей</button>
+      </div>
+    `;
+  }
+
+  // Local request options section
+  let requestOptionsHtml = '';
+  if (profile.provider === 'local') {
+    const rawOptions = profile.request_options || {};
+    const formattedJson = JSON.stringify(rawOptions, null, 2);
+    requestOptionsHtml = `
+      <div style="background:var(--surface-muted); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <label style="font-weight:700; font-size:12px;">Параметры запроса (JSON request_options):</label>
+          <span id="modal-options-validation-status" style="font-size:11px; color:var(--status-healthy);">✓ JSON валиден</span>
+        </div>
+        <div style="font-size:11px; color:var(--text-muted); margin-bottom:8px;">
+          Произвольные параметры, подмешиваемые в тело запроса (например, <code>{"chat_template_kwargs": {"enable_thinking": false}}</code>).
+        </div>
+        <textarea id="modal-request-options-input" class="input-text" style="width:100%; height:90px; font-family:var(--font-mono); font-size:11px; resize:vertical;" placeholder="{}" oninput="updateRequestOptionsPreview('${escapeHtml(profileId)}')">${escapeHtml(formattedJson)}</textarea>
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:8px;">
+          <button class="btn btn-secondary btn-sm" onclick="handleSaveRequestOptions('${escapeHtml(profileId)}')">💾 Сохранить параметры</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleRequestOptionsPreview()">👁 Предпросмотр тела запроса</button>
+        </div>
+
+        <div id="modal-payload-preview-box" style="display:none; margin-top:10px;">
+          <div style="font-size:11px; font-weight:600; color:var(--text-secondary); margin-bottom:4px;">Что отправится на сервер (/chat/completions):</div>
+          <pre id="modal-payload-preview-content" style="background:var(--surface-card); padding:8px 10px; border-radius:4px; font-size:11px; font-family:var(--font-mono); color:var(--text-accent); max-height:140px; overflow-y:auto; margin:0; border:1px solid var(--border-subtle);"></pre>
+        </div>
+      </div>
+    `;
+  }
+
+  let quotasHtml = '';
+  if (profile.provider !== 'local') {
+    quotasHtml = `
+      <h3 style="font-size:13px; font-weight:700; margin-bottom:8px; border-bottom:1px solid var(--border-subtle); padding-bottom:4px;">
+        Квоты и корзины провайдера
+      </h3>
+      <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:16px;">
+        ${buckets.map((b) => `
+          <div style="background:var(--surface-muted); padding:8px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+            <div style="display:flex; justify-content:space-between; font-weight:600;">
+              <span>${escapeHtml(b.display_name)}</span>
+              <span>${b.remaining_percent !== null && b.remaining_percent !== undefined ? `${b.remaining_percent.toFixed(1)}%` : 'Н/Д'}</span>
+            </div>
+            <div class="quota-bar-track" style="margin:4px 0;">
+              <div class="quota-bar-fill" style="width:${b.remaining_percent || 0}%; background-color:var(--status-healthy);"></div>
+            </div>
+            <div style="font-size:10px; color:var(--text-muted);">
+              ${b.reset_at ? `Сброс: ${formatIsoDate(b.reset_at)}` : (b.period ? `Период: ${b.period}` : 'Без отметки сброса')}
+            </div>
+          </div>
+        `).join('') || '<div class="empty-text">Данные о квотах отсутствуют.</div>'}
+      </div>
+    `;
+  }
+
+  elements.modalTitle.textContent = `Учетная запись: ${profile.display_name || profileId}`;
+  elements.modalBody.innerHTML = `
+    <div id="modal-feedback-area"></div>
+    <div style="margin-bottom:14px;">
+      <div style="font-size:14px; font-weight:700;">${escapeHtml(profile.account_identity || profile.email || profileId)}</div>
+      <div style="font-size:12px; color:var(--text-muted);">
+        Провайдер: <strong>${escapeHtml(profile.provider_display_name || profile.provider)}</strong> •
+        Тариф: <strong>${escapeHtml(profile.plan || 'Неизвестen')}</strong> •
+        Статус: <strong class="text-healthy">${escapeHtml(profile.health_label_ru || 'Работает')}</strong>
+      </div>
+      <div style="font-size:12px; color:var(--text-secondary); margin-top:4px;">
+        Назначенные роли: <strong>${escapeHtml((profile.assigned_roles || []).join(', ') || 'Нет')}</strong>
+      </div>
+    </div>
+
+    ${modelBlockHtml}
+    ${requestOptionsHtml}
+    ${quotasHtml}
+  `;
+
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-secondary" id="btn-modal-test-profile" onclick="handleTestProfile('${escapeHtml(profileId)}')">⚡ Проверить подключение</button>
+    <button class="btn btn-secondary" onclick="executeAction('set_main', { profile_id: '${escapeHtml(profileId)}' })">★ Сделать основным</button>
+    <button class="btn btn-secondary" onclick="handleDeleteCredentials('${escapeHtml(profileId)}')">Удалить ключ</button>
+    <button class="btn btn-primary" onclick="closeModal()">Закрыть</button>
+  `;
+
+  if (!isRedraw) {
+    showModal();
+  }
+  if (profile.provider === 'local') {
+    updateRequestOptionsPreview(profileId);
+  }
+}
+
+function updateRequestOptionsPreview(profileId) {
+  const input = document.getElementById('modal-request-options-input');
+  const statusEl = document.getElementById('modal-options-validation-status');
+  const previewContent = document.getElementById('modal-payload-preview-content');
+  if (!input) return;
+
+  const raw = input.value.trim();
+  let parsed = {};
+  let isValid = true;
+  let errorMsg = '';
+
+  if (raw) {
+    try {
+      parsed = JSON.parse(raw);
+      if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
+        isValid = false;
+        errorMsg = 'JSON должен быть объектом {...}';
+      }
+    } catch (e) {
+      isValid = false;
+      errorMsg = e.message;
+    }
+  }
+
+  if (statusEl) {
+    if (isValid) {
+      statusEl.style.color = 'var(--status-healthy)';
+      statusEl.textContent = '✓ JSON валиден';
+    } else {
+      statusEl.style.color = 'var(--status-error)';
+      statusEl.textContent = `⚠ Ошибка: ${errorMsg}`;
+    }
+  }
+
+  if (previewContent) {
+    const profile = (currentSnapshot && currentSnapshot.all_profiles) ? currentSnapshot.all_profiles[profileId] : null;
+    const model = (profile && profile.preferred_models && profile.preferred_models[0]) || 'default';
+    const samplePayload = {
+      model: model,
+      messages: [{ role: 'user', content: 'Тестовое сообщение' }],
+      temperature: 0.7,
+      max_tokens: 1500,
+    };
+    if (isValid && typeof parsed === 'object' && parsed !== null) {
+      Object.assign(samplePayload, parsed);
+    }
+    previewContent.textContent = JSON.stringify(samplePayload, null, 2);
+  }
+}
+
+function toggleRequestOptionsPreview() {
+  const box = document.getElementById('modal-payload-preview-box');
+  if (box) {
+    box.style.display = box.style.display === 'none' ? 'block' : 'none';
+  }
+}
+
+async function handleSaveRequestOptions(profileId) {
+  const input = document.getElementById('modal-request-options-input');
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (!input) return;
+
+  const raw = input.value.trim();
+  let parsed = {};
+  if (raw) {
+    try {
+      parsed = JSON.parse(raw);
+      if (typeof parsed !== 'object' || Array.isArray(parsed) || parsed === null) {
+        throw new Error('Параметры должны быть JSON-объектом {...}');
+      }
+    } catch (e) {
+      if (feedbackArea) {
+        feedbackArea.innerHTML = `<div class="modal-feedback error">❌ Некорректный JSON: ${escapeHtml(e.message)}</div>`;
+      }
+      return;
+    }
+  }
+
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение параметров запроса...</div>';
+  }
+
+  const res = await executeAction('save_request_options', {
+    profile_id: profileId,
+    request_options: parsed,
+  });
+
+  if (feedbackArea) {
+    if (res && res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Параметры сохранены')}</div>`;
+      showToast('Параметры запроса сохранены', 'success');
+      if (currentSnapshot && currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
+        currentSnapshot.all_profiles[profileId].request_options = parsed;
+      }
+    } else {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Ошибка сохранения')}</div>`;
+    }
+  }
+}
+
+async function handleTestProfile(profileId) {
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  const btn = document.getElementById('btn-modal-test-profile');
+  if (btn) btn.disabled = true;
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Выполняется проверка подключения и тестовый запрос...</div>';
+  }
+
+  const profile = (currentSnapshot && currentSnapshot.all_profiles) ? currentSnapshot.all_profiles[profileId] : null;
+  const prov = profile ? profile.provider : '';
+
+  const res = await executeAction('test', {
+    profile_id: profileId,
+    provider: prov,
+  });
+
+  if (btn) btn.disabled = false;
+  if (feedbackArea) {
+    const data = (res && res.data) || {};
+    const dur = data.duration_sec ? ` (${data.duration_sec}с)` : '';
+    if (res && res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Подключение успешно')}${dur}</div>`;
+      showToast('Проверка подключения успешна', 'success');
+    } else {
+      const errMsg = (res && (res.message || (res.data && res.data.error))) || 'Ошибка подключения';
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml(errMsg)}${dur}</div>`;
+      showToast(`Сбой проверки: ${errMsg}`, 'error');
+    }
+  }
+}
+
+async function handleSaveProfileModel(profileId) {
+  const sel = document.getElementById('modal-model-select');
+  if (!sel) return;
+  const model = sel.value;
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение модели...</div>';
+  }
+  const res = await executeAction('set_model', { profile_id: profileId, model: model });
+  if (feedbackArea) {
+    if (res && res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Модель сохранена')}</div>`;
+      if (currentSnapshot && currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
+        currentSnapshot.all_profiles[profileId].preferred_models = [model];
+      }
+    } else {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Ошибка сохранения модели')}</div>`;
+    }
+  }
+}
+
+async function handleRefreshProviderModels(provider, profileId) {
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Запрос списка моделей от сервера...</div>';
+  }
+  const res = await executeAction('refresh_models', { provider: provider });
+  if (res && res.ok) {
+    showToast('Список моделей обновлен', 'success');
+    await fetchSnapshot();
+    if (_openAccountModalProfile) {
+      openAccountDetailsModal(_openAccountModalProfile, true);
+    }
+  } else {
+    if (feedbackArea) {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Не удалось получить модели')}</div>`;
+    }
+  }
+}
+
 // ── MODAL HELPERS ──
 function showModal() {
   if (elements.modalBackdrop) elements.modalBackdrop.classList.remove('hidden');
@@ -1507,6 +1902,849 @@ function formatIsoDate(isoStr) {
   }
 }
 
+// ── THEME SWITCHER ──
+function applyTheme(theme) {
+  // Тем три, а не две.
+  //
+  // Medium была полностью описана в style.css, но здесь не обрабатывалась и в
+  // список выбора не попадала — выбрать её было нельзя. По брендбуку это
+  // отдельная тема, а не осветлённая Dark: тёмно-зелёный холст #1A2A1F со
+  // светлыми кремовыми карточками #F7F1E3. Проверено подстановкой атрибута
+  // вручную — отрисовывается верно и отличается от Dark и фоном, и карточками.
+  const known = ['light', 'medium', 'dark'];
+  if (known.includes(theme)) {
+    document.body.setAttribute('data-theme', theme);
+    document.body.classList.toggle('theme-light', theme === 'light');
+  } else {
+    // Системная: отдаём выбор prefers-color-scheme.
+    document.body.removeAttribute('data-theme');
+    document.body.classList.remove('theme-light');
+  }
+}
+
+// ── UPDATE MANAGEMENT (P0-1 / In-App Updates) ──
+async function checkUpdates(silent = false) {
+  if (!silent) {
+    showToast('Проверка обновлений...', 'info');
+  }
+  try {
+    const res = await executeAction('check_updates', {});
+    if (res && res.ok && res.data) {
+      latestUpdateInfo = res.data;
+      renderUpdateUI();
+      if (!silent) {
+        if (res.data.update_available) {
+          const c = res.data.latest_commit ? res.data.latest_commit.slice(0, 7) : (res.data.release_tag || 'new');
+          showToast(`Доступно обновление (сборка ${c})`, 'info');
+        } else {
+          showToast(res.data.message || 'Установлена последняя сборка', 'success');
+        }
+      }
+    } else {
+      if (res && res.data) {
+        latestUpdateInfo = res.data;
+        renderUpdateUI();
+      }
+      if (!silent) {
+        showToast((res && res.message) || 'Ошибка проверки обновлений', 'error');
+      }
+    }
+  } catch (err) {
+    if (!silent) {
+      showToast(`Ошибка проверки обновлений: ${err.message}`, 'error');
+    }
+  }
+}
+
+function renderUpdateUI() {
+  const badge = document.getElementById('header-update-badge');
+  const badgeText = document.getElementById('header-update-text');
+  const commitTag = document.getElementById('commit-tag');
+
+  const installedCommit = (latestUpdateInfo && latestUpdateInfo.installed_commit && latestUpdateInfo.installed_commit !== 'unknown')
+    ? latestUpdateInfo.installed_commit
+    : (currentSettings && currentSettings.installed_commit ? currentSettings.installed_commit : '');
+
+  if (commitTag) {
+    commitTag.textContent = installedCommit ? `Сборка: ${installedCommit.slice(0, 7)}` : 'Сборка: —';
+  }
+
+  if (badge && badgeText) {
+    if (latestUpdateInfo && latestUpdateInfo.update_available) {
+      badge.classList.remove('hidden');
+      const c = latestUpdateInfo.latest_commit ? latestUpdateInfo.latest_commit.slice(0, 7) : (latestUpdateInfo.release_tag || 'new');
+      badgeText.textContent = `Доступно обновление (${c})`;
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+
+  const updateInfoDesc = document.getElementById('update-installed-info');
+  const statusBadge = document.getElementById('update-status-badge');
+  const lastCheckedDesc = document.getElementById('update-last-checked-desc');
+  const btnApply = document.getElementById('btn-apply-update');
+  const detailsBlock = document.getElementById('update-details-block');
+  const releaseTitle = document.getElementById('update-release-title');
+  const releaseMeta = document.getElementById('update-release-meta');
+  const releaseNotes = document.getElementById('update-release-notes');
+
+  const curVer = (latestUpdateInfo && latestUpdateInfo.current_version) || (currentSettings && currentSettings.version) || '0.1.1';
+  const cDisplay = installedCommit ? installedCommit.slice(0, 7) : 'неизвестно';
+  if (updateInfoDesc) {
+    updateInfoDesc.textContent = `Hermes Hub v${curVer} (сборка: ${cDisplay})`;
+  }
+
+  if (statusBadge) {
+    if (latestUpdateInfo && latestUpdateInfo.error) {
+      statusBadge.textContent = 'Ошибка проверки';
+      statusBadge.className = 'badge badge-status warning';
+      statusBadge.title = latestUpdateInfo.error;
+    } else if (latestUpdateInfo && latestUpdateInfo.update_available) {
+      statusBadge.textContent = 'Доступно обновление';
+      statusBadge.className = 'badge badge-status warning';
+      statusBadge.title = '';
+    } else if (latestUpdateInfo && latestUpdateInfo.checked_at > 0) {
+      statusBadge.textContent = 'Актуально';
+      statusBadge.className = 'badge healthy';
+      statusBadge.title = '';
+    } else {
+      statusBadge.textContent = 'Не проверялось';
+      statusBadge.className = 'badge';
+      statusBadge.title = '';
+    }
+  }
+
+  if (lastCheckedDesc) {
+    if (latestUpdateInfo && latestUpdateInfo.checked_at > 0) {
+      const tStr = new Date(latestUpdateInfo.checked_at * 1000).toLocaleTimeString('ru-RU');
+      const errNote = latestUpdateInfo.error ? ` — Ошибка: ${latestUpdateInfo.error}` : '';
+      lastCheckedDesc.textContent = `Последняя проверка: сегодня в ${tStr}${errNote}`;
+    } else {
+      lastCheckedDesc.textContent = 'Последняя проверка: еще не выполнялась';
+    }
+  }
+
+  if (btnApply) {
+    btnApply.disabled = !(latestUpdateInfo && latestUpdateInfo.update_available);
+  }
+
+  if (detailsBlock && releaseTitle && releaseMeta && releaseNotes) {
+    if (latestUpdateInfo && latestUpdateInfo.update_available) {
+      detailsBlock.classList.remove('hidden');
+      const latC = latestUpdateInfo.latest_commit ? latestUpdateInfo.latest_commit.slice(0, 7) : '—';
+      releaseTitle.textContent = `Релиз: ${latestUpdateInfo.release_tag || latestUpdateInfo.latest_version || 'Новая сборка'} (коммит: ${latC})`;
+      releaseMeta.textContent = latestUpdateInfo.published_at ? `Опубликован: ${latestUpdateInfo.published_at}` : '';
+      releaseNotes.textContent = latestUpdateInfo.changelog || latestUpdateInfo.release_notes || 'Описание изменений отсутствует.';
+    } else {
+      detailsBlock.classList.add('hidden');
+    }
+  }
+}
+
+function openUpdateModal() {
+  if (!latestUpdateInfo) {
+    checkUpdates(false);
+    return;
+  }
+
+  const instC = (latestUpdateInfo.installed_commit && latestUpdateInfo.installed_commit !== 'unknown')
+    ? latestUpdateInfo.installed_commit.slice(0, 7)
+    : 'неизвестно';
+  const latC = latestUpdateInfo.latest_commit ? latestUpdateInfo.latest_commit.slice(0, 7) : (latestUpdateInfo.release_tag || '—');
+
+  if (elements.modalTitle) elements.modalTitle.textContent = 'Обновление Hermes Hub';
+  if (elements.modalBody) {
+    elements.modalBody.innerHTML = `
+      <div class="update-modal-body">
+        <div style="display:flex; justify-content:space-between; margin-bottom:12px; padding:10px; background:var(--surface-muted); border-radius:var(--radius-sm);">
+          <div>
+            <div style="font-size:11px; color:var(--text-muted);">Текущая сборка:</div>
+            <div style="font-weight:600; font-family:var(--font-mono); font-size:13px;">${escapeHtml(instC)}</div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px; color:var(--text-muted);">Новая сборка:</div>
+            <div style="font-weight:600; font-family:var(--font-mono); font-size:13px; color:var(--status-warning);">${escapeHtml(latC)}</div>
+          </div>
+        </div>
+        <div style="margin-bottom:8px; font-size:12px; color:var(--text-muted);">
+          Тег: <strong>${escapeHtml(latestUpdateInfo.release_tag || latestUpdateInfo.latest_version || '—')}</strong>
+          ${latestUpdateInfo.published_at ? ` &bull; Дата: ${escapeHtml(latestUpdateInfo.published_at)}` : ''}
+        </div>
+        <div style="font-weight:600; font-size:12px; margin-bottom:4px;">Список изменений (Release Notes):</div>
+        <div style="max-height:200px; overflow-y:auto; font-size:12px; line-height:1.4; white-space:pre-wrap; background:var(--surface-muted); padding:10px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); font-family:var(--font-mono);">
+          ${escapeHtml(latestUpdateInfo.changelog || latestUpdateInfo.release_notes || 'Описание изменений отсутствует.')}
+        </div>
+      </div>
+    `;
+  }
+  if (elements.modalFooter) {
+    elements.modalFooter.innerHTML = `
+      <button class="btn btn-secondary" onclick="closeModal()">Закрыть</button>
+      <button class="btn btn-primary" id="btn-modal-install-update" onclick="handleInstallUpdateFromModal()">Установить обновление</button>
+    `;
+  }
+  showModal();
+}
+
+async function handleInstallUpdateFromModal() {
+  const btn = document.getElementById('btn-modal-install-update');
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Установка...';
+  }
+  await applyUpdate();
+  closeModal();
+}
+
+async function applyUpdate() {
+  showToast('Загрузка и запуск обновления...', 'info');
+  try {
+    const res = await executeAction('apply_update', {});
+    if (res && res.ok) {
+      showToast(res.message || 'Обновление запущено успешно!', 'success');
+    } else {
+      showToast((res && res.message) || 'Ошибка установки обновления', 'error');
+    }
+  } catch (err) {
+    showToast(`Ошибка установки: ${err.message}`, 'error');
+  }
+}
+
+// ── OVERVIEW & ROUTING NODE HANDLERS ──
+async function handleNodeAccountChange(roleId, profileId, isPrimary = true) {
+  if (!roleId || !profileId) return;
+  showToast(`Назначение аккаунта '${profileId}' на роль '${roleId}'...`, 'info');
+  const res = await executeAction('assign_role', {
+    role_id: roleId,
+    profile_id: profileId,
+    is_primary: isPrimary,
+  });
+  if (res && res.ok) {
+    showToast(`Аккаунт '${profileId}' успешно назначен`, 'success');
+    fetchSnapshot();
+  } else {
+    showToast((res && res.message) || 'Ошибка назначения аккаунта', 'error');
+  }
+}
+
+async function handleNodeModelChange(roleId, profileId, newModel) {
+  if (!newModel) return;
+  showToast(`Сохранение модели '${newModel}' для ${profileId}...`, 'info');
+  const res = await executeAction('set_model', { profile_id: profileId, model: newModel, role_id: roleId });
+  if (res && res.ok) {
+    showToast(`Модель '${newModel}' успешно сохранена`, 'success');
+    if (currentSnapshot) {
+      if (currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
+        currentSnapshot.all_profiles[profileId].preferred_models = [newModel];
+      }
+      if (currentSnapshot.routing && currentSnapshot.routing[roleId]) {
+        currentSnapshot.routing[roleId].default_model = newModel;
+        const node = (currentSnapshot.routing[roleId].nodes || []).find((n) => n.profile_id === profileId);
+        if (node) node.model = newModel;
+      }
+    }
+    renderCurrentView();
+    fetchSnapshot();
+  } else {
+    showToast((res && res.message) || 'Ошибка сохранения модели', 'error');
+  }
+}
+
+async function handleRefreshProviderModels(providerId, profileId = null) {
+  showToast(`Запрос списка моделей для ${providerId}...`, 'info');
+  const res = await executeAction('refresh_models', { provider: providerId });
+  if (res && res.ok) {
+    showToast('Запрос обновления моделей отправлен', 'success');
+    if (profileId) {
+      setTimeout(() => openAccountDetailsModal(profileId, true), 500);
+    } else {
+      fetchSnapshot();
+    }
+  } else {
+    showToast((res && res.message) || 'Ошибка обновления моделей', 'error');
+  }
+}
+
+// ── ACCOUNT & AGENT MODALS ──
+function openAccountDetailsModal(profileId, isRefresh = false) {
+  _openAccountModalProfile = profileId;
+  if (!currentSnapshot) return;
+  const profile = (currentSnapshot.all_profiles || {})[profileId];
+  if (!profile) return;
+
+  const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === profile.provider);
+  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
+  const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
+  const qs = profile.quota_snapshot;
+  const buckets = (qs && qs.buckets) ? qs.buckets : [];
+
+  let modelBlockHtml = '';
+  if (discoveredModels.length > 0) {
+    modelBlockHtml = `
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
+        <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Предпочитаемая модель профиля:</label>
+        <div style="display:flex; gap:8px;">
+          <select id="modal-model-select" class="select-filter" style="flex:1;">
+            ${discoveredModels.map((m) => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+          </select>
+          <button class="btn btn-secondary btn-sm" onclick="handleSaveProfileModel('${escapeHtml(profileId)}')">Сохранить</button>
+        </div>
+      </div>
+    `;
+  } else {
+    modelBlockHtml = `
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
+        <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
+          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}', '${escapeHtml(profileId)}')">↻ Запросить список моделей</button>
+      </div>
+    `;
+  }
+
+  elements.modalTitle.textContent = `Учетная запись: ${profile.display_name || profileId}`;
+  elements.modalBody.innerHTML = `
+    <div id="modal-feedback-area"></div>
+    <div style="margin-bottom:14px;">
+      <div style="font-size:14px; font-weight:700;">${escapeHtml(profile.account_identity || profile.email || profileId)}</div>
+      <div style="font-size:12px; color:var(--text-muted);">
+        Провайдер: <strong>${escapeHtml(profile.provider_display_name || profile.provider)}</strong> •
+        Тариф: <strong>${escapeHtml(profile.plan || 'Неизвестен')}</strong> •
+        Статус: <strong class="text-healthy">${escapeHtml(profile.health_label_ru || 'Работает')}</strong>
+      </div>
+      <div style="font-size:12px; color:var(--text-secondary); margin-top:4px;">
+        Назначенные роли: <strong>${escapeHtml((profile.assigned_roles || []).join(', ') || 'Нет')}</strong>
+      </div>
+    </div>
+
+    ${modelBlockHtml}
+
+    <div style="margin-bottom:8px; font-weight:600; font-size:12px;">Лимиты и квоты провайдера:</div>
+    <div style="display:flex; flex-direction:column; gap:8px; margin-bottom:14px;">
+      ${buckets.map((b) => {
+        const isUnlimited = b.status === 'unlimited' || b.period === 'unlimited';
+        const remDisplay = isUnlimited ? 'Без ограничений' : (b.remaining_percent !== null && b.remaining_percent !== undefined ? Math.round(b.remaining_percent) + '%' : 'Н/Д');
+        const fillPct = isUnlimited ? 100 : (b.remaining_percent !== null && b.remaining_percent !== undefined ? Math.max(0, Math.min(100, b.remaining_percent)) : 0);
+        const barColor = isUnlimited ? 'var(--status-healthy)' : ((b.remaining_percent !== null && b.remaining_percent < 20) ? 'var(--status-warning)' : 'var(--status-healthy)');
+        const resetLabel = isUnlimited ? 'Без ограничений (локальная модель)' : (b.reset_at ? `Сброс: ${formatIsoDate(b.reset_at)}` : (b.period ? `Период: ${b.period}` : 'Без отметки сброса'));
+        return `
+        <div style="background:var(--surface-card); border:1px solid var(--border-subtle); padding:8px 10px; border-radius:var(--radius-sm);">
+          <div style="display:flex; justify-content:space-between; font-size:12px; font-weight:600; margin-bottom:4px;">
+            <span>${escapeHtml(b.bucket_name || b.name || b.display_name || 'Квота')}</span>
+            <span>${escapeHtml(remDisplay)}</span>
+          </div>
+          <div class="cell-bar-track" style="margin-bottom:4px;">
+            <div class="cell-bar-fill" style="width:${fillPct}%; background:${barColor};"></div>
+          </div>
+          <div style="font-size:10px; color:var(--text-muted);">
+            ${escapeHtml(resetLabel)}
+          </div>
+        </div>
+        `;
+      }).join('') || '<div class="empty-text">Данные о квотах отсутствуют (провайдер не отдал лимиты).</div>'}
+    </div>
+  `;
+
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-secondary" onclick="handleTestProfile('${escapeHtml(profileId)}')">⚡ Проверить подключение</button>
+    <button class="btn btn-secondary" onclick="executeAction('set_main', { profile_id: '${escapeHtml(profileId)}' })">★ Сделать основным</button>
+    <button class="btn btn-secondary" onclick="handleDeleteCredentials('${escapeHtml(profileId)}')">Удалить ключ</button>
+    <button class="btn btn-primary" onclick="closeModal()">Закрыть</button>
+  `;
+
+  if (!isRefresh) {
+    showModal();
+  }
+}
+
+async function handleSaveProfileModel(profileId) {
+  const sel = document.getElementById('modal-model-select');
+  if (!sel) return;
+  const model = sel.value;
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение модели...</div>';
+  }
+  const res = await executeAction('set_model', { profile_id: profileId, model: model });
+  if (feedbackArea) {
+    if (res && res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Модель сохранена')}</div>`;
+      if (currentSnapshot && currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
+        currentSnapshot.all_profiles[profileId].preferred_models = [model];
+      }
+      fetchSnapshot();
+    } else {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Ошибка сохранения модели')}</div>`;
+    }
+  }
+}
+
+function openAgentModelModal(roleId, profileId) {
+  if (!currentSnapshot) return;
+  const profile = (currentSnapshot.all_profiles || {})[profileId];
+  if (!profile) return;
+
+  const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === profile.provider);
+  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
+  const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
+  const roleName = ((currentSnapshot.routing || {})[roleId]?.role_name_ru) || roleId;
+
+  elements.modalTitle.textContent = `Выбор модели для роли: ${roleName}`;
+  elements.modalBody.innerHTML = `
+    <div id="modal-feedback-area"></div>
+    <div style="margin-bottom:12px; font-size:12px; color:var(--text-muted);">
+      Профиль агента: <strong>${escapeHtml(profile.display_name)} (${profileId})</strong> • Провайдер: <strong>${escapeHtml(profile.provider_display_name || profile.provider)}</strong>
+    </div>
+    ${discoveredModels.length > 0 ? `
+      <div style="margin-bottom:16px;">
+        <label style="display:block; font-weight:600; margin-bottom:6px;">Выберите модель из обнаруженного списка:</label>
+        <select id="role-model-select" class="select-filter" style="width:100%;">
+          ${discoveredModels.map((m) => `<option value="${escapeHtml(m)}" ${m === currentModel ? 'selected' : ''}>${escapeHtml(m)}</option>`).join('')}
+        </select>
+      </div>
+    ` : `
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:16px;">
+        <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
+          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
+        </div>
+        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}')">↻ Запросить список моделей</button>
+      </div>
+    `}
+  `;
+
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+    ${discoveredModels.length > 0 ? `<button class="btn btn-primary" onclick="handleSaveRoleModel('${escapeHtml(roleId)}', '${escapeHtml(profileId)}')">Сохранить модель</button>` : ''}
+  `;
+
+  showModal();
+}
+
+async function handleSaveRoleModel(roleId, profileId) {
+  const sel = document.getElementById('role-model-select');
+  if (!sel) return;
+  const model = sel.value;
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение модели...</div>';
+  }
+  const res = await executeAction('set_model', { profile_id: profileId, model: model, role_id: roleId });
+  if (feedbackArea) {
+    if (res && res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Модель сохранена')}</div>`;
+      if (currentSnapshot) {
+        if (currentSnapshot.all_profiles && currentSnapshot.all_profiles[profileId]) {
+          currentSnapshot.all_profiles[profileId].preferred_models = [model];
+        }
+        if (currentSnapshot.routing && currentSnapshot.routing[roleId]) {
+          currentSnapshot.routing[roleId].default_model = model;
+        }
+        if (currentSnapshot.agents) {
+          const ag = currentSnapshot.agents.find((a) => a.role_id === roleId);
+          if (ag) ag.model = model;
+        }
+      }
+      setTimeout(() => {
+        closeModal();
+        renderCurrentView();
+        fetchSnapshot();
+      }, 700);
+    } else {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Ошибка сохранения модели')}</div>`;
+    }
+  }
+}
+
+async function handleTestProfile(profileId) {
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Запуск тестового запроса к провайдеру...</div>';
+  }
+  const res = await executeAction('test', { profile_id: profileId });
+  if (feedbackArea) {
+    if (res && res.ok) {
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Тест успешно пройден')}</div>`;
+    } else {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Тест завершился с ошибкой')}</div>`;
+    }
+  }
+}
+
+// ── ADD ACCOUNT WIZARD (P0-1) ──
+function openAddAccountWizard() {
+  window._wiz_device_profile = undefined;
+  window._wiz_device_session = undefined;
+  window._wiz_redirect_session = undefined;
+  window._wiz_redirect_provider = undefined;
+  window._wiz_redirect_slot_id = undefined;
+  window._wiz_base_url = undefined;
+  window._wiz_token = undefined;
+  if (elements.modalTitle) elements.modalTitle.textContent = 'Мастер подключения учетной записи';
+  showWizardStep1();
+  showModal();
+}
+
+function showWizardStep1() {
+  if (elements.modalTitle) elements.modalTitle.textContent = 'Мастер подключения учетной записи';
+  elements.modalBody.innerHTML = `
+    <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+      Шаг 1 из 3: Выберите провайдера ИИ
+    </div>
+    <div style="display:grid; grid-template-columns:1fr; gap:8px;">
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('grok')">
+        <span style="font-size:18px; color:var(--prov-grok);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">Grok (xAI)</div>
+          <div style="font-size:11px; color:var(--text-muted);">Device Code OAuth (работает на сервере) или API Key</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('openai-codex')">
+        <span style="font-size:18px; color:var(--prov-codex);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">OpenAI Codex</div>
+          <div style="font-size:11px; color:var(--text-muted);">Device Code OAuth (работает на сервере) или API Key</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('opencode-go')">
+        <span style="font-size:18px; color:var(--prov-opencode);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">OpenCode Go</div>
+          <div style="font-size:11px; color:var(--text-muted);">API Key / Токен подписки</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('claude')">
+        <span style="font-size:18px; color:var(--prov-claude);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">Claude (Anthropic)</div>
+          <div style="font-size:11px; color:var(--text-muted);">OAuth редирект (с поддержкой SSH port-forward) или API Key</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('antigravity')">
+        <span style="font-size:18px; color:var(--prov-antigravity);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">Google Antigravity</div>
+          <div style="font-size:11px; color:var(--text-muted);">OAuth редирект (с поддержкой SSH port-forward)</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('ollama')">
+        <span style="font-size:18px; color:var(--status-healthy, #22c55e);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">Ollama</div>
+          <div style="font-size:11px; color:var(--text-muted);">Локальный или удаленный Ollama API (http://127.0.0.1:11434/v1)</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('local')">
+        <span style="font-size:18px; color:var(--status-healthy, #22c55e);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">Локальная модель (Local LLM)</div>
+          <div style="font-size:11px; color:var(--text-muted);">llama.cpp / Ollama / vLLM (OpenAI-совместимый сервер)</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('openrouter')">
+        <span style="font-size:18px; color:var(--text-muted);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">OpenRouter</div>
+          <div style="font-size:11px; color:var(--text-muted);">API Key + optional custom base URL</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('nvidia')">
+        <span style="font-size:18px; color:var(--text-muted);">●</span>
+        <div style="text-align:left; margin-left:8px;">
+          <div style="font-weight:700;">NVIDIA NIM</div>
+          <div style="font-size:11px; color:var(--text-muted);">API Key + optional custom base URL</div>
+        </div>
+      </button>
+    </div>
+  `;
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+  `;
+}
+
+function showWizardStep2(providerId) {
+  let bodyHtml = '';
+  let footerHtml = '';
+
+  if (providerId === 'grok' || providerId === 'openai-codex') {
+    const providerName = providerId === 'grok' ? 'Grok (xAI)' : 'OpenAI Codex';
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Авторизация ${providerName} по коду устройства
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">Слот, в который войти:</label>
+        <select class="input-text" style="width:100%;" id="wiz-device-slot">${buildSlotOptions(providerId)}</select>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+          Вход в занятый слот заменит учётные данные, которые в нём сейчас.
+        </div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <button class="btn btn-primary btn-sm" onclick="startDeviceAuth('${escapeHtml(providerId)}')">Начать авторизацию</button>
+      </div>
+      <div id="device-auth-box" style="background:var(--surface-muted); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+        <div style="color:var(--text-secondary);">Выберите слот и нажмите «Начать авторизацию».</div>
+      </div>
+    `;
+    footerHtml = `
+      <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
+      <button class="btn btn-primary" onclick="proceedToWizardStep3('${escapeHtml(providerId)}')">Продолжить →</button>
+    `;
+  } else if (providerId === 'antigravity' || providerId === 'claude') {
+    const providerName = providerId === 'antigravity' ? 'Google Antigravity' : 'Claude';
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Авторизация ${providerName}
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">Слот, в который войти:</label>
+        <select class="input-text" style="width:100%;" id="wiz-redirect-slot">${buildSlotOptions(providerId)}</select>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+          Вход в занятый слот заменит учётные данные, которые в нём сейчас.
+        </div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <button class="btn btn-primary btn-sm" onclick="startRedirectAuth('${escapeHtml(providerId)}')">Получить ссылку</button>
+      </div>
+      <div id="redirect-auth-box" style="background:var(--surface-muted); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+        <div style="color:var(--text-secondary);">Выберите слот и нажмите «Получить ссылку».</div>
+      </div>
+    `;
+    footerHtml = `
+      <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
+      <button class="btn btn-primary" onclick="proceedToWizardStep3('${escapeHtml(providerId)}')">Продолжить →</button>
+    `;
+  } else if (providerId === 'ollama') {
+    window._wiz_device_profile = undefined;
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Настройка Ollama
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">URL сервера (Base URL):</label>
+        <input type="text" class="input-text" style="width:100%;" id="wiz-base-url-input" placeholder="http://127.0.0.1:11434/v1" value="http://127.0.0.1:11434/v1">
+      </div>
+      <div style="margin-bottom:10px; font-size:12px; color:var(--text-muted);">
+        Поиск серверов выполняется на машине, где запущен Hub (не в браузере).
+      </div>
+      <div style="margin-bottom:12px;">
+        <button class="btn btn-secondary" style="width:100%;" id="wiz-discover-btn" onclick="discoverLocalServers('discover_local_models')" data-action="discover_local_models">🔍 Найти на этом компьютере</button>
+        <div id="wiz-discover-status" style="font-size:12px; color:var(--text-secondary); margin-top:4px;"></div>
+      </div>
+      <div id="wiz-discover-results" style="margin-bottom:12px;"></div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">API Key / Bearer Token (опционально):</label>
+        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="Оставьте пустым, если ключ не требуется">
+      </div>
+    `;
+    footerHtml = `
+      <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
+      <button class="btn btn-primary" onclick="proceedToWizardStep3('${escapeHtml(providerId)}')">Продолжить →</button>
+    `;
+  } else if (providerId === 'local' || providerId === 'local-llm' || providerId === 'llama.cpp' || providerId === 'vllm') {
+    // P0-1: reset stale wizard slot so local add_account does not reuse grok/antigravity slot
+    window._wiz_device_profile = undefined;
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Настройка локального сервера (Local LLM)
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">URL сервера (Base URL):</label>
+        <input type="text" class="input-text" style="width:100%;" id="wiz-base-url-input" placeholder="http://127.0.0.1:8081/v1" value="http://127.0.0.1:8081/v1">
+      </div>
+      <div style="margin-bottom:10px; font-size:12px; color:var(--text-muted);">
+        Поиск серверов выполняется на машине, где запущен Hub (не в браузере).
+      </div>
+      <div style="margin-bottom:12px;">
+        <button class="btn btn-secondary" style="width:100%;" id="wiz-discover-btn" onclick="discoverLocalServers('discover_local_models')" data-action="discover_local_models">🔍 Найти на этом компьютере</button>
+        <div id="wiz-discover-status" style="font-size:12px; color:var(--text-secondary); margin-top:4px;"></div>
+      </div>
+      <!-- discover_local_models: async search runs on Hub machine, not browser -->
+      <div id="wiz-discover-results" style="margin-bottom:12px;"></div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">API Key (опционально):</label>
+        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="Оставьте пустым, если ключ не требуется">
+      </div>
+    `;
+    footerHtml = `
+      <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
+      <button class="btn btn-primary" onclick="proceedToWizardStep3('${escapeHtml(providerId)}')">Продолжить →</button>
+    `;
+  } else if (providerId === 'openrouter' || providerId === 'nvidia') {
+    const providerName = providerId === 'openrouter' ? 'OpenRouter' : 'NVIDIA NIM';
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Подключение ${providerName}
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">Слот, в который сохранить:</label>
+        <select class="input-text" style="width:100%;" id="wiz-redirect-slot">${buildSlotOptions(providerId)}</select>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+          Вход в занятый слот заменит учётные данные, которые в нём сейчас.
+        </div>
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">API Key:</label>
+        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="sk-...">
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">Base URL (опционально):</label>
+        <input type="text" class="input-text" style="width:100%;" id="wiz-base-url-input" placeholder="${providerId === 'openrouter' ? 'https://openrouter.ai/api/v1' : 'https://integrate.api.nvidia.com/v1'}">
+        <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+          Оставьте пустым для значения по умолчанию.
+        </div>
+      </div>
+    `;
+    footerHtml = `
+      <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
+      <button class="btn btn-primary" onclick="proceedToWizardStep3('${escapeHtml(providerId)}')">Продолжить →</button>
+    `;
+  } else {
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Ввод API ключа ${escapeHtml(providerId)}
+      </div>
+      <div style="margin-bottom:12px;">
+        <label style="display:block; font-weight:600; margin-bottom:4px;">API Key / Subscription Token:</label>
+        <input type="password" class="input-text" style="width:100%;" id="wiz-token-input" placeholder="sk-...">
+      </div>
+    `;
+    footerHtml = `
+      <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
+      <button class="btn btn-primary" onclick="proceedToWizardStep3('${escapeHtml(providerId)}')">Продолжить →</button>
+    `;
+  }
+
+  elements.modalBody.innerHTML = `
+    <div id="modal-feedback-area"></div>
+    ${bodyHtml}
+  `;
+  elements.modalFooter.innerHTML = footerHtml;
+}
+
+function proceedToWizardStep3(providerId) {
+  const baseInput = document.getElementById('wiz-base-url-input');
+  if (baseInput) {
+    window._wiz_base_url = baseInput.value.trim();
+  }
+  const tokenInput = document.getElementById('wiz-token-input');
+  if (tokenInput) {
+    window._wiz_token = tokenInput.value.trim();
+  }
+  // P0-1 BUG-1: persist owner-selected slot BEFORE showWizardStep3 destroys the select elements
+  // Only read slot elements for providers that have them (grok/openai-codex have wiz-device-slot,
+  // antigravity/claude/openrouter/nvidia have wiz-redirect-slot). Local providers have no slot elements.
+  const isDeviceAuthFlow = providerId === 'grok' || providerId === 'openai-codex';
+  const isRedirectAuthFlow = providerId === 'antigravity' || providerId === 'claude' || providerId === 'openrouter' || providerId === 'nvidia';
+  if (isDeviceAuthFlow) {
+    const deviceSlot = document.getElementById('wiz-device-slot');
+    if (deviceSlot && deviceSlot.value) {
+      window._wiz_device_profile = deviceSlot.value;
+    }
+  } else if (isRedirectAuthFlow) {
+    const redirectSlot = document.getElementById('wiz-redirect-slot');
+    if (redirectSlot && redirectSlot.value) {
+      window._wiz_device_profile = redirectSlot.value;
+    }
+  }
+  // For local providers (local, local-llm, llama.cpp, ollama, vllm), do not read any slot elements
+  showWizardStep3(providerId);
+}
+
+function showWizardStep3(providerId) {
+  // GAP-3: динамически строим options ролей из currentSnapshot.routing
+  const routing = currentSnapshot && currentSnapshot.routing ? currentSnapshot.routing : {};
+  const roleIds = Object.keys(routing);
+
+  let roleOptionsHtml = '';
+  if (roleIds.length === 0) {
+    // Fallback: минимальный набор если snapshot ещё не загружен
+    roleOptionsHtml = `
+      <option value="coder-primary">Кодер 1 (Primary Coder)</option>
+      <option value="coder-secondary">Кодер 2 (Secondary Coder)</option>
+      <option value="orchestrator">Оркестратор (Fallback Router)</option>
+      <option value="reviewer">Ревьюер кода (Reviewer)</option>
+      <option value="research">Исследователь (Researcher)</option>
+      <option value="fast">Быстрый агент (Fast / Flash)</option>
+      <option value="spare">Резервный пул (Spare Pool)</option>
+    `;
+  } else {
+    roleOptionsHtml = roleIds.map((roleId) => {
+      const pipeline = routing[roleId] || {};
+      const label = pipeline.role_name_ru || roleId;
+      const desc = CANONICAL_ROLE_DESCRIPTIONS[roleId] || pipeline.role_description_ru || '';
+      return `<option value="${escapeHtml(roleId)}">${escapeHtml(label)}${desc ? ' — ' + escapeHtml(desc) : ''}</option>`;
+    }).join('');
+  }
+
+  elements.modalBody.innerHTML = `
+    <div id="modal-feedback-area"></div>
+    <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+      Шаг 3 из 3: Назначение роли для нового аккаунта
+    </div>
+    <div style="margin-bottom:14px;">
+      <label style="display:block; font-weight:600; margin-bottom:4px;">Целевая роль в роутере:</label>
+      <select class="select-filter" style="width:100%;" id="wiz-target-role">
+        ${roleOptionsHtml}
+      </select>
+    </div>
+  `;
+
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="showWizardStep2('${escapeHtml(providerId)}')">← Назад</button>
+    <button class="btn btn-primary" onclick="finishAddAccount('${escapeHtml(providerId)}')">✓ Завершить подключение</button>
+  `;
+}
+
+async function finishAddAccount(providerId) {
+  const roleSelect = document.getElementById('wiz-target-role');
+  const targetRole = roleSelect ? roleSelect.value : 'coder-primary';
+
+  // GAP-2: owner-selected slot — читаем выбранный профиль из UI
+  // Local providers (local, local-llm, llama.cpp, ollama, vllm) have no slot selector;
+  // do NOT read stale DOM slot elements from previous flows in the same test session.
+  const isLocalProvider = providerId === 'local' || providerId === 'local-llm' || providerId === 'llama.cpp' || providerId === 'ollama' || providerId === 'vllm';
+  let selectedProfileId;
+  if (isLocalProvider) {
+    selectedProfileId = '';
+  } else {
+    const deviceSlot = document.getElementById('wiz-device-slot');
+    const redirectSlot = document.getElementById('wiz-redirect-slot');
+    // Use nullish coalescing: if _wiz_device_profile was explicitly set (not null/undefined),
+    // it wins over any stale DOM element value (e.g. from a previous grok flow in the same test)
+    selectedProfileId = window._wiz_device_profile ?? (deviceSlot?.value || redirectSlot?.value || '');
+  }
+
+  const feedbackArea = document.getElementById('modal-feedback-area');
+  if (feedbackArea) {
+    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение учетной записи в роутере...</div>';
+  }
+
+  const payload = {
+    provider: providerId,
+    target_role: targetRole,
+    // GAP-2: передаём выбранный слот, чтобы бэкенд НЕ делал find_free_slot для owner
+    profile_id: selectedProfileId,
+  };
+  if (window._wiz_base_url) {
+    payload.base_url = window._wiz_base_url;
+  }
+  if (window._wiz_token) {
+    payload.token = window._wiz_token;
+  }
+
+  const res = await executeAction('add_account', payload);
+
+  if (res && res.ok) {
+    showToast('Аккаунт успешно добавлен в маршрутизацию', 'success');
+    closeModal();
+    fetchSnapshot();
+  } else {
+    if (feedbackArea) {
+      feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Не удалось завершить подключение')}</div>`;
+    }
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
 //  Авторизация по коду устройства (Grok, OpenAI Codex)
 // ─────────────────────────────────────────────────────────────
@@ -1525,7 +2763,16 @@ async function startDeviceAuth(providerId) {
   const box = document.getElementById('device-auth-box');
   if (!box) return;
 
-  const res = await executeAction('start_device_auth', { provider: providerId });
+  // GAP-1: owner-selected slot — показать выбранное в UI до начала auth
+  const slotSelect = document.getElementById('wiz-device-slot');
+  const selectedSlot = slotSelect ? slotSelect.value : '';
+  if (selectedSlot) {
+    window._wiz_device_profile = selectedSlot;
+  }
+
+  box.innerHTML = `<div style="color:var(--text-secondary);">Запрашиваем код у провайдера…</div>`;
+  // P0-1 BUG-2: send profile_id so server knows which slot the owner chose
+  const res = await executeAction('start_device_auth', { provider: providerId, profile_id: selectedSlot });
   if (!res || !res.ok) {
     box.innerHTML = `<div class="modal-feedback error">${escapeHtml((res && res.message) || 'Не удалось начать авторизацию')}</div>`;
     return;
@@ -1533,7 +2780,8 @@ async function startDeviceAuth(providerId) {
 
   const d = res.data || {};
   window._wiz_device_session = d.session_id;
-  window._wiz_device_profile = d.profile_id;
+  // P0-1 BUG-3: owner-selected slot wins over server-assigned profile_id
+  window._wiz_device_profile = selectedSlot || d.profile_id;
 
   box.innerHTML = `
     <div style="font-weight:700; margin-bottom:6px;">1. Откройте ссылку:</div>
@@ -1826,4 +3074,143 @@ async function handleDeleteCredentials(profileId) {
     closeModal();
     fetchSnapshot();
   }
+}
+
+// ── P0-3: Local LLM server discovery ──────────────────────────────────────
+
+async function discoverLocalServers() {
+  const btn = document.getElementById('wiz-discover-btn');
+  const statusEl = document.getElementById('wiz-discover-status');
+  const resultsEl = document.getElementById('wiz-discover-results');
+  if (!btn || !statusEl || !resultsEl) return;
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Поиск...';
+  statusEl.textContent = '';
+  resultsEl.innerHTML = '';
+
+  // wiz-base-url-input: filled by selectDiscoveredServer when user picks a server
+  const res = await executeAction('discover_local_models', {});
+
+  btn.disabled = false;
+  btn.textContent = '🔍 Найти на этом компьютере';
+
+  const servers = (res && res.data && res.data.servers) ? res.data.servers : [];
+
+  if (!servers.length) {
+    statusEl.textContent = res && res.message ? res.message
+      : 'Ничего не найдено. Запустите Ollama, LM Studio или llama.cpp, либо введите адрес вручную.';
+    statusEl.style.color = 'var(--text-muted)';
+    return;
+  }
+
+  // Show message if any servers have errors (occupied by other service)
+  const errorServers = servers.filter(s => s.error);
+  if (errorServers.length && errorServers.length === servers.length) {
+    statusEl.textContent = 'Найдены серверы, но подключиться к ним не удалось:';
+    statusEl.style.color = 'var(--text-secondary)';
+  } else if (errorServers.length) {
+    statusEl.textContent = `Найдено ${servers.length - errorServers.length} рабочих серверов (+${errorServers.length} с ошибкой). Выберите рабочий сервер:`;
+    statusEl.style.color = 'var(--text-secondary)';
+  } else {
+    statusEl.textContent = `Найдено серверов: ${servers.length}. Выберите:`;
+    statusEl.style.color = 'var(--text-secondary)';
+  }
+
+  // Render server list
+  let html = '<div style="border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-top:4px;">';
+  servers.forEach((srv, idx) => {
+    const hasError = !!srv.error;
+    const modelCount = srv.models && srv.models.length ? srv.models.length : 0;
+    const modelLabel = modelCount ? `, ${modelCount} модель${modelCount === 1 ? '' : modelCount < 5 ? 'ели' : 'елей'}` : '';
+    const errorTitle = hasError ? ` title="${escapeHtml(srv.error)}"` : '';
+    const rowStyle = hasError
+      ? 'padding:8px 10px; background:#2a1a1a; cursor:not-allowed; opacity:0.7;'
+      : 'padding:8px 10px; cursor:pointer;';
+    const clickAttr = hasError ? '' : ` onclick="selectDiscoveredServer('${escapeHtml(srv.base_url)}')"`;
+    const icon = hasError ? '⚠️' : '🖥️';
+    html += `<div style="${rowStyle}"${errorTitle}${clickAttr}>
+      <div style="font-size:13px; font-weight:600;">${icon} ${escapeHtml(srv.name)}</div>
+      <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${escapeHtml(srv.base_url)}${modelLabel}${hasError ? ` — <span style="color:var(--status-warning);">⚠ ${escapeHtml(srv.error)}</span>` : ''}</div>
+    </div>`;
+  });
+  html += '</div>';
+  resultsEl.innerHTML = html;
+}
+
+function selectDiscoveredServer(baseUrl) {
+  const input = document.getElementById('wiz-base-url-input');
+  if (input) {
+    input.value = baseUrl;
+    // Scroll input into view
+    input.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  // Clear results to keep UI clean
+  const resultsEl = document.getElementById('wiz-discover-results');
+  if (resultsEl) resultsEl.innerHTML = '';
+  const statusEl = document.getElementById('wiz-discover-status');
+  if (statusEl) {
+    statusEl.textContent = `Выбран: ${baseUrl}`;
+    statusEl.style.color = 'var(--status-healthy)';
+  }
+}
+
+// ── Quota & Limits Export ─────────────────────────────────────────────────
+
+async function exportQuotas(format = 'json') {
+  const fmt = (format || 'json').toLowerCase();
+  showToast(`Формирование выгрузки лимитов (${fmt.toUpperCase()})...`, 'info');
+  try {
+    const token = (typeof getWebToken === 'function' ? getWebToken() : (localStorage.getItem('hermes_hub_token') || ''));
+    const headers = {};
+    if (token) {
+      headers['X-Hub-Token'] = token;
+    }
+    const resp = await fetch(`/api/quotas/export?format=${fmt}`, { headers });
+    if (!resp.ok) {
+      throw new Error(`Ошибка сервера: ${resp.status}`);
+    }
+    const blob = await resp.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.style.display = 'none';
+    a.href = url;
+    a.download = `hermes_quotas_export.${fmt}`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+    showToast(`Выгрузка лимитов (${fmt.toUpperCase()}) успешно скачана`, 'success');
+  } catch (err) {
+    showToast(`Не удалось выгрузить лимиты: ${err.message}`, 'error');
+  }
+}
+
+function openExportQuotasModal() {
+  if (elements.modalTitle) elements.modalTitle.textContent = '📥 Экспорт лимитов и квот';
+  elements.modalBody.innerHTML = `
+    <div style="margin-bottom:14px; font-size:13px; color:var(--text-secondary);">
+      Выберите формат для выгрузки актуального отчета по лимитам, корзинам и статусам всех профилей:
+    </div>
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="exportQuotas('json'); closeModal();">
+        <span style="font-size:20px; margin-right:8px;">📄</span>
+        <div style="text-align:left;">
+          <div style="font-weight:700;">Экспорт в JSON</div>
+          <div style="font-size:11px; color:var(--text-muted);">Полная структурированная выгрузка объектов со всеми метаданными</div>
+        </div>
+      </button>
+      <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="exportQuotas('csv'); closeModal();">
+        <span style="font-size:20px; margin-right:8px;">📊</span>
+        <div style="text-align:left;">
+          <div style="font-weight:700;">Экспорт в CSV</div>
+          <div style="font-size:11px; color:var(--text-muted);">Табличный формат для открытия в Excel, Google Sheets или LibreOffice</div>
+        </div>
+      </button>
+    </div>
+  `;
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+  `;
+  showModal();
 }

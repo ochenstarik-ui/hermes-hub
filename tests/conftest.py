@@ -97,35 +97,29 @@ def block_external_network_in_hermetic_tests(request, monkeypatch):
 
 
 def pytest_configure(config):
-    config.addinivalue_line("markers", "ui: mark test as requiring CustomTkinter / Tk graphical environment")
+    config.addinivalue_line("markers", "ui: mark test as requiring UI environment")
+
+# Переменные окружения провайдеров не должны протекать в тесты.
+#
+# На машине владельца задана ANTHROPIC_BASE_URL=https://api.anthropic.com, и
+# из-за неё test_claude_health_check_real_probe падал: адаптер строил
+# ".../models" вместо ".../v1/models", хотя код верен, а подставилось значение
+# из окружения. Набор обязан давать одинаковый результат на любой машине —
+# это то же требование герметичности, ради которого делался A33.
+_PROVIDER_BASE_URL_VARS = (
+    "ANTHROPIC_BASE_URL",
+    "CODEX_BASE_URL",
+    "DEEPSEEK_BASE_URL",
+    "LOCAL_LLM_BASE_URL",
+    "NVIDIA_BASE_URL",
+    "OLLAMA_BASE_URL",
+    "OPENCODE_GO_BASE_URL",
+    "OPENROUTER_BASE_URL",
+)
 
 
-def pytest_collection_modifyitems(config, items):
-    """Skip tests explicitly marked as needing the Tk graphical stack.
-
-    Selection is by the ``ui`` marker only. It used to also match any test whose
-    *name* contained "ui", "view" or "wizard", which silently skipped static
-    checks that never touch the toolkit — and hid real failures for weeks.
-    Modules that import the GUI stack guard themselves with
-    ``pytest.importorskip("customtkinter")`` at module scope; that guard is
-    enforced by tests/test_import_invariants.py.
-    """
-    try:
-        import customtkinter  # noqa: F401
-    except Exception:
-        skip_ui = pytest.mark.skip(reason="customtkinter is not installed in current environment")
-        for item in items:
-            if "ui" in item.keywords:
-                item.add_marker(skip_ui)
-
-@pytest.fixture(scope="session")
-def tk_root():
-    """Shared Tkinter root for all UI tests to avoid Tcl resource exhaustion."""
-    try:
-        import customtkinter as ctk
-        root = ctk.CTk()
-        root.withdraw()
-        yield root
-        root.destroy()
-    except Exception as e:
-        pytest.skip(f"Tkinter could not be initialized: {e}")
+@pytest.fixture(autouse=True)
+def _isolate_provider_base_urls(monkeypatch):
+    """Убрать адреса провайдеров из окружения на время каждого теста."""
+    for name in _PROVIDER_BASE_URL_VARS:
+        monkeypatch.delenv(name, raising=False)

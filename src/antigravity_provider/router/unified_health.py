@@ -98,6 +98,7 @@ class ProfileViewModel:
     quota_snapshot: Optional[Any] = None
     preferred_models: List[str] = field(default_factory=list)
     active_leases: int = 0
+    request_options: dict[str, Any] = field(default_factory=dict)
 
     @property
     def auth_label_ru(self) -> str:
@@ -352,7 +353,8 @@ class UnifiedHealthService:
                     tag = f"{rname} (primary)" if idx == 0 else f"{rname} (fallback {idx})"
                     role_assignments.setdefault(pid, []).append(tag)
 
-            orch_primary = config.roles.get("orchestrator", None)
+            orch_role_name = RoleRegistry.resolve_canonical_role("orchestrator")
+            orch_primary = config.roles.get(orch_role_name, None)
             orch_primary_id = orch_primary.preferred_chain[0] if orch_primary and orch_primary.preferred_chain else ""
 
             now = time.time()
@@ -529,6 +531,7 @@ class UnifiedHealthService:
                     quota_snapshot=snap,
                     preferred_models=pcfg.preferred_models,
                     active_leases=precord.active_leases,
+                    request_options=dict(pcfg.request_options or {}),
                 )
 
                 result.setdefault(prov, []).append(vm)
@@ -712,6 +715,26 @@ class UnifiedHealthService:
                 continue
 
             if not chain:
+                agents.append(AgentViewModel(
+                    role_id=rname,
+                    role_name_ru=rname_ru,
+                    role_description_ru=rdesc_ru or "Роль готова к назначению аккаунтов",
+                    assigned_profile_id=None,
+                    assigned_display_name=None,
+                    provider="N/A",
+                    provider_display_name="Не назначен",
+                    model="-",
+                    account_identity="Аккаунт не назначен",
+                    routing_position="Не назначен",
+                    status="not_configured",
+                    status_label_ru="Не настроен",
+                    is_active=False,
+                    is_main_orchestrator=(rname == "manager"),
+                    cooldown_remaining_sec=0,
+                    session_id=None,
+                    active_quota_status="unavailable",
+                    active_quota_label="Не применяется",
+                ))
                 continue
 
             primary_pid = chain[0]
@@ -760,6 +783,27 @@ class UnifiedHealthService:
                     session_id=None,
                     active_quota_status=active_quota_st,
                     active_quota_label=active_quota_lbl,
+                ))
+            else:
+                agents.append(AgentViewModel(
+                    role_id=rname,
+                    role_name_ru=rname_ru,
+                    role_description_ru=rdesc_ru or "Роль готова к назначению аккаунтов",
+                    assigned_profile_id=primary_pid,
+                    assigned_display_name=primary_pid,
+                    provider="N/A",
+                    provider_display_name="Не назначен",
+                    model="-",
+                    account_identity="Аккаунт не найден",
+                    routing_position="Primary",
+                    status="not_configured",
+                    status_label_ru="Не настроен",
+                    is_active=False,
+                    is_main_orchestrator=(rname == "manager"),
+                    cooldown_remaining_sec=0,
+                    session_id=None,
+                    active_quota_status="unavailable",
+                    active_quota_label="Не применяется",
                 ))
 
         return agents

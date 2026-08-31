@@ -14,6 +14,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from antigravity_provider import paths
 from antigravity_provider.router.profile_manager import ProfileAuthManager, mask_email, mask_id
 from antigravity_provider.router.role_registry import RoleRegistry
 from antigravity_provider.router.router_config import (
@@ -67,6 +68,22 @@ class AutoAssigner:
         """Get human-readable display name, logical role, and tier for a profile."""
         if profile_id in DEFAULT_SLOT_ROLES:
             return DEFAULT_SLOT_ROLES[profile_id]
+        prov_map = {
+            "ag": "Antigravity",
+            "codex": "Codex",
+            "opengo": "OpenCode",
+            "claude": "Claude",
+            "grok": "Grok",
+            "local": "Локальный сервер",
+            "openrouter": "OpenRouter",
+            "nvidia": "NVIDIA NIM",
+            "ollama": "Ollama",
+            "vllm": "vLLM",
+        }
+        parts = profile_id.split("-")
+        if len(parts) == 2 and parts[0] in prov_map and parts[1].isdigit():
+            clean_name = f"{prov_map[parts[0]]} {parts[1]}"
+            return (clean_name, "worker", "primary")
         clean_name = profile_id.replace("-", " ").title()
         return (clean_name, "worker", "primary")
 
@@ -104,88 +121,57 @@ class AutoAssigner:
     def find_free_slot(provider: str, requested_role: str = "auto") -> Optional[str]:
         """Find the optimal free internal profile slot for a provider.
 
-        When all predefined candidate slots are authenticated/occupied, dynamically
-        generates the next free profile ID without capping account count (P0-1).
+        Generates clean numbered slots starting from 1 (codex-1, ag-1, claude-1,
+        grok-1, opengo-1, local-1, openrouter-1, nvidia-1, ollama-1) upon first addition.
         """
         config = load_router_config()
         provider_norm = (provider or "").strip().lower()
 
-        provider_slots = {
-            "antigravity": [
-                "ag-orch-fallback", "ag-w1", "ag-w2", "ag-w3", "ag-w4",
-                "ag-spare-1", "ag-spare-2", "ag-cold-1", "ag-cold-2", "ag-cold-3"
-            ],
-            "openai-codex": ["codex-orch", "codex-worker-1", "codex-worker-2"],
-            "codex": ["codex-orch", "codex-worker-1", "codex-worker-2"],
-            "opencode-go": ["opengo-1", "opengo-2", "opengo-3"],
-            "opencode": ["opengo-1", "opengo-2", "opengo-3"],
-            "claude": ["claude-orch", "claude-worker-1", "claude-worker-2"],
-            "anthropic": ["claude-orch", "claude-worker-1", "claude-worker-2"],
-            "grok": ["grok-orch", "grok-worker-1", "grok-worker-2"],
-            "xai": ["grok-orch", "grok-worker-1", "grok-worker-2"],
-            "local": ["local-1", "local-2"],
-            "local-llm": ["local-1", "local-2"],
-            "llama.cpp": ["local-1", "local-2"],
-            "ollama": ["local-1", "local-2"],
-            "vllm": ["local-1", "local-2"],
-        }
+        def _get_prefix(prov: str) -> str:
+            p = (prov or "").strip().lower()
+            if p in ("antigravity", "google-antigravity", "agy"):
+                return "ag"
+            if p in ("openai-codex", "codex", "openai"):
+                return "codex"
+            if p in ("opencode-go", "opencode", "opengo"):
+                return "opengo"
+            if p in ("claude", "anthropic"):
+                return "claude"
+            if p in ("grok", "xai"):
+                return "grok"
+            if p in ("local", "local-llm", "llama.cpp"):
+                return "local"
+            if p in ("openrouter",):
+                return "openrouter"
+            if p in ("nvidia", "nvidia-nim"):
+                return "nvidia"
+            if p in ("ollama",):
+                return "ollama"
+            if p in ("vllm",):
+                return "vllm"
+            return p
 
-        candidates = list(provider_slots.get(provider_norm, []))
+        prefix = _get_prefix(provider_norm)
 
-        # Priority based on requested role
-        if requested_role == "manager":
-            if provider_norm in ("openai-codex", "codex") and "codex-orch" in candidates:
-                candidates.remove("codex-orch")
-                candidates.insert(0, "codex-orch")
-            elif provider_norm == "antigravity" and "ag-orch-fallback" in candidates:
-                candidates.remove("ag-orch-fallback")
-                candidates.insert(0, "ag-orch-fallback")
         # 1. First check existing candidate profiles already in config
-        for pid in candidates:
-            pcfg = config.get_profile(pid)
-            if not pcfg:
-                continue
-            status = ProfileAuthManager.get_profile_status(provider, pid)
-            if not status.get("authenticated"):
-                return pid
+        for pid, pcfg in config.profiles.items():
+            if _get_prefix(pcfg.provider) == prefix or pcfg.provider == provider_norm:
+                status = ProfileAuthManager.get_profile_status(pcfg.provider, pid)
+                if not status.get("authenticated"):
+                    return pid
 
-        # 2. Check remaining predefined slots and ensure definition
-        for pid in candidates:
-            status = ProfileAuthManager.get_profile_status(provider, pid)
+        # 2. Dynamically generate clean numbered slots (codex-1, ag-1, claude-1, etc.)
+        for i in range(1, 200):
+            candidate_pid = f"{prefix}-{i}"
+            if candidate_pid in config.profiles:
+                pcfg = config.profiles[candidate_pid]
+                status = ProfileAuthManager.get_profile_status(pcfg.provider, candidate_pid)
+                if status.get("authenticated"):
+                    continue
+            status = ProfileAuthManager.get_profile_status(provider, candidate_pid)
             if not status.get("authenticated"):
-                AutoAssigner.ensure_profile_definition(provider, pid)
-                return pid
-
-        # 3. Predefined slots occupied: dynamically generate unlimited candidates
-        def _generate_candidates(prov: str):
-            p = prov.lower()
-            if p == "antigravity":
-                for i in range(5, 200):
-                    yield f"ag-w{i}"
-            elif p in ("openai-codex", "codex"):
-                for i in range(4, 200):
-                    yield f"codex-{i}"
-            elif p in ("opencode-go", "opencode"):
-                for i in range(4, 200):
-                    yield f"opengo-{i}"
-            elif p in ("claude", "anthropic"):
-                for i in range(3, 200):
-                    yield f"claude-worker-{i}"
-            elif p in ("grok", "xai"):
-                for i in range(3, 200):
-                    yield f"grok-worker-{i}"
-            elif p in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
-                for i in range(3, 200):
-                    yield f"local-{i}"
-            else:
-                for i in range(1, 200):
-                    yield f"{p}-{i}"
-
-        for dynamic_pid in _generate_candidates(provider_norm):
-            status = ProfileAuthManager.get_profile_status(provider, dynamic_pid)
-            if not status.get("authenticated"):
-                AutoAssigner.ensure_profile_definition(provider, dynamic_pid)
-                return dynamic_pid
+                AutoAssigner.ensure_profile_definition(provider, candidate_pid)
+                return candidate_pid
 
         return None
 
@@ -206,15 +192,23 @@ class AutoAssigner:
 
         capabilities_map = {
             "grok": ["reasoning", "coding", "research"],
+            "xai": ["reasoning", "coding", "research"],
             "claude": ["reasoning", "coding", "review"],
+            "anthropic": ["reasoning", "coding", "review"],
             "opencode-go": ["coding", "research", "fast"],
+            "opencode": ["coding", "research", "fast"],
             "openai-codex": ["coding", "reasoning"],
+            "codex": ["coding", "reasoning"],
             "antigravity": ["coding", "reasoning", "research", "fast"],
+            "google-antigravity": ["coding", "reasoning", "research", "fast"],
             "local": ["reviewer", "coding", "reasoning", "fast", "research"],
             "local-llm": ["reviewer", "coding", "reasoning", "fast", "research"],
             "llama.cpp": ["reviewer", "coding", "reasoning", "fast", "research"],
             "ollama": ["reviewer", "coding", "reasoning", "fast", "research"],
             "vllm": ["reviewer", "coding", "reasoning", "fast", "research"],
+            "openrouter": ["coding", "reasoning", "research", "fast"],
+            "nvidia": ["coding", "reasoning", "fast"],
+            "nvidia-nim": ["coding", "reasoning", "fast"],
         }
         capabilities = capabilities_map.get(provider, ["coding", "reasoning"])
 
@@ -274,6 +268,28 @@ class AutoAssigner:
         config = load_router_config()
         pcfg = config.get_profile(profile_id)
         if not pcfg:
+            inferred_prov = None
+            for prefix, prov in [
+                ("ag-", "antigravity"),
+                ("codex-", "openai-codex"),
+                ("opengo-", "opencode-go"),
+                ("claude-", "claude"),
+                ("grok-", "grok"),
+                ("local-", "local"),
+                ("openrouter-", "openrouter"),
+                ("nvidia-", "nvidia"),
+                ("ollama-", "ollama"),
+                ("vllm-", "vllm"),
+            ]:
+                if profile_id.startswith(prefix):
+                    inferred_prov = prov
+                    break
+            if inferred_prov:
+                AutoAssigner.ensure_profile_definition(inferred_prov, profile_id)
+                config = load_router_config()
+                pcfg = config.get_profile(profile_id)
+
+        if not pcfg:
             return False, f"Профиль '{profile_id}' не найден"
 
         clean_role = role_name.strip().lower()
@@ -311,6 +327,31 @@ class AutoAssigner:
     @staticmethod
     def auto_assign_all() -> Dict[str, Any]:
         """Automatically distribute all authenticated profiles across canonical router roles (P0-4)."""
+        config = load_router_config()
+        # Scan on-disk profiles and ensure their definition in config.profiles
+        prov_prefix_map = {
+            "antigravity": "agy_profiles",
+            "openai-codex": "codex_profiles",
+            "opencode-go": "opengo_profiles",
+            "claude": "claude_profiles",
+            "grok": "grok_profiles",
+            "local": "local_profiles",
+            "openrouter": "openrouter_profiles",
+            "nvidia": "nvidia_profiles",
+            "ollama": "ollama_profiles",
+            "vllm": "vllm_profiles",
+        }
+        for prov, subdir in prov_prefix_map.items():
+            base_dir = paths.get_hermes_home() / subdir
+            if base_dir.is_dir():
+                for p_entry in base_dir.iterdir():
+                    if p_entry.is_dir():
+                        pid = p_entry.name
+                        if pid not in config.profiles:
+                            st = ProfileAuthManager.get_profile_status(prov, pid)
+                            if st.get("authenticated"):
+                                AutoAssigner.ensure_profile_definition(prov, pid)
+
         config = load_router_config()
         authenticated_profiles: List[Tuple[str, RouterProfileConfig]] = []
         for pid, pcfg in config.profiles.items():

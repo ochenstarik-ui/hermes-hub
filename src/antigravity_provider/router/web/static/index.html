@@ -158,6 +158,10 @@
                 <option value="opencode-go">OpenCode Go</option>
                 <option value="claude">Claude (Anthropic)</option>
                 <option value="grok">Grok (xAI)</option>
+                <option value="ollama">Ollama</option>
+                <option value="local">Локальные (Local LLM)</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="nvidia">NVIDIA NIM</option>
               </select>
               <select id="filter-health" class="select-filter">
                 <option value="all">Все состояния</option>
@@ -167,6 +171,9 @@
                 <option value="auth_required">Требуется вход</option>
                 <option value="disabled">Отключён / Резерв</option>
               </select>
+              <button class="btn btn-secondary btn-sm" id="btn-export-quotas" onclick="openExportQuotasModal()" title="Выгрузить отчет о лимитах и квотах в формате JSON или CSV">
+                <span>📥 Экспорт лимитов (JSON / CSV)</span>
+              </button>
               <div class="toolbar-stats" id="accounts-stats-summary">
                 Показано: <strong>0</strong> из <strong>0</strong> аккаунтов
               </div>
@@ -438,6 +445,14 @@
                 <select id="setting-theme" class="select-filter">
                   <option value="system">Системная (по умолчанию)</option>
                   <option value="dark">Тёмная (Dark)</option>
+                  <!-- Medium была полностью реализована в style.css, но в этот
+                       список не попала, и выбрать её было нельзя. Брендбук
+                       требует три темы, причём Medium — отдельная, а не
+                       осветлённая Dark: тёмно-зелёный холст #1A2A1F со
+                       светлыми кремовыми карточками #F7F1E3. Проверено
+                       подстановкой data-theme вручную: тема отрисовывается
+                       верно и отличается от Dark и по фону, и по карточкам. -->
+                  <option value="medium">Средняя (Medium)</option>
                   <option value="light">Светлая (Light)</option>
                 </select>
               </div>
@@ -540,6 +555,20 @@
             </div>
             <div class="settings-actions">
               <button class="btn btn-secondary" id="btn-save-client-settings">Сохранить локальные параметры</button>
+            </div>
+          </div>
+
+          <!-- Clean Setup / Reset Configuration (P0-4) -->
+          <div class="settings-card" style="margin-top:16px; border:1px solid rgba(220, 53, 69, 0.3);">
+            <h2 class="settings-group-title" style="color:var(--status-error, #e57373);">Сброс конфигурации</h2>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Начать настройку заново</div>
+                <div class="setting-desc">Сбросить все цепочки ролей и список профилей в чистое начальное состояние. Все учетные данные и токены аккаунтов сохраняются.</div>
+              </div>
+              <div class="setting-control">
+                <button class="btn btn-danger" id="btn-reset-router-config">Начать настройку заново</button>
+              </div>
             </div>
           </div>
         </section>

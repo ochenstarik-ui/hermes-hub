@@ -195,7 +195,7 @@ def test_multi_account_sequential_slot_progression(tmp_path, monkeypatch):
 
     # Initial free slot
     first_slot = AutoAssigner.find_free_slot("antigravity")
-    assert first_slot == "ag-orch-fallback"
+    assert first_slot == "ag-1"
 
     # Connect first slot
     AutoAssigner.ensure_profile_definition("antigravity", first_slot)
@@ -204,7 +204,7 @@ def test_multi_account_sequential_slot_progression(tmp_path, monkeypatch):
 
     # Next free slot
     second_slot = AutoAssigner.find_free_slot("antigravity")
-    assert second_slot == "ag-w1"
+    assert second_slot == "ag-2"
 
     # Connect second slot
     AutoAssigner.ensure_profile_definition("antigravity", second_slot)
@@ -213,7 +213,7 @@ def test_multi_account_sequential_slot_progression(tmp_path, monkeypatch):
 
     # Next free slot
     third_slot = AutoAssigner.find_free_slot("antigravity")
-    assert third_slot == "ag-w2"
+    assert third_slot == "ag-3"
 
 
 # ── TEST 5: Model selection and assignment (P1-6) ──

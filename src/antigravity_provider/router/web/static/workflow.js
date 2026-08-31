@@ -386,8 +386,18 @@ function renderAgentModelTab(content, snapshot, agent) {
   };
   const refreshModels = () => {
     const profile = profiles.find((item) => item.profile_id === accountSelect.value);
-    const models = profile?.preferred_models || Object.values(profile?.model_states || {}).map((state) => state.display_name).filter(Boolean);
-    modelSelect.innerHTML = models.length ? models.map((model) => `<option value="${wfEscape(model)}" ${model === cfg.model ? 'selected' : ''}>${wfEscape(model)}</option>`).join('') : '<option value="">Н/Д: модели не обнаружены</option>';
+    // Список моделей даёт провайдер. preferred_models — это настроенный владельцем
+    // список предпочтений профиля, а model_states строится перебором того же
+    // preferred_models (unified_health.py), поэтому обе прежние ветки показывали
+    // один и тот же куцый набор, и владелец видел «модели уже распределены».
+    const summary = (snapshot.providers || []).find((item) => item.provider_id === (profile?.provider || providerSelect.value));
+    const discovered = summary?.discovered_models || [];
+    const models = discovered.length ? [...discovered] : [...(profile?.preferred_models || [])];
+    // Настроенная у агента модель обязана присутствовать в списке. Иначе ни один
+    // option не получал selected, браузер показывал первый вариант, и нажатие
+    // «Изменить конфигурацию» молча записывало агенту не ту модель.
+    if (cfg.model && !models.includes(cfg.model)) models.unshift(cfg.model);
+    modelSelect.innerHTML = models.length ? models.map((model) => `<option value="${wfEscape(model)}" ${model === cfg.model ? 'selected' : ''}>${wfEscape(model)}</option>`).join('') : '<option value="">Н/Д: список моделей ещё не получен от провайдера</option>';
   };
   providerSelect.onchange = refreshAccounts;
   accountSelect.onchange = refreshModels;
