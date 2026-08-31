@@ -274,3 +274,57 @@ def setup_memory_structure(
         "created_dirs": created_dirs,
         "existing_dirs": existing_dirs,
     }
+def get_hermes_config_status(config_path: Optional[Path] = None) -> Dict[str, Any]:
+    """Read Hermes configuration (~/.hermes/config.yaml) in read-only mode to provide status feedback."""
+    import yaml
+    if config_path is None:
+        config_path = get_hermes_home() / "config.yaml"
+
+    if not config_path.exists():
+        return {
+            "exists": False,
+            "model": None,
+            "provider": None,
+            "base_url": None,
+            "path": str(config_path),
+            "message": "Конфигурационный файл ~/.hermes/config.yaml не найден",
+        }
+
+    try:
+        raw_text = config_path.read_text(encoding="utf-8")
+        data = yaml.safe_load(raw_text)
+        if not isinstance(data, dict):
+            return {
+                "exists": True,
+                "model": None,
+                "provider": None,
+                "base_url": None,
+                "path": str(config_path),
+                "message": "Конфигурационный файл пуст или некорректен",
+            }
+
+        model_cfg = data.get("model", {})
+        if not isinstance(model_cfg, dict):
+            model_cfg = {}
+
+        default_model = model_cfg.get("default") or data.get("default_model") or data.get("model")
+        provider = model_cfg.get("provider") or data.get("provider")
+        base_url = model_cfg.get("base_url") or data.get("base_url")
+
+        return {
+            "exists": True,
+            "model": default_model,
+            "provider": provider,
+            "base_url": base_url,
+            "path": str(config_path),
+        }
+    except Exception as e:
+        return {
+            "exists": True,
+            "model": None,
+            "provider": None,
+            "base_url": None,
+            "path": str(config_path),
+            "error": str(e),
+        }
+

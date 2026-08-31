@@ -43,6 +43,14 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
             )
             if not has_active_profiles:
                 logger.info("Router has no active profiles; passing call downstream to Hermes")
+                try:
+                    from antigravity_provider.router.telemetry_service import TelemetryService
+                    TelemetryService.get().record_bypass(
+                        role="unassigned",
+                        reason="В роутере нет активных профилей — вызов передан штатному Hermes",
+                    )
+                except Exception:
+                    pass
                 if callable(next_call):
                     return next_call(request)
                 return request
@@ -53,6 +61,14 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
 
             if provider and not role and not any(p.provider == provider for p in engine.config.profiles.values()):
                 logger.info("Explicit provider %r not managed by router; passing call downstream to Hermes", provider)
+                try:
+                    from antigravity_provider.router.telemetry_service import TelemetryService
+                    TelemetryService.get().record_bypass(
+                        role="unassigned",
+                        reason=f"Провайдер '{provider}' не управляется роутером — вызов передан штатному Hermes",
+                    )
+                except Exception:
+                    pass
                 if callable(next_call):
                     return next_call(request)
                 return request
@@ -68,6 +84,14 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
             )
 
             if not resolved_role:
+                try:
+                    from antigravity_provider.router.telemetry_service import TelemetryService
+                    TelemetryService.get().record_bypass(
+                        role="unassigned",
+                        reason="Роль для запроса не определена — вызов передан штатному Hermes",
+                    )
+                except Exception:
+                    pass
                 if callable(next_call):
                     return next_call(request)
                 return request
@@ -94,6 +118,15 @@ def antigravity_llm_execution(**kwargs: Any) -> Any:
                         resolved_role,
                         completion.get("failover_trail"),
                     )
+                    try:
+                        from antigravity_provider.router.telemetry_service import TelemetryService
+                        TelemetryService.get().record_bypass(
+                            role=resolved_role,
+                            reason=f"Цепочка для роли '{resolved_role}' исчерпана — вызов передан штатному Hermes",
+                            resolution_source=resolution_source,
+                        )
+                    except Exception:
+                        pass
                     try:
                         from antigravity_provider.router.unified_health import EventLogService
                         EventLogService.get().log(

@@ -96,6 +96,9 @@ class TelemetryAggregates:
     total_cost_usd: Optional[float] = None      # Sum of calculated costs or None if no pricing available
     failovers_count: int = 0
     failover_reasons: Dict[str, int] = field(default_factory=dict)
+    routed_calls_count: int = 0
+    bypassed_calls_count: int = 0
+    bypass_rate: Optional[float] = None
     source: str = "own_measurement"
     has_data: bool = True
 
@@ -131,6 +134,11 @@ class TelemetryService:
                 if cls._instance is None:
                     cls._instance = cls()
         return cls._instance
+
+    @classmethod
+    def reset_instance(cls) -> None:
+        with cls._instance_lock:
+            cls._instance = None
 
     def set_pricing_table(self, pricing: Dict[str, Dict[str, float]]) -> None:
         """Set or update the in-memory pricing table: {model_id_or_pattern: {input_cost_per_m: float, output_cost_per_m: float}}."""
@@ -268,6 +276,23 @@ class TelemetryService:
         self._append_to_disk(record)
         return record
 
+    def record_bypass(
+        self,
+        role: str,
+        reason: str,
+        resolution_source: Optional[str] = None,
+    ) -> TelemetryRecord:
+        """Record an invocation attempt that bypassed hub routing."""
+        return self.record_call(
+            role=role,
+            profile_id="bypass",
+            provider="hermes",
+            model="bypass",
+            outcome="bypass",
+            latency_seconds=0.0,
+            error_category=reason,
+        )
+
     def _append_to_disk(self, record: TelemetryRecord) -> None:
         """Append record to disk with size-based log rotation."""
         try:
@@ -394,6 +419,9 @@ class TelemetryService:
                 total_cost_usd=None,
                 failovers_count=0,
                 failover_reasons={},
+                routed_calls_count=0,
+                bypassed_calls_count=0,
+                bypass_rate=None,
                 source="own_measurement",
                 has_data=False,
             )
@@ -402,6 +430,8 @@ class TelemetryService:
 
         successful_calls = 0
         failed_calls = 0
+        routed_calls_count = 0
+        bypassed_calls_count = 0
         latencies_ms: List[float] = []
         prompt_tokens_sum = 0
         completion_tokens_sum = 0
@@ -421,11 +451,15 @@ class TelemetryService:
         failover_reasons: Dict[str, int] = collections.defaultdict(int)
 
         for r in records:
-            latencies_ms.append(r.latency_seconds * 1000.0)
+            if r.outcome == "bypass":
+                bypassed_calls_count += 1
+            else:
+                routed_calls_count += 1
+                latencies_ms.append(r.latency_seconds * 1000.0)
 
             if r.outcome in ("success", "failover"):
                 successful_calls += 1
-            else:
+            elif r.outcome != "bypass":
                 failed_calls += 1
 
             if r.failover_count > 0 or r.outcome == "failover":
@@ -485,6 +519,7 @@ class TelemetryService:
         max_lat = latencies_ms[-1] if latencies_ms else None
 
         error_rate = round(failed_calls / total_calls, 4) if total_calls > 0 else 0.0
+        bypass_rate = round(bypassed_calls_count / total_calls, 4) if total_calls > 0 else 0.0
         total_tokens_sum = (prompt_tokens_sum + completion_tokens_sum) if has_any_token_data else None
         tot_meas_sum = (prompt_meas_sum + comp_meas_sum) if (has_meas_prompt or has_meas_comp) else None
         tot_est_sum = (prompt_est_sum + comp_est_sum) if (has_est_prompt or has_est_comp) else None
@@ -514,6 +549,9 @@ class TelemetryService:
             total_cost_usd=round(costs_sum, 4) if has_any_cost_data else None,
             failovers_count=failovers_count,
             failover_reasons=dict(failover_reasons),
+            routed_calls_count=routed_calls_count,
+            bypassed_calls_count=bypassed_calls_count,
+            bypass_rate=bypass_rate,
             source="own_measurement",
             has_data=True,
         )

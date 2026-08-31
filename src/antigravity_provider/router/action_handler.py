@@ -692,10 +692,30 @@ class ActionExecutor:
             if not prov_norm:
                 return {'ok': False, 'message': 'Провайдер не указан'}
 
+            if prov_norm in ('google-antigravity', 'agy'):
+                prov_norm = 'antigravity'
+            elif prov_norm in ('codex', 'openai'):
+                prov_norm = 'openai-codex'
+            elif prov_norm in ('opencode', 'opengo'):
+                prov_norm = 'opencode-go'
+            elif prov_norm in ('anthropic',):
+                prov_norm = 'claude'
+            elif prov_norm in ('xai',):
+                prov_norm = 'grok'
+            elif prov_norm in ('local-llm', 'llama.cpp'):
+                prov_norm = 'local'
+            elif prov_norm in ('nvidia-nim',):
+                prov_norm = 'nvidia'
+
             target_role = data.get('target_role', 'coder-primary')
             base_url = (data.get('base_url') or '').strip()
             token = (data.get('token') or data.get('api_key') or '').strip()
             slot = data.get('profile_id')
+
+            slot = slot or AutoAssigner.find_free_slot(prov_norm) or f'{prov_norm}-1'
+
+            status = ProfileAuthManager.get_profile_status(prov_norm, slot)
+            is_authenticated = bool(status.get("authenticated"))
 
             default_base_urls = {
                 'openrouter': 'https://openrouter.ai/api/v1',
@@ -711,27 +731,31 @@ class ActionExecutor:
             if not base_url and prov_norm in default_base_urls:
                 base_url = default_base_urls[prov_norm]
 
-            # Validate required credentials per provider
-            if prov_norm in ('openrouter',):
-                if not token:
-                    return {'ok': False, 'message': 'Не указан API-ключ для OpenRouter'}
-            elif prov_norm in ('nvidia', 'nvidia-nim'):
-                if not token:
-                    return {'ok': False, 'message': 'Не указан API-ключ для NVIDIA NIM'}
-            elif prov_norm in ('claude', 'anthropic'):
-                if not token:
-                    return {'ok': False, 'message': 'Не указан API-ключ для Claude'}
-            elif prov_norm in ('opencode-go', 'opencode'):
-                if not token:
-                    return {'ok': False, 'message': 'Не указан API-ключ для OpenCode Go'}
-            elif prov_norm in ('local', 'local-llm', 'llama.cpp', 'ollama', 'vllm'):
-                if not base_url:
-                    return {'ok': False, 'message': f'Не указан URL сервера для {prov_norm}'}
-            elif prov_norm in ('openai-codex', 'codex', 'grok', 'xai'):
-                if not token:
-                    return {'ok': False, 'message': f'Не указан API-ключ для {prov_norm}'}
-            else:
-                return {'ok': False, 'message': f'Провайдер {prov_norm} не поддерживается для прямого добавления учетных данных'}
+            # Validate required credentials per provider only if NOT already authenticated
+            if not is_authenticated:
+                if prov_norm == 'openrouter':
+                    if not token:
+                        return {'ok': False, 'message': 'Не указан API-ключ для OpenRouter'}
+                elif prov_norm in ('nvidia', 'nvidia-nim'):
+                    if not token:
+                        return {'ok': False, 'message': 'Не указан API-ключ для NVIDIA NIM'}
+                elif prov_norm in ('claude', 'anthropic'):
+                    if not token:
+                        return {'ok': False, 'message': 'Не указан API-ключ для Claude'}
+                elif prov_norm in ('opencode-go', 'opencode'):
+                    if not token:
+                        return {'ok': False, 'message': 'Не указан API-ключ для OpenCode Go'}
+                elif prov_norm in ('local', 'local-llm', 'llama.cpp', 'ollama', 'vllm'):
+                    if not base_url:
+                        return {'ok': False, 'message': f'Не указан URL сервера для {prov_norm}'}
+                elif prov_norm in ('openai-codex', 'codex', 'grok', 'xai'):
+                    if not token:
+                        return {'ok': False, 'message': f'Не указан API-ключ для {prov_norm}'}
+                elif prov_norm in ('antigravity', 'google-antigravity'):
+                    if not token and not is_authenticated:
+                        return {'ok': False, 'message': 'Не выполнена авторизация для Antigravity'}
+                else:
+                    return {'ok': False, 'message': f'Провайдер {prov_norm} не поддерживается для прямого добавления учетных данных'}
 
             slot = slot or AutoAssigner.find_free_slot(prov_norm)
             if not slot:
@@ -740,18 +764,30 @@ class ActionExecutor:
             if not ok:
                 return {'ok': False, 'message': def_msg}
 
-            auth_data: Dict[str, Any] = {
-                "provider": prov_norm,
-                "profile_id": slot,
-                "created_at": time.time(),
-            }
-            if base_url:
-                auth_data["base_url"] = base_url
-            if token:
-                auth_data["api_key"] = token
+            # Save credentials if new token / base_url provided or for local/token providers
+            if token or base_url or not is_authenticated:
+                existing_auth = ProfileAuthManager.load_profile_auth(prov_norm, slot) or {}
+                auth_data: Dict[str, Any] = {
+                    "provider": prov_norm,
+                    "profile_id": slot,
+                    "created_at": existing_auth.get("created_at", time.time()),
+                }
+                auth_data.update(existing_auth)
+                if base_url:
+                    auth_data["base_url"] = base_url
+                if token:
+                    auth_data["api_key"] = token
+                    auth_data["token"] = token
+                try:
+                    ProfileAuthManager.save_profile_auth(prov_norm, slot, auth_data)
+                except Exception as e:
+                    return {'ok': False, 'message': f'Ошибка при сохранении учетных данных {slot}: {e}'}
 
             try:
-                ProfileAuthManager.save_profile_auth(prov_norm, slot, auth_data)
+                # Учётные данные сохраняются выше и только при их наличии.
+                # Повторный вызов здесь обращался к auth_data, которой у уже
+                # авторизованного аккаунта не существует: перевод аккаунта в
+                # другую роль падал с ошибкой, хотя ключ вводить не требуется.
                 AutoAssigner.assign_profile_to_role(slot, target_role, is_primary=False)
                 _rescan_after_auth()
                 from antigravity_provider.router.account_probe_service import AccountProbeService
@@ -963,13 +999,43 @@ class ActionExecutor:
             )
             return {'ok': True, 'message': 'Сухой прогон выполнен', 'data': res}
             
+        elif action == 'preview_auto_assign':
+            res = AutoAssigner.preview_auto_assign()
+            return {'ok': res.get('success', False), 'message': res.get('message', ''), 'data': res}
+
+        elif action == 'set_default_role':
+            role = (data.get('default_role') or data.get('role') or '').strip().lower()
+            if not role:
+                return {'ok': False, 'message': 'Не указана роль по умолчанию'}
+            from antigravity_provider.router.role_registry import RoleRegistry
+            canonical_role = RoleRegistry.resolve_canonical_role(role)
+            rcfg = load_router_config()
+            rcfg.default_role = canonical_role
+            if not save_router_config(rcfg):
+                return {'ok': False, 'message': 'Не удалось сохранить конфигурацию роутера'}
+            do_save_settings({'default_role': canonical_role})
+            try:
+                from antigravity_provider.router.state_store import HubStateStore
+                HubStateStore.get().refresh(force_scan=True)
+            except Exception:
+                pass
+            EventLogService.get().log(
+                'routing',
+                f'Роль по умолчанию изменена на {canonical_role}.',
+                level='info',
+                actor=actor,
+                action='set_default_role',
+                outcome='success',
+            )
+            return {'ok': True, 'message': f'Роль по умолчанию изменена на {canonical_role}', 'data': {'default_role': canonical_role}}
+
         elif action == 'auto_assign_all':
             if async_runner:
                 async_runner(lambda: AutoAssigner.auto_assign_all(), 'AutoAssignAll')
                 return {'ok': True, 'message': 'запущено'}
             else:
-                AutoAssigner.auto_assign_all()
-                return {'ok': True, 'message': 'Успешно'}
+                res = AutoAssigner.auto_assign_all()
+                return {'ok': res.get('success', False), 'message': res.get('message', 'Успешно'), 'data': res}
                 
         elif action == 'refresh_data':
             return {'ok': True, 'message': 'Обновление данных'}
