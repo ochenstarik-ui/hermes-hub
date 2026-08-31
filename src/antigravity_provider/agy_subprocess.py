@@ -756,6 +756,31 @@ def agy_generate(
         "--disable-slash-commands",
         "--print-timeout", f"{timeout}s",
     ]
+    # Каталог agy отдаёт идентификаторы с уровнем усилия: gemini-3.7-flash-high,
+    # -medium, -low. В профиле же хранится голое имя, и вызов уходил с пустым
+    # --effort: agy отвечал «gemini-3.7-flash requires --effort (available: low,
+    # medium, high)» и работа не начиналась.
+    if agy_model and not agy_effort:
+        base, _, tail = str(agy_model).rpartition("-")
+        if base and tail in ("low", "medium", "high"):
+            # Уровень зашит в самом имени — отделяем его.
+            agy_model, agy_effort = base, tail
+        else:
+            known = _AGY_EFFORT_MAP.get(agy_model) or set()
+            if known:
+                # Берём средний уровень, если он есть: он и по названию средний,
+                # и по расходу квоты. Иначе — любой доступный, по порядку.
+                for candidate in ("medium", "high", "low"):
+                    if candidate in known:
+                        agy_effort = candidate
+                        break
+                if not agy_effort:
+                    agy_effort = sorted(known)[0]
+                logger.info(
+                    "agy_generate: у модели %s не задан уровень усилия, выбран %s из %s",
+                    agy_model, agy_effort, sorted(known),
+                )
+
     if agy_model:
         cmd.extend(["--model", agy_model])
     if agy_effort:

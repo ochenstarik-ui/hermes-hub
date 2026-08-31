@@ -30,6 +30,20 @@ def validate_connection(provider, token="", base_url="", preferred_model=""):
             raise ValueError("Для этого провайдера используйте вход через авторизацию")
         if provider not in ("local", "vllm", "ollama") and not token:
             raise ValueError("Не указан API-ключ")
+
+        # Подписочные аккаунты Codex (ChatGPT) и Claude работают по OAuth, а не
+        # по платформенному ключу. Проверка ниже обращается к каталогу моделей,
+        # где платформенному ключу нужны права api.model.read: подписочный
+        # токен там получает 403 или 401, хотя аккаунт исправен и в Hermes
+        # работает. Предупреждаем об этом заранее, чтобы отказ не выглядел
+        # поломкой аккаунта.
+        subscription_note = ""
+        if provider in ("openai-codex", "codex", "claude", "anthropic"):
+            subscription_note = (
+                " Если это аккаунт по подписке (ChatGPT Plus/Pro или Claude Max), "
+                "ключ здесь не подойдёт: такие аккаунты подключаются входом по ссылке "
+                "на предыдущем шаге мастера, а не API-ключом."
+            )
         headers = {"Content-Type": "application/json"}
         if provider == "claude":
             headers.update({"x-api-key": token, "anthropic-version": "2023-06-01"})
@@ -139,7 +153,9 @@ def validate_connection(provider, token="", base_url="", preferred_model=""):
                 "data": {"models": []},
             }
         if isinstance(exc, urllib.error.HTTPError):
-            reason = exc.reason or 'провайдер отклонил запрос'
+            reason = (exc.reason or 'провайдер отклонил запрос')
+            if exc.code in (401, 403) and subscription_note:
+                reason = str(reason) + subscription_note
             try:
                 body = json.loads(exc.read(4096).decode('utf-8', errors='replace'))
                 detail = body.get('error') or body.get('detail')
