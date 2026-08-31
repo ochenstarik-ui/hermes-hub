@@ -76,6 +76,13 @@ class ModelDiscoveryService:
     #  NON-BLOCKING READ API
     # ─────────────────────────────────────────────────────────────
 
+    def remember_models(self, provider: str, profile_id: str, models: list[str]) -> None:
+        with self._cache_lock:
+            self._cache[f"{provider.lower()}:{profile_id}"] = {
+                "models": list(models), "discovered_at": time.time(), "error": None,
+            }
+            self._save_cache_to_disk()
+
     def get_models(self, provider: str) -> Optional[List[str]]:
         """Return cached models for provider immediately, or None if undiscovered."""
         meta = self.get_models_with_metadata(provider)
@@ -203,7 +210,7 @@ class ModelDiscoveryService:
                 result_holder[0] = models
                 error_holder[0] = err_msg
             except Exception as exc:
-                error_holder[0] = str(exc)
+                error_holder[0] = str(exc).strip() or type(exc).__name__
 
         worker = threading.Thread(target=_do_probe, daemon=True)
         worker.start()
@@ -412,7 +419,7 @@ class ModelDiscoveryService:
                     last_err = self._extract_http_error(http_err)
                     logger.debug("Codex model query HTTP error on %s: %s", pid, last_err)
                 except Exception as exc:
-                    last_err = str(exc)
+                    last_err = str(exc).strip() or type(exc).__name__
                     logger.debug("Codex model query failed on %s: %s", pid, exc)
             return None, last_err or "Отсутствуют учетные данные для OpenAI Codex"
 
@@ -448,7 +455,7 @@ class ModelDiscoveryService:
                     last_err = self._extract_http_error(http_err)
                     logger.debug("OpenCode model query HTTP error on %s: %s", pid, last_err)
                 except Exception as exc:
-                    last_err = str(exc)
+                    last_err = str(exc).strip() or type(exc).__name__
                     logger.debug("OpenCode model query failed on %s: %s", pid, exc)
             return None, last_err or "Отсутствуют учетные данные для OpenCode Go"
 
@@ -484,7 +491,7 @@ class ModelDiscoveryService:
                     last_err = self._extract_http_error(http_err)
                     logger.debug("Grok model discovery HTTP error for %s: %s", pid, last_err)
                 except Exception as exc:
-                    last_err = str(exc)
+                    last_err = str(exc).strip() or type(exc).__name__
                     logger.debug("Grok model discovery failed for %s: %s", pid, exc)
             return None, last_err or "Отсутствуют учетные данные для Grok"
 
@@ -523,7 +530,7 @@ class ModelDiscoveryService:
                 except urllib.error.HTTPError as http_err:
                     last_err = self._extract_http_error(http_err)
                 except Exception as exc:
-                    last_err = str(exc)
+                    last_err = str(exc).strip() or type(exc).__name__
             return None, last_err or "Отсутствуют учетные данные для Claude"
 
         elif prov in ("openrouter",):
@@ -574,7 +581,7 @@ class ModelDiscoveryService:
                     last_err = self._extract_http_error(http_err)
                     logger.debug("OpenRouter model discovery HTTP error for %s: %s", pid, last_err)
                 except Exception as exc:
-                    last_err = str(exc)
+                    last_err = str(exc).strip() or type(exc).__name__
                     logger.debug("OpenRouter model discovery failed for %s: %s", pid, exc)
             return None, last_err or "Отсутствуют учетные данные для OpenRouter"
 
@@ -613,7 +620,7 @@ class ModelDiscoveryService:
                     last_err = self._extract_http_error(http_err)
                     logger.debug("NVIDIA model discovery HTTP error for %s: %s", pid, last_err)
                 except Exception as exc:
-                    last_err = str(exc)
+                    last_err = str(exc).strip() or type(exc).__name__
                     logger.debug("NVIDIA model discovery failed for %s: %s", pid, exc)
             return None, last_err or "Отсутствуют учетные данные для NVIDIA NIM"
 
@@ -655,7 +662,7 @@ class ModelDiscoveryService:
                     last_err = self._extract_http_error(http_err)
                     logger.debug("Ollama /api/tags HTTP error on %s: %s", pid, last_err)
                 except Exception as exc:
-                    last_err = str(exc)
+                    last_err = str(exc).strip() or type(exc).__name__
                     logger.debug("Ollama /api/tags query failed on %s: %s", pid, exc)
 
                 # 2. Try OpenAI-compatible endpoint /v1/models
@@ -675,7 +682,7 @@ class ModelDiscoveryService:
                     last_err = self._extract_http_error(http_err)
                     logger.debug("Ollama /v1/models HTTP error on %s: %s", pid, last_err)
                 except Exception as exc:
-                    last_err = str(exc)
+                    last_err = str(exc).strip() or type(exc).__name__
                     logger.debug("Ollama /v1/models query failed on %s: %s", pid, exc)
 
             return None, last_err or "Не удалось подключиться к серверу Ollama"
@@ -708,13 +715,12 @@ class ModelDiscoveryService:
                                 for m in items
                                 if m
                             ]
-                            if models:
-                                return sorted(set(models)), None
+                            return sorted(set(models)), None
                 except urllib.error.HTTPError as http_err:
                     last_err = self._extract_http_error(http_err)
                     logger.debug("Local LLM model query HTTP error on %s (%s): %s", pid, base_url, last_err)
                 except Exception as exc:
-                    last_err = str(exc)
+                    last_err = str(exc).strip() or type(exc).__name__
                     logger.debug("Local LLM model query failed on %s (%s): %s", pid, base_url, exc)
             return None, last_err or "Не удалось подключиться к локальному серверу LLM"
 

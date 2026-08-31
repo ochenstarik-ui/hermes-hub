@@ -11,6 +11,8 @@ namespace HermesHub
 {
     public static class WebLauncher
     {
+        private static Mutex instanceMutex;
+
         [STAThread]
         public static void Main(string[] args)
         {
@@ -69,9 +71,17 @@ namespace HermesHub
             string targetUrl = string.Format("http://{0}:{1}/", host, port);
             string healthUrl = string.Format("http://{0}:{1}/api/health", host, port);
 
+            bool firstInstance;
+            instanceMutex = new Mutex(true, "Local\\HermesHubWeb", out firstInstance);
+            if (!firstInstance) { Process.Start(targetUrl); return; }
+            // Adopt no unknown server: stop only a verified process from our installation.
+            try { StopOwnedRuntime(hermesHome, false); }
+            catch (Exception ex) { MessageBox.Show(ex.Message, "Hermes Hub", MessageBoxButtons.OK, MessageBoxIcon.Error); return; }
+
             // 2. Check if server is already running and healthy
             bool serverWasAlreadyRunning = IsServerHealthy(healthUrl);
             Process serverProcess = null;
+            StringBuilder serverLog = new StringBuilder();
 
             if (!serverWasAlreadyRunning)
             {
@@ -131,6 +141,14 @@ namespace HermesHub
                 try
                 {
                     serverProcess = Process.Start(serverPsi);
+                    DataReceivedEventHandler collect = delegate(object sender, DataReceivedEventArgs item) {
+                        if (item.Data == null) return;
+                        lock (serverLog) { serverLog.AppendLine(item.Data); if (serverLog.Length > 4000) serverLog.Remove(0, serverLog.Length - 4000); }
+                    };
+                    serverProcess.ErrorDataReceived += collect;
+                    serverProcess.OutputDataReceived += collect;
+                    serverProcess.BeginErrorReadLine();
+                    serverProcess.BeginOutputReadLine();
                 }
                 catch (Exception ex)
                 {
@@ -149,12 +167,8 @@ namespace HermesHub
                     }
                     if (serverProcess.HasExited)
                     {
-                        string why = "";
-                        try { why = serverProcess.StandardError.ReadToEnd(); } catch { }
-                        if (string.IsNullOrEmpty(why))
-                        {
-                            try { why = serverProcess.StandardOutput.ReadToEnd(); } catch { }
-                        }
+                        string why;
+                        lock (serverLog) { why = serverLog.ToString(); }
                         if (why.Length > 1500) why = why.Substring(why.Length - 1500);
                         string msg = "Веб-сервер Hermes Hub завершился с ошибкой.";
                         if (!string.IsNullOrEmpty(why)) msg += Environment.NewLine + Environment.NewLine + why.Trim();
@@ -178,7 +192,7 @@ namespace HermesHub
             // 4. Locate browser in strict priority: Edge -> Chrome -> Chromium registry -> Fallback
             string browserPath = FindChromiumBrowser();
             Process browserProc = null;
-            DateTime browserStartedAt = DateTime.UtcNow;
+
 
             if (!string.IsNullOrEmpty(browserPath))
             {
@@ -199,7 +213,7 @@ namespace HermesHub
                 try
                 {
                     browserProc = Process.Start(browserPsi);
-                    browserStartedAt = DateTime.UtcNow;
+
                 }
                 catch (Exception ex)
                 {
@@ -226,34 +240,111 @@ namespace HermesHub
                 }
             }
 
-            // 5. Server Lifecycle:
-            // If the server was started by this launcher session and browser is tracked,
-            // wait for browser window to close, then gracefully terminate server process.
-            if (!serverWasAlreadyRunning && serverProcess != null && !serverProcess.HasExited && browserProc != null)
+            Application.Run(new HubContext(hermesHome, targetUrl, browserPath, browserProc));
+            instanceMutex.ReleaseMutex();
+        }
+
+        // Restrict cleanup to this installation. Never kill arbitrary Python/browser processes.
+        public static void StopOwnedRuntime(string home, bool includeLauncher)
+        {
+            string escaped = Path.GetFullPath(home).TrimEnd('\\').Replace("'", "''");
+            string script = "$ErrorActionPreference='Stop'; $root='" + escaped + "'; " +
+                "$py=@((Join-Path $root 'hermes-agent\\venv\\Scripts\\python.exe'),(Join-Path $root 'hermes-agent\\venv\\Scripts\\pythonw.exe')); " +
+                "$all=@(Get-CimInstance Win32_Process); $protected=@($PID); $cursor=$PID; " +
+                "while ($cursor) { $node=$all | Where-Object ProcessId -eq $cursor | Select-Object -First 1; if (!$node) { break }; $cursor=$node.ParentProcessId; if ($cursor -in $protected) { break }; $protected+= $cursor }; " +
+                "function Stop-HubBranch([int]$processId) { foreach ($child in @($all | Where-Object ParentProcessId -eq $processId)) { if ($child.ProcessId -notin $protected) { Stop-HubBranch $child.ProcessId } }; " +
+                "if (Get-Process -Id $processId -ErrorAction SilentlyContinue) { Stop-Process -Id $processId -Force -ErrorAction Stop } }; " +
+                "$targets=@($all | Where-Object { " +
+                "($_.ExecutablePath -in $py -and ($_.CommandLine -match 'hermes_hub_web_entry\\.py|antigravity_provider\\.router\\.web'))" +
+                " -or ($_.Name -in @('msedge.exe','chrome.exe','chromium.exe') -and $_.CommandLine -match ('--user-data-dir=[\\x22]?'+[regex]::Escape((Join-Path $root 'web_browser_profile'))+'[\\x22]?(?:\\s|$)'))" +
+                (includeLauncher ? " -or ($_.Name -eq 'HermesHubWeb.exe' -and ($_.ExecutablePath -eq (Join-Path $root 'HermesHubWeb.exe') -or $_.ExecutablePath -eq (Join-Path $env:LOCALAPPDATA 'Programs\\HermesHub\\HermesHubWeb.exe')))" : "") +
+                " }); foreach ($target in $targets) { Stop-HubBranch $target.ProcessId; " +
+                "if (Get-Process -Id $target.ProcessId -ErrorAction SilentlyContinue) { throw 'Не удалось остановить прежний процесс Hermes Hub' } }";
+            ProcessStartInfo info = new ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(script)));
+            info.UseShellExecute = false;
+            info.CreateNoWindow = true;
+            info.WindowStyle = ProcessWindowStyle.Hidden;
+            using (Process process = Process.Start(info))
             {
-                try
-                {
-                    browserProc.WaitForExit();
-                }
-                catch { }
-
-                // Подстраховка: если процесс браузера завершился почти сразу,
-                // это почти наверняка передача окна другому экземпляру, а не
-                // закрытие пользователем. Убивать сервер в этом случае нельзя.
-                if (DateTime.UtcNow - browserStartedAt < TimeSpan.FromSeconds(5))
-                {
-                    return;
-                }
-
-                try
-                {
-                    if (!serverProcess.HasExited)
-                    {
-                        serverProcess.Kill();
-                    }
-                }
-                catch { }
+                if (!process.WaitForExit(20000)) { process.Kill(); throw new IOException("Остановка прежнего сервера превысила 20 секунд"); }
+                if (process.ExitCode != 0) throw new IOException("Не удалось остановить прежний сервер. Обновление отменено.");
             }
+        }
+
+        private sealed class HubContext : ApplicationContext
+        {
+            private readonly NotifyIcon tray;
+            private readonly System.Windows.Forms.Timer timer;
+            private readonly string home, url, browserPath;
+            private Process browser;
+            private bool watching, hadWindow, closing;
+
+            public HubContext(string homePath, string targetUrl, string browserExe, Process browserProcess)
+            {
+                home = homePath; url = targetUrl; browserPath = browserExe; browser = browserProcess;
+                watching = browser != null;
+                tray = new NotifyIcon();
+                tray.Icon = System.Drawing.SystemIcons.Application;
+                tray.Text = "Hermes Hub — работает в фоне";
+                ContextMenuStrip menu = new ContextMenuStrip();
+                menu.Items.Add("Открыть", null, delegate { Open(); });
+                menu.Items.Add("Выход", null, delegate { ExitCompletely(); });
+                tray.ContextMenuStrip = menu;
+                tray.DoubleClick += delegate { Open(); };
+                tray.Visible = true;
+                timer = new System.Windows.Forms.Timer(); timer.Interval = 500;
+                timer.Tick += delegate { WatchWindow(); }; timer.Start();
+            }
+
+            private void WatchWindow()
+            {
+                if (!watching || closing || browser == null) return;
+                bool closed;
+                try {
+                    browser.Refresh();
+                    if (!browser.HasExited && browser.MainWindowHandle != IntPtr.Zero) hadWindow = true;
+                    closed = browser.HasExited || (hadWindow && browser.MainWindowHandle == IntPtr.Zero);
+                } catch { closed = true; }
+                if (!closed) return;
+                watching = false;
+                DialogResult answer = MessageBox.Show("Закрыть Hermes Hub полностью?\n\nДа — остановить сервер и фоновые опросы.\nНет — оставить в фоне (значок в области уведомлений).", "Hermes Hub", MessageBoxButtons.YesNo, MessageBoxIcon.Question);
+                if (answer == DialogResult.Yes) ExitCompletely();
+            }
+
+            private void Open()
+            {
+                if (closing) return;
+                try {
+                    if (browser != null && !browser.HasExited && browser.MainWindowHandle != IntPtr.Zero) {
+                        ShowWindow(browser.MainWindowHandle, 9); SetForegroundWindow(browser.MainWindowHandle); return;
+                    }
+                    if (string.IsNullOrEmpty(browserPath)) { Process.Start(url); return; }
+                    ProcessStartInfo info = new ProcessStartInfo(browserPath,
+                        "--app=\"" + url + "\" --window-size=1400,900 --user-data-dir=\"" + Path.Combine(home, "web_browser_profile") + "\" --no-first-run --no-default-browser-check");
+                    info.UseShellExecute = false;
+                    browser = Process.Start(info); watching = true; hadWindow = false;
+                } catch (Exception ex) { MessageBox.Show(ex.Message, "Hermes Hub"); }
+            }
+
+            private void ExitCompletely()
+            {
+                if (closing) return;
+                closing = true; timer.Stop();
+                try {
+                    if (browser != null && !browser.HasExited) {
+                        ProcessStartInfo kill = new ProcessStartInfo("taskkill.exe", "/PID " + browser.Id + " /T /F");
+                        kill.UseShellExecute = false; kill.CreateNoWindow = true;
+                        using (Process process = Process.Start(kill)) { process.WaitForExit(5000); }
+                    }
+                    StopOwnedRuntime(home, false);
+                    tray.Visible = false; tray.Dispose(); timer.Dispose(); ExitThread();
+                } catch (Exception ex) {
+                    closing = false; timer.Start();
+                    MessageBox.Show("Не удалось завершить всё: " + ex.Message, "Hermes Hub", MessageBoxButtons.OK, MessageBoxIcon.Error);
+                }
+            }
+            [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool SetForegroundWindow(IntPtr handle);
+            [System.Runtime.InteropServices.DllImport("user32.dll")] private static extern bool ShowWindow(IntPtr handle, int command);
         }
 
         public static bool IsServerHealthy(string url)

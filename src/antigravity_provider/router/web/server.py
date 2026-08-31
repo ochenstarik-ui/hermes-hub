@@ -101,7 +101,10 @@ def get_auth_token(x_hub_token: str = Header(None)) -> bool:
 
 @app.get("/api/health")
 def health_check():
+    from ..account_probe_service import AccountProbeService
     return {
+        "pid": os.getpid(),
+        "account_probe": AccountProbeService.get().status(),
         "ok": True,
         "version": __version__,
         "commit": get_installed_commit(),
@@ -194,6 +197,28 @@ def get_snapshot(authorized: bool = Depends(get_auth_token)):
         raise HTTPException(status_code=503, detail="Snapshot not ready")
     
     snap_dict = dataclasses.asdict(snapshot)
+    from ..account_probe_service import AccountProbeService
+    from ..model_discovery_service import ModelDiscoveryService
+    probe, discovery = AccountProbeService.get(), ModelDiscoveryService.get()
+    snap_dict["account_probe"] = probe.status()
+    for profile in snap_dict.get("all_profiles", {}).values():
+        pid, provider = profile["profile_id"], profile["provider"]
+        check = probe.state(pid)
+        profile["connection_check"] = check
+        if profile.get("auth_state") == "AUTHENTICATED" and profile.get("enabled", True) and not check.get("models_only"):
+            if check.get("state") == "working":
+                profile["health_state"], profile["health_label_ru"] = "healthy", "Проверен: работает"
+            elif check.get("state") == "failed":
+                profile["health_state"], profile["health_label_ru"] = "unhealthy", "Проверен: не работает — " + check["message"]
+            elif check.get("state") == "checking":
+                profile["health_state"], profile["health_label_ru"] = "checking", "Проверяется…"
+        profile["model_discovery"] = discovery.get_models_with_metadata(provider, pid)
+        if provider == "ollama":
+            profile["model_discovery"]["cloud"] = discovery.get_models_with_metadata("ollama-cloud-catalog")
+    snap_dict["profiles_by_provider"] = {
+        provider: [snap_dict["all_profiles"].get(p["profile_id"], p) for p in profiles]
+        for provider, profiles in snap_dict.get("profiles_by_provider", {}).items()
+    }
     snap_dict = sanitize_snapshot(snap_dict)
     
     server_host = _web_settings().get("web_api_host", "127.0.0.1")
@@ -226,13 +251,17 @@ async def handle_action(request: Request, authorized: bool = Depends(get_auth_to
         threading.Thread(target=func, name=name, daemon=True).start()
         
     actor = request.headers.get("X-Hub-Actor") or (f"web:{request.client.host}" if request.client else "user:web")
-    result = await run_in_threadpool(ActionExecutor.execute, action, data.get("data", {}), async_runner=_async_runner, actor=actor)
+    try:
+        result = await run_in_threadpool(ActionExecutor.execute, action, data.get("data", {}), async_runner=_async_runner, actor=actor)
+    except Exception as exc:
+        result = {"ok": False, "message": f"Действие {action} завершилось ошибкой {type(exc).__name__}"}
+
     if result.get("unknown"):
         raise HTTPException(status_code=404, detail="Неизвестное действие")
         
     return {
         "ok": result.get("ok", False),
-        "message": result.get("message", ""),
+        "message": result.get("message") or ("Действие выполнено" if result.get("ok") else f"Действие {action} не выполнено: обработчик не сообщил причину"),
         "data": result.get("data", {})
     }
 
@@ -488,6 +517,7 @@ if _STATIC_DIR.is_dir():
 # ─────────────────────────────────────────────────────────────
 
 _SNAPSHOT_REFRESH_SEC = 30
+_background_stop = threading.Event()
 
 
 def _background_refresh_loop() -> None:
@@ -509,17 +539,18 @@ def _background_refresh_loop() -> None:
     except Exception as exc:
         logger.debug("Initial background update check skipped: %s", exc)
 
-    while True:
+    while not _background_stop.is_set():
         try:
             AccountProbeService.get().tick()
             HubStateStore.get().refresh(force_scan=False)
         except Exception as exc:
             logger.warning("Snapshot refresh failed: %s", exc)
-        time.sleep(_SNAPSHOT_REFRESH_SEC)
+        _background_stop.wait(_SNAPSHOT_REFRESH_SEC)
 
 
 @app.on_event("startup")
 def _start_background_refresh() -> None:
+    _background_stop.clear()
     # В фоне: опрос ходит по сети к нескольким провайдерам, держать на нём
     # старт сервера нельзя.
     threading.Thread(target=_background_refresh_loop, daemon=True, name="hub-web-refresh").start()
@@ -530,3 +561,12 @@ def _start_background_refresh() -> None:
         AccountQuotaService.get().start_background_scheduler()
     except Exception as exc:
         logger.warning("Could not start quota scheduler: %s", exc)
+
+
+@app.on_event("shutdown")
+def _stop_background_refresh() -> None:
+    from ..account_probe_service import AccountProbeService
+    from ..quota_collector import AccountQuotaService
+    _background_stop.set()
+    AccountProbeService.get().shutdown()
+    AccountQuotaService.get().stop_background_scheduler()

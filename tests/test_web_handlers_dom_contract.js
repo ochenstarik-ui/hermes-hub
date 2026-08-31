@@ -247,7 +247,7 @@ async function runTests() {
   const slotForStep3 = getOrCreateElement('wiz-device-slot');
   slotForStep3.value = 'owner-slot-42';
   // proceedToWizardStep3 replaces modalBody (destroying wiz-device-slot)
-  sandbox.proceedToWizardStep3('grok');
+  await sandbox.proceedToWizardStep3('grok');
   // finishAddAccount reads from destroyed selects — P0-1 BUG-1: profile_id must survive
   const targetRoleForStep3 = getOrCreateElement('wiz-target-role');
   targetRoleForStep3.value = 'coder-primary';
@@ -274,7 +274,7 @@ async function runTests() {
   sandbox.showWizardStep2('local');
   const baseInput = getOrCreateElement('wiz-base-url-input');
   baseInput.value = 'http://127.0.0.1:8081/v1';
-  sandbox.proceedToWizardStep3('local');
+  await sandbox.proceedToWizardStep3('local');
   const targetRole = getOrCreateElement('wiz-target-role');
   targetRole.value = 'coder-primary';
   await sandbox.finishAddAccount('local');
@@ -310,13 +310,13 @@ async function runTests() {
     sandbox.openAddAccountWizard();
     sandbox.showWizardStep2('antigravity');
     getOrCreateElement('wiz-redirect-slot').value = 'ag-w1';
-    sandbox.proceedToWizardStep3('antigravity');
+    await sandbox.proceedToWizardStep3('antigravity');
     assert.strictEqual(sandbox.window._wiz_device_profile, 'ag-w1');
     sandbox.showWizardStep1();
     sandbox.showWizardStep2(provider);
     getOrCreateElement('wiz-redirect-slot').value = '';
     getOrCreateElement('wiz-token-input').value = 'intentionally-invalid';
-    sandbox.proceedToWizardStep3(provider);
+    await sandbox.proceedToWizardStep3(provider);
     await sandbox.finishAddAccount(provider);
     const action = [...executedActions].reverse().find(a => a.action === 'add_account');
     assert.strictEqual(action.data.provider, provider);

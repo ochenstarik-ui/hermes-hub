@@ -702,7 +702,7 @@ function renderAccountsView() {
   const profilesByProv = currentSnapshot.profiles_by_provider || {};
   let totalProfiles = 0;
   let visibleProfiles = 0;
-  let html = '<div style="grid-column:1/-1"><button class="btn btn-secondary" onclick="executeAction(\'check_all_accounts\', {})">Проверить все аккаунты</button></div>';
+  let html = '<div style="grid-column:1/-1"><button class="btn btn-secondary" onclick="executeAction(\'check_all_accounts\', {})">Проверить все аккаунты</button> <button class="btn btn-secondary" onclick="handleClearAccounts()">Очистить все аккаунты</button></div>';
 
   for (const [providerId, profiles] of Object.entries(profilesByProv)) {
     if (providerFilter !== 'all' && providerFilter !== providerId) continue;
@@ -846,7 +846,7 @@ function renderAccountCard(profile) {
         </div>
       </div>
 
-      <div class="account-models">${(profile.preferred_models || []).map(modelBrandLabel).join('')}</div>
+      <div class="account-models"><span>Предпочитаемые:</span>${(profile.preferred_models || []).map(modelBrandLabel).join('')}</div>
       ${renderAccountCheck(profile)}
       ${quotaGridHtml}
     </div>
@@ -862,8 +862,9 @@ function renderAccountCheck(profile) {
   const modelStatus = meta.error ? `Сервер отказал: ${meta.error}` : timestamp ? `Получено ${models.length} моделей · ${timestamp}` : 'Список моделей ещё не получен';
   return `<div class="account-check" aria-live="polite">
     ${checking ? `<p>${escapeHtml(profile.display_name || profile.profile_id)}: идёт опрос провайдера, это может занять до минуты на этап.</p>` : ''}
+    <p>${escapeHtml(check.message || "Подключение ещё не проверялось")}</p>
     <p>${escapeHtml(modelStatus)}</p>
-    <div class="account-models">${models.slice(0, 8).map(modelBrandLabel).join('')}</div>
+    <div class="account-models">${models.map(modelBrandLabel).join('')}</div>
     ${profile.provider === 'ollama' ? `<p>Выше — модели указанного сервера Ollama.</p><p>Облачный каталог Ollama: ${meta.cloud?.error ? 'Н/Д — ' + escapeHtml(meta.cloud.error) : meta.cloud?.models ? escapeHtml(meta.cloud.models.join(', ')) : 'Н/Д — ещё не получен'}</p><p>Доступ аккаунта к облачным моделям: Н/Д до успешного вызова. Для прямого вызова нужен API-ключ Ollama; для локального клиента — вход через ollama signin.</p>` : ''}
     <button class="btn btn-ghost btn-sm" ${checking ? 'disabled' : ''} onclick="event.stopPropagation(); handleAccountProbe('${escapeHtml(profile.profile_id)}')">${checking ? 'Проверяется…' : 'Проверить подключение и модели'}</button>
   </div>`;
@@ -1516,6 +1517,10 @@ function renderHealthView() {
     renderHostResources(resContainer, currentSnapshot.metrics?.host || {});
   }
 
+  if (banner) {
+    const probe = currentSnapshot.account_probe || {};
+    banner.insertAdjacentHTML('beforeend', `<p class="readiness-banner-desc">Автопроверка: ${probe.enabled ? 'работает' : 'остановлена'}. Последний обход: ${probe.last_tick ? escapeHtml(new Date(probe.last_tick * 1000).toLocaleString()) : 'ещё не выполнялся'}. ${escapeHtml(probe.error || '')}</p>`);
+  }
   renderHealthPanels(currentSnapshot);
   const warningsContainer = document.getElementById('health-warnings-list');
   if (warningsContainer) {
@@ -2452,9 +2457,10 @@ async function handleNodeModelChange(roleId, profileId, newModel) {
 
 async function handleRefreshProviderModels(providerId, profileId = null) {
   showToast(`Запрос списка моделей для ${providerId}...`, 'info');
-  const res = await executeAction(profileId ? 'check_account' : 'refresh_models', { provider: providerId, profile_id: profileId || '' });
+  const res = await executeAction('refresh_models', { provider: providerId, profile_id: profileId || '' });
   if (res && res.ok) {
-    showToast('Запрос обновления моделей отправлен', 'success');
+    showToast(res.message, 'success');
+    await fetchSnapshot();
     if (profileId) {
       setTimeout(() => openAccountDetailsModal(profileId, true), 500);
     } else {
@@ -2680,12 +2686,14 @@ function openAddAccountWizard() {
   window._wiz_redirect_slot_id = undefined;
   window._wiz_base_url = undefined;
   window._wiz_token = undefined;
+  window._wiz_models = undefined;
   if (elements.modalTitle) elements.modalTitle.textContent = 'Мастер подключения учетной записи';
   showWizardStep1();
   showModal();
 }
 
 function showWizardStep1() {
+  window._wiz_models = undefined;
   stopDeviceAuthPolling();
   stopRedirectAuthPolling();
   for (const key of ['device_profile', 'device_session', 'redirect_session', 'redirect_provider', 'redirect_slot_id', 'base_url', 'token']) window['_wiz_' + key] = undefined;
@@ -2771,6 +2779,7 @@ function showWizardStep2(providerId) {
     window._wiz_device_profile = undefined;
     window._wiz_base_url = undefined;
     window._wiz_token = undefined;
+  window._wiz_models = undefined;
   }
   window._wiz_provider = providerId;
   let bodyHtml = '';
@@ -2932,7 +2941,12 @@ function showWizardStep2(providerId) {
   elements.modalFooter.innerHTML = footerHtml;
 }
 
-function proceedToWizardStep3(providerId) {
+async function proceedToWizardStep3(providerId) {
+  if (window._wiz_validating) return;
+  window._wiz_validating = true;
+  const nextButton = elements.modalFooter?.querySelector('.btn-primary');
+  if (nextButton) nextButton.disabled = true;
+  try {
   const baseInput = document.getElementById('wiz-base-url-input');
   if (baseInput) {
     window._wiz_base_url = baseInput.value.trim();
@@ -2954,7 +2968,21 @@ function proceedToWizardStep3(providerId) {
     window._wiz_device_profile = redirectSlot?.value || '';
   }
   // For local providers (local, local-llm, llama.cpp, ollama, vllm), do not read any slot elements
+  if (tokenInput || baseInput) {
+    const feedback = document.getElementById('modal-feedback-area');
+    if (feedback) feedback.textContent = 'Проверка подключения и запрос моделей…';
+    const result = await executeAction('validate_connection', {provider: providerId, token: window._wiz_token || '', base_url: window._wiz_base_url || ''});
+    if (!result?.ok) {
+      if (feedback) feedback.textContent = result?.message || 'Нет ответа от сервера';
+      return;
+    }
+    window._wiz_models = result.data.models;
+  }
   showWizardStep3(providerId);
+  } finally {
+    window._wiz_validating = false;
+    if (nextButton) nextButton.disabled = false;
+  }
 }
 
 function showWizardStep3(providerId) {
@@ -2988,6 +3016,7 @@ function showWizardStep3(providerId) {
     <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
       Шаг 3 из 3: Назначение роли для нового аккаунта
     </div>
+    ${window._wiz_models?.length ? `<label for="wiz-preferred-model">Подключение проверено. Моделей: ${window._wiz_models.length}</label><select class="select-filter" id="wiz-preferred-model">${window._wiz_models.map(model => `<option value="${escapeHtml(model)}">${escapeHtml(model)}</option>`).join('')}</select>` : ''}
     <div style="margin-bottom:14px;">
       <label style="display:block; font-weight:600; margin-bottom:4px;">Целевая роль в роутере:</label>
       <select class="select-filter" style="width:100%;" id="wiz-target-role">
@@ -3033,6 +3062,7 @@ async function finishAddAccount(providerId) {
   const payload = {
     provider: providerId,
     target_role: targetRole,
+    preferred_model: document.getElementById('wiz-preferred-model')?.value || '',
     // GAP-2: передаём выбранный слот, чтобы бэкенд НЕ делал find_free_slot для owner
     profile_id: selectedProfileId,
   };
@@ -3048,7 +3078,7 @@ async function finishAddAccount(providerId) {
   finally { window._wiz_saving = false; if (finishButton) finishButton.disabled = false; }
 
   if (res && res.ok) {
-    showToast('Аккаунт сохранён. Идёт проверка подключения…', 'success');
+    showToast(res.message, 'success');
     closeModal();
     fetchSnapshot();
   } else {
@@ -3877,3 +3907,15 @@ async function setupMemoryStructure(path) {
   }
 }
 
+
+async function handleClearAccounts() {
+  const preview = await executeAction('clear_accounts', {});
+  if (!preview?.ok) return;
+  const targets = preview.data.targets;
+  const names = targets.map(item => item.profile_id).join('\n');
+  if (!targets.length) { showToast('Нет аккаунтов для очистки. Antigravity защищён.', 'info'); return; }
+  if (!confirm(`Удалить ключи этих аккаунтов?\n${names}\n\nAntigravity не будет затронут. Повторное подключение остальных аккаунтов потребует ключей.`)) return;
+  const result = await executeAction('clear_accounts', {confirmed: true, targets});
+  showToast(result?.message || 'Нет ответа от сервера', result?.ok ? 'success' : 'error');
+  await fetchSnapshot();
+}

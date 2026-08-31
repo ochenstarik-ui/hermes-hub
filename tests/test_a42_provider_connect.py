@@ -60,6 +60,13 @@ def setup_test_environment(tmp_path, monkeypatch):
     cfg = RouterConfig()
     save_router_config(cfg)
 
+    # These tests cover persistence/routing; HTTP validation has its own A54 tests.
+    from antigravity_provider.router.connection_preflight import DEFAULT_URLS
+    monkeypatch.setattr("antigravity_provider.router.connection_preflight.validate_connection", lambda provider, token='', base_url='', preferred_model='': {
+        "ok": True, "message": "Подключено и проверено", "data": {"models": ["fixture-model"], "base_url": base_url or DEFAULT_URLS[provider]}})
+    monkeypatch.setattr("antigravity_provider.router.action_handler._rescan_after_auth", lambda *args: None)
+    monkeypatch.setattr("antigravity_provider.router.account_probe_service.AccountProbeService.check_now", lambda *args, **kwargs: {"ok": True, "message": "Проверено", "data": {}})
+
     yield hermes_home
 
 
@@ -111,7 +118,7 @@ def test_p0_1_add_account_openrouter_default_base_url():
         },
     )
     assert res["ok"] is True
-    assert "сохранён" in res["message"]
+    assert "проверено" in res["message"]
 
     # Verify profile created and auth saved
     auth = ProfileAuthManager.load_profile_auth("openrouter", "openrouter-1")
@@ -137,7 +144,7 @@ def test_p0_1_add_account_nvidia_default_base_url():
         },
     )
     assert res["ok"] is True
-    assert "сохранён" in res["message"]
+    assert "проверено" in res["message"]
 
     auth = ProfileAuthManager.load_profile_auth("nvidia", "nvidia-1")
     assert auth is not None

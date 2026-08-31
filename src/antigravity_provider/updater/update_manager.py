@@ -651,7 +651,7 @@ class UpdateManager:
 
         elif chosen_asset_name == "HermesHubSetup.exe":
             try:
-                cmd = [str(dest_file), "/silent", "/reinstall"]
+                cmd = [str(dest_file), "/silent", "/reinstall", "/restart"]
                 creation_flags = 0
                 if hasattr(subprocess, "DETACHED_PROCESS") and hasattr(subprocess, "CREATE_NEW_PROCESS_GROUP"):
                     creation_flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP

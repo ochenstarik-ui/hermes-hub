@@ -22,7 +22,7 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setattr(AccountProbeService, "_instance", service)
     discovery = ModelDiscoveryService(tmp_path / "test-model-cache.json")
     monkeypatch.setattr(ModelDiscoveryService, "_instance", discovery)
-    monkeypatch.setattr("antigravity_provider.router.action_handler._rescan_after_auth", lambda: None)
+    monkeypatch.setattr("antigravity_provider.router.action_handler._rescan_after_auth", lambda *args: None)
     monkeypatch.setattr("antigravity_provider.router.state_store.HubStateStore.refresh", lambda *a, **kw: None)
     ActionExecutor._pending_connections.clear()
     yield service, discovery
@@ -65,16 +65,10 @@ def test_invalid_key_real_http_correct_slot(isolated, provider):
             "provider": provider, "token": "intentionally-invalid",
             "base_url": f"http://127.0.0.1:{server.server_port}/v1",
         })
-        assert result["ok"]
-        pid = result["data"]["profile_id"]
-        assert pid.startswith(provider + "-")
-        assert load_router_config().get_profile(pid).provider == provider
-        probe = do_test_profile(provider, pid)
-        assert not probe["success"]
-        assert "401" in probe["error"] and "Invalid API key" in probe["error"]
-        discovery = isolated[1]
-        assert discovery.discover_models_sync(provider, profile_id=pid) is None
-        assert "Invalid API key" in discovery.get_models_with_metadata(provider, pid)["error"]
+        assert not result["ok"]
+        assert "401" in result["message"]
+        assert not load_router_config().profiles
+
     finally:
         server.shutdown()
         server.server_close()
@@ -187,13 +181,9 @@ def test_slow_action_does_not_block_web_health(isolated, monkeypatch):
     asyncio.run(exercise())
 
 
-def test_repeated_connection_rejected_while_checking(isolated, monkeypatch):
-    service, _ = isolated
-    service.enabled = True
-    monkeypatch.setattr(service._pool, "submit", lambda *args: None)
-    payload = {"provider": "nvidia", "token": "intentionally-invalid-repeated"}
-    first = ActionExecutor.execute("add_account", payload)
-    second = ActionExecutor.execute("add_account", payload)
-    assert first["ok"] and first["data"]["profile_id"] == "nvidia-1"
-    assert not second["ok"] and "проверяется" in second["message"]
-    assert list(load_router_config().profiles) == ["nvidia-1"]
+def test_repeated_invalid_connection_does_not_create_profiles(isolated):
+    # Repeated invalid input cannot consume slots or create placeholder credentials.
+    payload = {"provider": "nvidia", "token": "invalid", "base_url": "invalid-url"}
+    assert not ActionExecutor.execute("add_account", payload)["ok"]
+    assert not ActionExecutor.execute("add_account", payload)["ok"]
+    assert not load_router_config().profiles

@@ -113,7 +113,7 @@ def discover_models(profile_id: str | None = None) -> dict[str, str]:
     Also populates :data:`_AGY_EFFORT_MAP` with supported efforts per model.
     """
     global _AGY_MODEL_CACHE, _AGY_EFFORT_MAP
-    if _AGY_MODEL_CACHE is not None:
+    if profile_id is None and _AGY_MODEL_CACHE:
         return dict(_AGY_MODEL_CACHE)
 
     exe = get_agy_exe()
@@ -166,23 +166,13 @@ def discover_models(profile_id: str | None = None) -> dict[str, str]:
         )
         raw = result.stdout.strip()
         if not raw or result.returncode != 0:
-            logger.warning("discover_models: agy models failed or returned empty output (rc=%s)", result.returncode)
-            if _AGY_MODEL_CACHE is None:
-                _AGY_MODEL_CACHE = {}
-                _AGY_EFFORT_MAP = {}
-            return dict(_AGY_MODEL_CACHE)
-    except subprocess.TimeoutExpired:
-        logger.warning("discover_models: agy models timed out")
-        if _AGY_MODEL_CACHE is None:
-            _AGY_MODEL_CACHE = {}
-            _AGY_EFFORT_MAP = {}
-        return dict(_AGY_MODEL_CACHE)
-    except Exception as exc:
-        logger.warning("discover_models failed: %s", exc)
-        if _AGY_MODEL_CACHE is None:
-            _AGY_MODEL_CACHE = {}
-            _AGY_EFFORT_MAP = {}
-        return dict(_AGY_MODEL_CACHE)
+            if profile_id:
+                raise RuntimeError(f"agy models: код {result.returncode}; каталог не получен")
+            return dict(_AGY_MODEL_CACHE or {})
+    except Exception:
+        if profile_id:
+            raise
+        return dict(_AGY_MODEL_CACHE or {})
 
     models: dict[str, str] = {}
     effort_map: dict[str, set[str]] = {}
@@ -221,52 +211,6 @@ def discover_models(profile_id: str | None = None) -> dict[str, str]:
         {k: sorted(v) for k, v in effort_map.items()},
     )
     return dict(models)
-
-
-def launch_native_agy_login(profile_id: str) -> subprocess.Popen:
-    """Launch agy CLI in a visible interactive terminal window with isolated profile environment.
-
-    A22 Requirement: Native login executed by agy itself within the target profile's isolated directory.
-    Zero interception, zero credential logging.
-    """
-    from antigravity_provider.router.adapters.antigravity_adapter import get_profile_env_dir
-
-    profile_dir = get_profile_env_dir(profile_id)
-    profile_dir.mkdir(parents=True, exist_ok=True)
-    gemini_dir = profile_dir / ".gemini"
-    gemini_dir.mkdir(parents=True, exist_ok=True)
-
-    exe = get_agy_exe()
-    env = build_safe_subprocess_env(
-        overrides={
-            "USERPROFILE": str(profile_dir),
-            "HOME": str(profile_dir),
-            "HOMEPATH": str(profile_dir),
-            "HOMEDRIVE": str(profile_dir)[:2] if str(profile_dir)[1:2] == ":" else "",
-        }
-    )
-
-    if os.name == "nt":
-        # Launch visible console window on Windows
-        return subprocess.Popen(
-            [exe],
-            env=env,
-            creationflags=subprocess.CREATE_NEW_CONSOLE,
-        )
-    else:
-        # Cross-platform fallback (Linux/macOS)
-        import shutil
-
-        terminals = [
-            ["x-terminal-emulator", "-e", exe],
-            ["gnome-terminal", "--", exe],
-            ["xterm", "-e", exe],
-            ["konsole", "-e", exe],
-        ]
-        for term_cmd in terminals:
-            if shutil.which(term_cmd[0]):
-                return subprocess.Popen(term_cmd, env=env)
-        return subprocess.Popen([exe], env=env)
 
 
 def check_profile_native_auth_status(profile_id: str) -> tuple[bool, str | None, dict[str, Any] | None]:

@@ -75,6 +75,7 @@ class HubStateStore:
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
+        self._removed_accounts: set[str] = set()
         self._generation: int = 0
         self._current_snapshot: Optional[HubSnapshot] = None
         self._pending_refreshes: Dict[str, float] = {}
@@ -138,6 +139,9 @@ class HubStateStore:
         # requests may complete while this build is running.
         uh_service = UnifiedHealthService.get()
         profiles_by_prov = uh_service.scan_all(force=force_scan)
+        with self._lock:
+            removed = set(self._removed_accounts)
+        profiles_by_prov = {provider: [p for p in profiles if p.profile_id not in removed] for provider, profiles in profiles_by_prov.items()}
         all_profs = {
             profile.profile_id: profile
             for profiles in profiles_by_prov.values()
@@ -386,6 +390,8 @@ class HubStateStore:
         profile: ProfileViewModel | str,
         profile_id: Optional[str] = None,
     ) -> None:
+        with self._lock:
+            self._removed_accounts.discard(profile_id if isinstance(profile, str) else profile.profile_id)
         if isinstance(profile, str):
             provider = profile
             if profile_id is None:
@@ -410,8 +416,16 @@ class HubStateStore:
             },
         )
 
+    def apply_delta_profile_preferences(self, profile_id: str, models: list[str]) -> None:
+        # A configuration change does not require quota/identity network requests.
+        with self._lock:
+            profile = self._current_snapshot.get_profile(profile_id) if self._current_snapshot else None
+            if profile:
+                self._apply_profile_delta(replace(profile, preferred_models=list(models)))
+
     def apply_delta_account_removed(self, provider: str, profile_id: str) -> None:
         with self._lock:
+            self._removed_accounts.add(profile_id)
             current = self._current_snapshot or self._build_empty_snapshot()
             all_profiles = dict(current.all_profiles)
             all_profiles.pop(profile_id, None)

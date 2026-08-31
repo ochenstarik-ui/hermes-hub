@@ -1,0 +1,198 @@
+[
+  {
+    "step": "preflight-coder",
+    "model": "Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "seconds": 13.08,
+    "usage": {
+      "completion_tokens": 1490,
+      "prompt_tokens": 394,
+      "total_tokens": 1884,
+      "prompt_tokens_details": {
+        "cached_tokens": 10
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "preflight-review",
+    "model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf",
+    "seconds": 5.61,
+    "usage": {
+      "completion_tokens": 333,
+      "prompt_tokens": 1536,
+      "total_tokens": 1869,
+      "prompt_tokens_details": {
+        "cached_tokens": 5
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "preflight-rework",
+    "model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf",
+    "seconds": 19.48,
+    "usage": {
+      "completion_tokens": 1705,
+      "prompt_tokens": 1849,
+      "total_tokens": 3554,
+      "prompt_tokens_details": {
+        "cached_tokens": 3
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "probe-coder-1",
+    "model": "Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "seconds": 16.74,
+    "usage": {
+      "completion_tokens": 1823,
+      "prompt_tokens": 1149,
+      "total_tokens": 2972,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "probe-review-1",
+    "model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf",
+    "seconds": 5.89,
+    "usage": {
+      "completion_tokens": 603,
+      "prompt_tokens": 2059,
+      "total_tokens": 2662,
+      "prompt_tokens_details": {
+        "cached_tokens": 2058
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "probe-review-2",
+    "model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf",
+    "seconds": 7.71,
+    "usage": {
+      "completion_tokens": 511,
+      "prompt_tokens": 2115,
+      "total_tokens": 2626,
+      "prompt_tokens_details": {
+        "cached_tokens": 312
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "probe-rework-1",
+    "model": "Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "seconds": 19.38,
+    "usage": {
+      "completion_tokens": 1879,
+      "prompt_tokens": 2643,
+      "total_tokens": 4522,
+      "prompt_tokens_details": {
+        "cached_tokens": 10
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "probe-rework-2",
+    "model": "Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "seconds": 22.35,
+    "usage": {
+      "completion_tokens": 2163,
+      "prompt_tokens": 2607,
+      "total_tokens": 4770,
+      "prompt_tokens_details": {
+        "cached_tokens": 291
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "probe-root-audit",
+    "model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf",
+    "seconds": 6.82,
+    "usage": {
+      "completion_tokens": 490,
+      "prompt_tokens": 1488,
+      "total_tokens": 1978,
+      "prompt_tokens_details": {
+        "cached_tokens": 4
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "probe-strong",
+    "model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf",
+    "seconds": 24.7,
+    "usage": {
+      "completion_tokens": 2082,
+      "prompt_tokens": 2439,
+      "total_tokens": 4521,
+      "prompt_tokens_details": {
+        "cached_tokens": 5
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "test-coder",
+    "model": "Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "seconds": 2.67,
+    "usage": {
+      "completion_tokens": 302,
+      "prompt_tokens": 143,
+      "total_tokens": 445,
+      "prompt_tokens_details": {
+        "cached_tokens": 3
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "test-review",
+    "model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf",
+    "seconds": 4.22,
+    "usage": {
+      "completion_tokens": 385,
+      "prompt_tokens": 335,
+      "total_tokens": 720,
+      "prompt_tokens_details": {
+        "cached_tokens": 5
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "windows-coder",
+    "model": "Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "seconds": 3.15,
+    "usage": {
+      "completion_tokens": 348,
+      "prompt_tokens": 173,
+      "total_tokens": 521,
+      "prompt_tokens_details": {
+        "cached_tokens": 3
+      }
+    },
+    "finish_reason": "stop"
+  },
+  {
+    "step": "windows-review",
+    "model": "Qwen3-Coder-30B-A3B-Instruct-Q4_K_M.gguf",
+    "seconds": 3.52,
+    "usage": {
+      "completion_tokens": 296,
+      "prompt_tokens": 378,
+      "total_tokens": 674,
+      "prompt_tokens_details": {
+        "cached_tokens": 3
+      }
+    },
+    "finish_reason": "stop"
+  }
+]

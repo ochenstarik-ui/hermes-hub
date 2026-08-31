@@ -539,7 +539,7 @@ class UnifiedHealthService:
                 model_meta = ModelDiscoveryService.get().get_models_with_metadata(prov, pid)
                 if prov == "ollama":
                     model_meta["cloud"] = ModelDiscoveryService.get().get_models_with_metadata("ollama-cloud-catalog")
-                if is_authenticated and pcfg.enabled:
+                if is_authenticated and pcfg.enabled and not check.get("models_only"):
                     if check.get("state") == "checking":
                         health_state, health_lbl = "checking", "Проверяется…"
                     elif check.get("state") == "failed":

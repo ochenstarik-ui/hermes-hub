@@ -1,0 +1,12 @@
+{
+  "baseline_f0d06e4": {
+    "median_ms": 0.329,
+    "max_ms": 6.942,
+    "samples": 50
+  },
+  "a54": {
+    "median_ms": 0.324,
+    "max_ms": 63.205,
+    "samples": 50
+  }
+}

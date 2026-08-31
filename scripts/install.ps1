@@ -50,6 +50,38 @@ if ([string]::IsNullOrWhiteSpace($TargetDir)) {
 Write-Host "[2/6] Preparing installation target: $TargetDir" -ForegroundColor Yellow
 New-Item -ItemType Directory -Path $TargetDir -Force | Out-Null
 
+# Stop only processes owned by this installation before replacing files.
+# Preserve our own ancestor branch: an updater may have launched this installer.
+$hubProcesses = @(Get-CimInstance Win32_Process)
+$hubProtected = @($PID)
+$hubCursor = $PID
+while ($hubCursor) {
+    $hubNode = $hubProcesses | Where-Object ProcessId -eq $hubCursor | Select-Object -First 1
+    if (-not $hubNode) { break }
+    $hubCursor = $hubNode.ParentProcessId
+    if ($hubCursor -in $hubProtected) { break }
+    $hubProtected += $hubCursor
+}
+function Stop-HubBranch([int]$ProcessId) {
+    foreach ($child in @($hubProcesses | Where-Object ParentProcessId -eq $ProcessId)) {
+        if ($child.ProcessId -notin $hubProtected) { Stop-HubBranch $child.ProcessId }
+    }
+    if (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue) {
+        Stop-Process -Id $ProcessId -Force -ErrorAction Stop
+    }
+}
+$hubPythonPaths = @($HermesPython, (Join-Path $HermesHome 'hermes-agent\venv\Scripts\pythonw.exe'))
+$hubLauncherPaths = @((Join-Path $HermesHome 'HermesHubWeb.exe'), (Join-Path $TargetDir 'HermesHubWeb.exe'))
+$hubBrowserPattern = '--user-data-dir="?' + [regex]::Escape((Join-Path $HermesHome 'web_browser_profile')) + '"?(?:\s|$)'
+foreach ($hubProcess in $hubProcesses) {
+    if (($hubProcess.ExecutablePath -in $hubPythonPaths -and $hubProcess.CommandLine -match 'hermes_hub_web_entry\.py|antigravity_provider\.router\.web') -or
+        ($hubProcess.ExecutablePath -in $hubLauncherPaths) -or
+        ($hubProcess.Name -in @('msedge.exe','chrome.exe','chromium.exe') -and $hubProcess.CommandLine -match $hubBrowserPattern)) {
+        Stop-HubBranch $hubProcess.ProcessId
+        if (Get-Process -Id $hubProcess.ProcessId -ErrorAction SilentlyContinue) { throw 'Old Hermes Hub process survived. Installation cancelled.' }
+    }
+}
+
 # 4. Copy Application Files to TargetDir
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 Write-Host "[3/6] Deploying application binaries..." -ForegroundColor Yellow

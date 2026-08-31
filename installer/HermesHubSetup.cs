@@ -263,12 +263,40 @@ namespace HermesHubSetup
             return true;
         }
 
+        // Restrict cleanup to this installation. Never kill arbitrary Python/browser processes.
+        public static void StopOwnedRuntime(string home, bool includeLauncher)
+        {
+            string escaped = Path.GetFullPath(home).TrimEnd('\\').Replace("'", "''");
+            string script = "$ErrorActionPreference='Stop'; $root='" + escaped + "'; " +
+                "$py=@((Join-Path $root 'hermes-agent\\venv\\Scripts\\python.exe'),(Join-Path $root 'hermes-agent\\venv\\Scripts\\pythonw.exe')); " +
+                "$all=@(Get-CimInstance Win32_Process); $protected=@($PID); $cursor=$PID; " +
+                "while ($cursor) { $node=$all | Where-Object ProcessId -eq $cursor | Select-Object -First 1; if (!$node) { break }; $cursor=$node.ParentProcessId; if ($cursor -in $protected) { break }; $protected+= $cursor }; " +
+                "function Stop-HubBranch([int]$processId) { foreach ($child in @($all | Where-Object ParentProcessId -eq $processId)) { if ($child.ProcessId -notin $protected) { Stop-HubBranch $child.ProcessId } }; " +
+                "if (Get-Process -Id $processId -ErrorAction SilentlyContinue) { Stop-Process -Id $processId -Force -ErrorAction Stop } }; " +
+                "$targets=@($all | Where-Object { " +
+                "($_.ExecutablePath -in $py -and ($_.CommandLine -match 'hermes_hub_web_entry\\.py|antigravity_provider\\.router\\.web'))" +
+                " -or ($_.Name -in @('msedge.exe','chrome.exe','chromium.exe') -and $_.CommandLine -match ('--user-data-dir=[\\x22]?'+[regex]::Escape((Join-Path $root 'web_browser_profile'))+'[\\x22]?(?:\\s|$)'))" +
+                (includeLauncher ? " -or ($_.Name -eq 'HermesHubWeb.exe' -and ($_.ExecutablePath -eq (Join-Path $root 'HermesHubWeb.exe') -or $_.ExecutablePath -eq (Join-Path $env:LOCALAPPDATA 'Programs\\HermesHub\\HermesHubWeb.exe')))" : "") +
+                " }); foreach ($target in $targets) { Stop-HubBranch $target.ProcessId; " +
+                "if (Get-Process -Id $target.ProcessId -ErrorAction SilentlyContinue) { throw 'Не удалось остановить прежний процесс Hermes Hub' } }";
+            ProcessStartInfo info = new ProcessStartInfo("powershell.exe", "-NoProfile -NonInteractive -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(script)));
+            info.UseShellExecute = false;
+            info.CreateNoWindow = true;
+            info.WindowStyle = ProcessWindowStyle.Hidden;
+            using (Process process = Process.Start(info))
+            {
+                if (!process.WaitForExit(20000)) { process.Kill(); throw new IOException("Остановка прежнего сервера превысила 20 секунд"); }
+                if (process.ExitCode != 0) throw new IOException("Не удалось остановить прежний сервер. Обновление отменено.");
+            }
+        }
+
         public static int PerformInstall(string sourceRoot, Action<string, int> progressCallback = null)
         {
             if (!IsHermesFound) return 10;
 
             try
             {
+                StopOwnedRuntime(HermesHome, true);
                 if (progressCallback != null) progressCallback("Preparing installation directory...", 10);
                 if (!Directory.Exists(TargetInstallDir))
                 {
@@ -1074,12 +1102,14 @@ namespace HermesHubSetup
             Application.SetCompatibleTextRenderingDefault(false);
 
             bool isSilent = false;
+            bool restartAfterInstall = false;
             bool isUninstall = false;
             bool isRepair = false;
             bool purgeUserData = false;
 
             foreach (string a in args)
             {
+                if (a.Equals("/restart", StringComparison.OrdinalIgnoreCase)) restartAfterInstall = true;
                 if (a.Equals("/silent", StringComparison.OrdinalIgnoreCase) || a.Equals("/s", StringComparison.OrdinalIgnoreCase) || a.Equals("-s", StringComparison.OrdinalIgnoreCase)) isSilent = true;
                 if (a.Equals("/uninstall", StringComparison.OrdinalIgnoreCase) || a.Equals("/u", StringComparison.OrdinalIgnoreCase)) isUninstall = true;
                 if (a.Equals("/repair", StringComparison.OrdinalIgnoreCase) || a.Equals("/r", StringComparison.OrdinalIgnoreCase) || a.Equals("/reinstall", StringComparison.OrdinalIgnoreCase)) isRepair = true;
@@ -1149,6 +1179,11 @@ namespace HermesHubSetup
                 }
 
                 int code = SetupEngine.PerformInstall(sourceRoot);
+                if (code == 0 && restartAfterInstall)
+                {
+                    string launcher = Path.Combine(SetupEngine.TargetInstallDir, "HermesHubWeb.exe");
+                    if (File.Exists(launcher)) Process.Start(launcher);
+                }
                 Console.WriteLine("Silent install result: " + code);
                 return code;
             }

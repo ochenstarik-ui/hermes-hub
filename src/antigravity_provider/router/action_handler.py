@@ -18,6 +18,8 @@ from antigravity_provider import paths
 from antigravity_provider.router.adapters import get_adapter
 
 logger = logging.getLogger('hermes.router.actions')
+_test_locks_guard = threading.Lock()
+_test_locks: dict[str, Any] = {}
 
 def do_set_main(provider: str, profile_id: str) -> Tuple[bool, str]:
     ok, msg = ProfileAuthManager.set_main_profile(provider, profile_id)
@@ -55,7 +57,10 @@ def do_test_profile(provider: str, profile_id: str, timeout: float = 10.0, disco
     if status.get('is_expired') or status.get('expired') or status.get('status') == 'EXPIRED':
         return {'success': False, 'error': 'Авторизация истекла, требуется повторный вход.'}
 
-    model = pcfg.preferred_models[0] if pcfg.preferred_models else (discovered_models or ['default'])[0]
+    candidates = discovered_models if discovered_models is not None else pcfg.preferred_models
+    if not candidates:
+        return {'success': False, 'error': 'Сервер отвечает, но доступных моделей для тестового запроса нет' if discovered_models == [] else 'Каталог моделей не получен; сначала запросите список моделей'}
+    model = next((model for model in pcfg.preferred_models if model in candidates), candidates[0])
     t0 = time.time()
     try:
         auth_data = ProfileAuthManager.load_profile_auth(pcfg.provider, profile_id)
@@ -73,14 +78,25 @@ def do_test_profile(provider: str, profile_id: str, timeout: float = 10.0, disco
         result_container = []
         error_container = []
         
+        with _test_locks_guard:
+            invoke_lock = _test_locks.setdefault(profile_id, threading.Lock())
+        if not invoke_lock.acquire(blocking=False):
+            return {'success': False, 'error': 'Предыдущий запрос этого аккаунта ещё не завершился'}
+
         def _call_invoke():
             try:
                 result_container.append(adapter.invoke(pcfg, req))
             except Exception as e:
                 error_container.append(e)
+            finally:
+                invoke_lock.release()
                 
         t = threading.Thread(target=_call_invoke, daemon=True)
-        t.start()
+        try:
+            t.start()
+        except Exception:
+            invoke_lock.release()
+            raise
         t.join(timeout=timeout)
         
         el = round(time.time() - t0, 2)
@@ -110,7 +126,7 @@ def do_test_profile(provider: str, profile_id: str, timeout: float = 10.0, disco
         }
     except Exception as e:
         EventLogService.get().log('system', f'Сбой проверки {profile_id} ({model}): {e}', level='error')
-        return {'success': False, 'model': model, 'duration_sec': round(time.time() - t0, 2), 'error': str(e)}
+        return {'success': False, 'model': model, 'duration_sec': round(time.time() - t0, 2), 'error': str(e).strip() or type(e).__name__}
 
 def do_delete_credentials(provider: str, profile_id: str, actor: str = "system") -> Tuple[bool, str]:
     # Сигнатура get_profile_dir — (profile_id, provider), а здесь её звали
@@ -125,6 +141,8 @@ def do_delete_credentials(provider: str, profile_id: str, actor: str = "system")
     if auth_p.is_file():
         try:
             auth_p.unlink()
+            from .state_store import HubStateStore
+            HubStateStore.get().apply_delta_account_removed(provider, profile_id)
             EventLogService.get().log(
                 'account',
                 f'Учетные данные для {profile_id} удалены.',
@@ -281,11 +299,8 @@ def do_set_model(profile_id: str, model: str, role_id: Optional[str] = None) -> 
         updated.roles[role_id].default_model = model
 
     if save_router_config(updated):
-        try:
-            from antigravity_provider.router.state_store import HubStateStore
-            HubStateStore.get().refresh(force_scan=True)
-        except Exception:
-            pass
+        from .state_store import HubStateStore
+        HubStateStore.get().apply_delta_profile_preferences(profile_id, target.preferred_models)
         EventLogService.get().log(
             "model", f"Для профиля {profile_id} ({provider}) установлена модель '{model}'.", level="info"
         )
@@ -341,15 +356,19 @@ def do_save_request_options(profile_id: str, request_options: Any) -> Tuple[bool
 # Функция объявлена на уровне модуля намеренно: как вложенная она была видна
 # не всем точкам завершения входа, и device-flow получал NameError внутри
 # обработки успеха.
-def _rescan_after_auth() -> None:
-    try:
-        from antigravity_provider.router.state_store import HubStateStore
-
-        HubStateStore.get().refresh(force_scan=True)
-        from .account_probe_service import AccountProbeService
-        AccountProbeService.get().schedule_all()
-    except Exception as exc:  # пересбор не должен ронять сам вход
-        logger.warning("Не удалось пересобрать снапшот после входа: %s", exc)
+def _rescan_after_auth(provider=None, profile_id=None) -> None:
+    def refresh():
+        try:
+            from .state_store import HubStateStore
+            from .account_probe_service import AccountProbeService
+            if provider and profile_id:
+                HubStateStore.get().apply_delta_account_added(provider, profile_id)
+            else:
+                HubStateStore.get().refresh(force_scan=True)
+                AccountProbeService.get().schedule_all()
+        except Exception as exc:
+            logger.warning("Не удалось обновить состояние после входа: %s", exc)
+    threading.Thread(target=refresh, name="auth-state-refresh", daemon=True).start()
 
 
 def generate_quotas_export(format: str = "json") -> Any:
@@ -686,6 +705,10 @@ class ActionExecutor:
                 return {'ok': False, 'message': reason, 'data': {'status': status}}
             return {'ok': True, 'message': 'Ожидание подтверждения', 'data': {'status': status}}
 
+        if action == 'validate_connection':
+            from .connection_preflight import validate_connection
+            return validate_connection(prov, data.get('token') or data.get('api_key') or '', data.get('base_url') or '', data.get('preferred_model') or '')
+
         # Подключение аккаунта: сохранение профиля и учетных данных (P0-1)
         if action == 'add_account':
             prov_norm = (prov or data.get('provider') or '').strip().lower()
@@ -712,6 +735,17 @@ class ActionExecutor:
             token = (data.get('token') or data.get('api_key') or '').strip()
             slot = data.get('profile_id')
 
+            if slot:
+                valid, reason = AutoAssigner.validate_slot(prov_norm, slot)
+                if not valid:
+                    return {'ok': False, 'message': reason}
+            validation = None
+            if token or prov_norm in ('local', 'vllm', 'ollama'):
+                from .connection_preflight import validate_connection
+                validation = validate_connection(prov_norm, token, base_url, data.get('preferred_model') or '')
+                if not validation['ok']:
+                    return validation
+                base_url = validation['data']['base_url']
             slot = slot or AutoAssigner.find_free_slot(prov_norm) or f'{prov_norm}-1'
 
             status = ProfileAuthManager.get_profile_status(prov_norm, slot)
@@ -789,11 +823,21 @@ class ActionExecutor:
                 # авторизованного аккаунта не существует: перевод аккаунта в
                 # другую роль падал с ошибкой, хотя ключ вводить не требуется.
                 AutoAssigner.assign_profile_to_role(slot, target_role, is_primary=False)
-                _rescan_after_auth()
+                if validation:
+                    from .model_discovery_service import ModelDiscoveryService
+                    ModelDiscoveryService.get().remember_models(prov_norm, slot, validation['data']['models'])
+                if data.get('preferred_model'):
+                    ok, message = do_set_model(slot, data['preferred_model'])
+                    if not ok:
+                        return {'ok': False, 'message': message}
+                _rescan_after_auth(prov_norm, slot)
                 from antigravity_provider.router.account_probe_service import AccountProbeService
-                AccountProbeService.get().schedule(prov_norm, slot, force=True)
-                check_note = 'проверка запускается в фоне' if AccountProbeService.get().enabled else 'проверка Н/Д: фоновая служба не запущена'
-                return {'ok': True, 'message': f'Аккаунт {prov_norm} ({slot}) сохранён; {check_note}', 'data': {'profile_id': slot}}
+                if validation:
+                    AccountProbeService.get().record_validation(prov_norm, slot, validation)
+                    return {'ok': True, 'message': validation['message'], 'data': {'profile_id': slot, 'models': validation['data']['models']}}
+                result = AccountProbeService.get().check_now(prov_norm, slot)
+                result.setdefault('data', {})['profile_id'] = slot
+                return result
             except Exception as e:
                 return {'ok': False, 'message': f'Ошибка при сохранении учетных данных {slot}: {e}'}
 
@@ -942,6 +986,29 @@ class ActionExecutor:
                 res = do_test_profile(prov, pid)
                 return {'ok': res.get('success', False), 'message': res.get('response') or res.get('error'), 'data': res}
                 
+        elif action == 'clear_accounts':
+            from .profile_manager import get_profile_auth_path
+            protected_root = (paths.get_hermes_home() / 'agy_profiles').resolve()
+            targets, protected = [], []
+            for profile_id, profile in load_router_config().profiles.items():
+                auth_path = get_profile_auth_path(profile.provider, profile_id)
+                if profile.provider in ('antigravity', 'google-antigravity', 'agy') or auth_path.is_symlink() or auth_path.resolve().is_relative_to(protected_root):
+                    protected.append(profile_id)
+                elif auth_path.is_file():
+                    targets.append({'provider': profile.provider, 'profile_id': profile_id})
+            preview = {'targets': targets, 'protected': protected}
+            if not data.get('confirmed'):
+                return {'ok': True, 'message': f'Будут удалены ключи {len(targets)} аккаунтов. Antigravity исключён из очистки.', 'data': preview}
+            # Require the exact displayed list. A newly added account is never silently deleted.
+            if data.get('targets') != targets:
+                return {'ok': False, 'message': 'Список аккаунтов изменился. Повторите предварительный просмотр.', 'data': preview}
+            errors = []
+            for target in targets:
+                ok, message = do_delete_credentials(target['provider'], target['profile_id'], actor=actor)
+                if not ok:
+                    errors.append(message)
+            return {'ok': not errors, 'message': '; '.join(errors) if errors else f'Удалены ключи {len(targets)} аккаунтов. Antigravity сохранён.', 'data': preview}
+
         elif action == 'delete_credentials':
             dry_run = bool(data.get('dry_run', False))
             confirmed = bool(data.get('confirmed', True))
@@ -1042,13 +1109,10 @@ class ActionExecutor:
             
         elif action == 'check_account':
             from antigravity_provider.router.account_probe_service import AccountProbeService
-            if not AccountProbeService.get().enabled:
-                return {"ok": False, "message": "Фоновая служба проверки не запущена. Перезапустите веб-сервер."}
             valid, reason = AutoAssigner.validate_slot(prov, pid)
             if not valid:
-                return {'ok': False, 'message': reason}
-            started = AccountProbeService.get().schedule(prov, pid, force=True)
-            return {'ok': True, 'message': 'Проверка запущена' if started else 'Проверка уже выполняется'}
+                return {'ok': False, 'message': reason or 'Неверный профиль'}
+            return AccountProbeService.get().check_now(prov, pid)
 
         elif action == 'check_all_accounts':
             from antigravity_provider.router.account_probe_service import AccountProbeService
@@ -1074,6 +1138,12 @@ class ActionExecutor:
                 return {'ok': True, 'message': 'Успешно'}
 
         elif action == 'refresh_models':
+            if pid:
+                from .account_probe_service import AccountProbeService
+                valid, reason = AutoAssigner.validate_slot(prov, pid)
+                if not valid:
+                    return {'ok': False, 'message': reason or 'Неверный профиль'}
+                return AccountProbeService.get().check_now(prov, pid, models_only=True)
             from antigravity_provider.router.model_discovery_service import ModelDiscoveryService
             service = ModelDiscoveryService.get()
             if prov:

@@ -10,17 +10,13 @@ Acceptance criteria verification:
 from __future__ import annotations
 
 import json
-import os
-import subprocess
 import time
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from antigravity_provider.agy_subprocess import (
     check_profile_native_auth_status,
-    launch_native_agy_login,
 )
 from antigravity_provider.paths import get_profile_dir
 from antigravity_provider.router.action_handler import do_set_model
@@ -106,35 +102,9 @@ def test_profile_operations_never_touch_user_home_gemini(tmp_path, monkeypatch):
 
 
 @pytest.mark.unit
-def test_launch_native_agy_login_env_isolation(tmp_path, monkeypatch):
-    """P0-2: launch_native_agy_login launches agy in profile's isolated directory."""
-    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
-
-    slot = "ag-w2"
-    expected_pdir = get_profile_dir(slot, "antigravity")
-
-    with patch("subprocess.Popen") as mock_popen, \
-         patch("antigravity_provider.agy_subprocess.get_agy_exe", return_value="C:\\fake\\agy.exe"):
-
-        mock_popen.return_value = MagicMock()
-        proc = launch_native_agy_login(slot)
-
-        assert proc is not None
-        mock_popen.assert_called_once()
-        args, kwargs = mock_popen.call_args
-
-        # Command includes the mocked agy executable (Linux wraps it in a terminal).
-        launched = args[0]
-        assert "C:\\fake\\agy.exe" in launched
-
-        # Environment points to profile dir
-        env = kwargs.get("env", {})
-        assert env.get("USERPROFILE") == str(expected_pdir)
-        assert env.get("HOME") == str(expected_pdir)
-        assert env.get("HOMEPATH") == str(expected_pdir)
-
-        # Profile .gemini directory was created
-        assert (expected_pdir / ".gemini").is_dir()
+def test_unused_console_login_removed():
+    from antigravity_provider import agy_subprocess
+    assert not hasattr(agy_subprocess, "launch_native_agy_login")
 
 
 # ── TEST 3: Detection of native agy authentication ──
