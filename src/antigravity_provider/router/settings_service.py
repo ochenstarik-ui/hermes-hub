@@ -277,8 +277,46 @@ def setup_memory_structure(
 def get_hermes_config_status(config_path: Optional[Path] = None) -> Dict[str, Any]:
     """Read Hermes configuration (~/.hermes/config.yaml) in read-only mode to provide status feedback."""
     import yaml
+    checked: list = []
     if config_path is None:
-        config_path = get_hermes_home() / "config.yaml"
+        # Hermes хранит конфигурацию не в одном месте: путь зависит от версии и
+        # способа установки. Раньше проверялся ровно один файл, и у владельца на
+        # Linux хаб писал «конфигурация не найдена» при работающем Hermes.
+        home = get_hermes_home()
+        candidates = [
+            home / "config.yaml",
+            home / "config.yml",
+            home / "config.json",
+            home / "hermes-agent" / "config.yaml",
+            Path.home() / ".hermes" / "config.yaml",
+            Path.home() / ".config" / "hermes" / "config.yaml",
+            Path.home() / ".config" / "hermes-agent" / "config.yaml",
+        ]
+        seen = set()
+        for candidate in candidates:
+            key = str(candidate)
+            if key in seen:
+                continue
+            seen.add(key)
+            checked.append(key)
+            try:
+                if candidate.exists():
+                    config_path = candidate
+                    break
+            except OSError as exc:
+                # Каталог может быть закрыт правами: это «не смогли проверить»,
+                # а не «файла нет». Разница важна, иначе диагноз ложный.
+                checked[-1] = f"{key} (нет доступа: {exc.strerror or exc})"
+        else:
+            return {
+                "exists": False,
+                "model": None,
+                "provider": None,
+                "base_url": None,
+                "path": None,
+                "checked_paths": checked,
+                "message": "Конфигурация Hermes не найдена. Проверено: " + "; ".join(checked),
+            }
 
     if not config_path.exists():
         return {
@@ -287,7 +325,8 @@ def get_hermes_config_status(config_path: Optional[Path] = None) -> Dict[str, An
             "provider": None,
             "base_url": None,
             "path": str(config_path),
-            "message": "Конфигурационный файл ~/.hermes/config.yaml не найден",
+            "checked_paths": checked or [str(config_path)],
+            "message": f"Конфигурация Hermes не найдена по пути {config_path}",
         }
 
     try:
