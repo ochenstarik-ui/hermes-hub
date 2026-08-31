@@ -2293,10 +2293,19 @@ function renderUpdateUI() {
   const releaseMeta = document.getElementById('update-release-meta');
   const releaseNotes = document.getElementById('update-release-notes');
 
-  const curVer = (latestUpdateInfo && latestUpdateInfo.current_version) || (currentSettings && currentSettings.version) || '0.1.1';
+  // Версия берётся ТОЛЬКО из API. Раньше номер был зашит в разметке и в
+  // запасном значении: подъём версии в коде до интерфейса не доходил, и
+  // владелец видел старый номер при новой сборке.
+  const curVer = (latestUpdateInfo && latestUpdateInfo.current_version) || (currentSettings && currentSettings.version) || '';
   const cDisplay = installedCommit ? installedCommit.slice(0, 7) : 'неизвестно';
   if (updateInfoDesc) {
-    updateInfoDesc.textContent = `Hermes Hub v${curVer} (сборка: ${cDisplay})`;
+    updateInfoDesc.textContent = curVer
+      ? `Hermes Hub v${curVer} (сборка: ${cDisplay})`
+      : `Hermes Hub (сборка: ${cDisplay}) — Н/Д: версия не передана сервером`;
+  }
+  const versionTag = document.getElementById('version-tag');
+  if (versionTag) {
+    versionTag.textContent = curVer ? `Hermes Hub Web v${curVer}` : 'Hermes Hub Web — Н/Д: версия не передана сервером';
   }
 
   if (statusBadge) {

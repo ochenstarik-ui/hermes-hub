@@ -264,6 +264,19 @@ namespace HermesHubSetup
         }
 
         // Restrict cleanup to this installation. Never kill arbitrary Python/browser processes.
+        public static string StopWarning = "";
+
+        // Процесс мог не успеть отпустить файл. Один отказ по занятости — не приговор.
+        static void CopyWithRetry(string source, string destination)
+        {
+            for (int attempt = 1; ; attempt++)
+            {
+                try { File.Copy(source, destination, true); return; }
+                catch (IOException) { if (attempt >= 5) throw; System.Threading.Thread.Sleep(700); }
+                catch (UnauthorizedAccessException) { if (attempt >= 5) throw; System.Threading.Thread.Sleep(700); }
+            }
+        }
+
         public static void StopOwnedRuntime(string home, bool includeLauncher)
         {
             string escaped = Path.GetFullPath(home).TrimEnd('\\').Replace("'", "''");
@@ -296,7 +309,18 @@ namespace HermesHubSetup
 
             try
             {
-                StopOwnedRuntime(HermesHome, true);
+                // Неудачная остановка прежнего хаба не повод отменять установку.
+                // Раньше любой ненулевой выход скрипта останавливал всё, и владелец
+                // видел голый код 15. Если процесс уцелел, копирование само скажет,
+                // какой файл занят.
+                try { StopOwnedRuntime(HermesHome, true); }
+                catch (Exception stopEx)
+                {
+                    StopWarning = stopEx.Message;
+                    if (progressCallback != null)
+                        progressCallback("Не удалось остановить прежний Hermes Hub: " + stopEx.Message
+                            + ". Продолжаю установку.", 5);
+                }
                 if (progressCallback != null) progressCallback("Preparing installation directory...", 10);
                 if (!Directory.Exists(TargetInstallDir))
                 {
@@ -313,8 +337,8 @@ namespace HermesHubSetup
 
                 if (File.Exists(launcherSrc))
                 {
-                    File.Copy(launcherSrc, Path.Combine(TargetInstallDir, "HermesHub.exe"), true);
-                    File.Copy(launcherSrc, Path.Combine(HermesHome, "HermesHub.exe"), true);
+                    CopyWithRetry(launcherSrc, Path.Combine(TargetInstallDir, "HermesHub.exe"));
+                    CopyWithRetry(launcherSrc, Path.Combine(HermesHome, "HermesHub.exe"));
                 }
 
                 string webLauncherSrc = Path.Combine(sourceRoot, @"launcher\HermesHubWeb.exe");
@@ -325,15 +349,15 @@ namespace HermesHubSetup
 
                 if (File.Exists(webLauncherSrc))
                 {
-                    File.Copy(webLauncherSrc, Path.Combine(TargetInstallDir, "HermesHubWeb.exe"), true);
-                    File.Copy(webLauncherSrc, Path.Combine(HermesHome, "HermesHubWeb.exe"), true);
+                    CopyWithRetry(webLauncherSrc, Path.Combine(TargetInstallDir, "HermesHubWeb.exe"));
+                    CopyWithRetry(webLauncherSrc, Path.Combine(HermesHome, "HermesHubWeb.exe"));
                 }
 
                 // Copy Setup.exe itself to target dir for uninstaller/repair
                 string setupSrc = Process.GetCurrentProcess().MainModule.FileName;
                 if (File.Exists(setupSrc))
                 {
-                    try { File.Copy(setupSrc, Path.Combine(TargetInstallDir, "HermesHubSetup.exe"), true); } catch { }
+                    try { CopyWithRetry(setupSrc, Path.Combine(TargetInstallDir, "HermesHubSetup.exe")); } catch { }
                 }
 
                 // 2. Install UI & System Dependencies into Hermes Python Environment
@@ -392,7 +416,7 @@ namespace HermesHubSetup
                 string templateConfig = Path.Combine(sourceRoot, @"config\router_profiles.example.yaml");
                 if (!File.Exists(runtimeConfig) && File.Exists(templateConfig))
                 {
-                    File.Copy(templateConfig, runtimeConfig, true);
+                    CopyWithRetry(templateConfig, runtimeConfig);
                 }
 
                 // 6. Create Start Menu Shortcut
@@ -529,7 +553,7 @@ namespace HermesHubSetup
                 string fileName = Path.GetFileName(file);
                 srcFiles.Add(fileName);
                 string destFile = Path.Combine(dst, fileName);
-                File.Copy(file, destFile, true);
+                CopyWithRetry(file, destFile);
             }
 
             // Remove destination files that do not exist in source or are .pyc
