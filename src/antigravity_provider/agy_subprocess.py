@@ -228,7 +228,18 @@ def discover_models(profile_id: str | None = None) -> dict[str, str]:
         raw = result.stdout.strip()
         if not raw or result.returncode != 0:
             if profile_id:
-                raise RuntimeError(f"agy models: код {result.returncode}; каталог не получен")
+                # Прежнее сообщение «код 1; каталог не получен» скрывало причину.
+                # agy пишет её в stderr, и без неё непонятно главное: он
+                # запускается с HOME, подменённым на каталог профиля (ради
+                # изоляции учётных данных между аккаунтами). Если вход
+                # выполнялся обычным agy в оболочке, ключи легли в настоящий
+                # домашний каталог, и профиль пуст — отсюда отказ.
+                detail = (result.stderr or "").strip() or (result.stdout or "").strip()
+                detail = detail.splitlines()[-1][:300] if detail else "вывод пуст"
+                raise RuntimeError(
+                    f"agy models: код {result.returncode}. Ответ agy: {detail}. "
+                    f"Запуск с HOME={env.get('HOME') or env.get('USERPROFILE') or 'не задан'}"
+                )
             return dict(_AGY_MODEL_CACHE or {})
     except Exception:
         if profile_id:
