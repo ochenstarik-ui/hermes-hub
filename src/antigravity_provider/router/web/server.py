@@ -507,6 +507,23 @@ if _STATIC_DIR.is_dir():
             headers=_NO_CACHE,
         )
 
+    # A48 и A49 добавили новые файлы клиента, а заголовки кэширования им не
+    # прописали: браузер держал их сколько угодно. Владелец обновлял сборку и
+    # видел прежний интерфейс — ровно та поломка, ради которой запрет кэша
+    # вводился для app.js. Перечисление сделано общим, чтобы следующий
+    # добавленный файл не оказался снова без заголовков.
+    for _client_script in ("workspace.js", "workflow.js", "workflow.css"):
+
+        def _make_route(name: str):
+            media = "text/css" if name.endswith(".css") else "application/javascript"
+
+            def _serve():
+                return FileResponse(str(_STATIC_DIR / name), media_type=media, headers=_NO_CACHE)
+
+            return _serve
+
+        app.get("/" + _client_script)(_make_route(_client_script))
+
     @app.get("/snapshot.example.json")
     def _fixture():
         return FileResponse(str(_STATIC_DIR / "snapshot.example.json"), media_type="application/json")
