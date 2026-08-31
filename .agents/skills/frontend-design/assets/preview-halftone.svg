@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" width="1200" height="750">
+  <!-- Halftone portfolio — Editorial, warm, light -->
+  <defs>
+    <style>
+      .surface { fill: #FAF6F0; }
+      .ink { fill: #1A1714; }
+      .ink-muted { fill: #6B5E51; }
+      .accent { fill: #C8281C; }
+      .hairline { stroke: #E5DDD0; }
+      .serif { font-family: Georgia, 'Times New Roman', serif; }
+      .mono { font-family: 'Courier New', monospace; }
+      .sans { font-family: -apple-system, Helvetica, sans-serif; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect class="surface" width="1200" height="750"/>
+
+  <!-- Nav -->
+  <line x1="60" y1="68" x2="1140" y2="68" class="hairline" stroke-width="1"/>
+  <circle cx="80" cy="42" r="10" class="ink"/>
+  <path d="M80 32 A10 10 0 0 1 80 52 Z" class="surface"/>
+  <text x="100" y="48" class="serif" font-size="20" font-weight="500" letter-spacing="-0.5">Halftone</text>
+
+  <text x="900" y="48" class="sans" font-size="13" fill="#1A1714">Work</text>
+  <text x="950" y="48" class="sans" font-size="13" fill="#1A1714">Studio</text>
+  <text x="1010" y="48" class="sans" font-size="13" fill="#1A1714">Writing</text>
+  <rect x="1075" y="32" width="65" height="26" fill="none" stroke="#1A1714" stroke-width="1" rx="2"/>
+  <text x="1082" y="49" class="sans" font-size="12" fill="#1A1714">Start →</text>
+
+  <!-- Hero -->
+  <text x="60" y="135" class="mono" font-size="11" letter-spacing="2" class="ink-muted" fill="#6B5E51">INDEPENDENT DESIGN STUDIO · EST. 2017</text>
+
+  <text x="60" y="245" class="serif" font-size="100" font-weight="500" letter-spacing="-3" fill="#1A1714">Design that</text>
+  <text x="60" y="335" class="serif" font-size="100" font-weight="500" letter-spacing="-3" fill="#1A1714">doesn't need</text>
+  <text x="60" y="425" class="serif" font-size="100" font-weight="400" font-style="italic" letter-spacing="-3" fill="#C8281C">explaining.</text>
+
+  <!-- Right meta column -->
+  <text x="900" y="200" class="mono" font-size="10" letter-spacing="2" fill="#6B5E51">FOUNDED</text>
+  <text x="900" y="220" class="sans" font-size="14" fill="#1A1714">Spring 2017</text>
+  <line x1="900" y1="235" x2="1140" y2="235" class="hairline" stroke-width="1"/>
+
+  <text x="900" y="265" class="mono" font-size="10" letter-spacing="2" fill="#6B5E51">PEOPLE</text>
+  <text x="900" y="285" class="sans" font-size="14" fill="#1A1714">4 partners, no contractors</text>
+  <line x1="900" y1="300" x2="1140" y2="300" class="hairline" stroke-width="1"/>
+
+  <text x="900" y="330" class="mono" font-size="10" letter-spacing="2" fill="#6B5E51">STUDIOS</text>
+  <text x="900" y="350" class="sans" font-size="14" fill="#1A1714">Lisbon · Stockholm</text>
+  <line x1="900" y1="365" x2="1140" y2="365" class="hairline" stroke-width="1"/>
+
+  <text x="900" y="395" class="mono" font-size="10" letter-spacing="2" fill="#6B5E51">CURRENTLY</text>
+  <text x="900" y="415" class="sans" font-size="14" fill="#1A1714">Booking Q3 2026</text>
+
+  <!-- Section: index of work -->
+  <line x1="60" y1="500" x2="1140" y2="500" class="hairline" stroke-width="1"/>
+  <text x="60" y="540" class="mono" font-size="11" letter-spacing="2" fill="#6B5E51">§01 — SELECTED WORK, 2021–2026</text>
+  <text x="60" y="595" class="serif" font-size="48" font-weight="500" letter-spacing="-1" fill="#1A1714">Index</text>
+
+  <!-- List rows -->
+  <line x1="60" y1="630" x2="1140" y2="630" class="hairline" stroke-width="1"/>
+  <text x="60" y="660" class="mono" font-size="10" letter-spacing="2" fill="#6B5E51">01</text>
+  <text x="130" y="660" class="serif" font-size="22" font-weight="500" fill="#1A1714">Field Notes</text>
+  <text x="600" y="660" class="sans" font-size="13" fill="#6B5E51">Quarterly journal · Identity, editorial</text>
+  <text x="1100" y="660" class="mono" font-size="10" letter-spacing="2" fill="#6B5E51" text-anchor="end">2026</text>
+  <line x1="60" y1="685" x2="1140" y2="685" class="hairline" stroke-width="1"/>
+
+  <text x="60" y="715" class="mono" font-size="10" letter-spacing="2" fill="#6B5E51">02</text>
+  <text x="130" y="715" class="serif" font-size="22" font-weight="500" fill="#1A1714">The Slow Review</text>
+  <text x="600" y="715" class="sans" font-size="13" fill="#6B5E51">Magazine · Identity, web</text>
+  <text x="1100" y="715" class="mono" font-size="10" letter-spacing="2" fill="#6B5E51" text-anchor="end">2025</text>
+  <line x1="60" y1="740" x2="1140" y2="740" class="hairline" stroke-width="1"/>
+
+  <!-- Tag in corner -->
+  <text x="1140" y="745" class="mono" font-size="9" letter-spacing="1.5" fill="#6B5E51" text-anchor="end">— EX.01 — EDITORIAL / WARM / LIGHT</text>
+</svg>

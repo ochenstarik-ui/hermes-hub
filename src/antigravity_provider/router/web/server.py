@@ -270,6 +270,85 @@ def export_quotas_endpoint(
         )
 
 
+@app.get("/api/skills")
+def get_skills_endpoint(authorized: bool = Depends(get_auth_token)):
+    """Return all discovered skills with metadata, assigned agents, and validation status."""
+    from antigravity_provider.router.skills_service import SkillsService
+    skills = SkillsService.get().discover_skills()
+    skills_dicts = [s.to_dict() for s in skills]
+    return JSONResponse(content=jsonable_encoder({"skills": skills_dicts}))
+
+
+@app.post("/api/skills/assign")
+async def assign_skill_endpoint(request: Request, authorized: bool = Depends(get_auth_token)):
+    """Assign a skill to a specific subagent."""
+    from antigravity_provider.router.skills_service import SkillsService
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    skill_name = str(data.get("skill_name") or data.get("name") or "").strip()
+    agent_id = str(data.get("agent_id") or data.get("id") or "").strip()
+    if not skill_name or not agent_id:
+        raise HTTPException(status_code=400, detail="Укажите 'skill_name' и 'agent_id'")
+
+    try:
+        res = SkillsService.get().assign_skill(skill_name, agent_id)
+        return JSONResponse(content=jsonable_encoder(res))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.post("/api/skills/unassign")
+async def unassign_skill_endpoint(request: Request, authorized: bool = Depends(get_auth_token)):
+    """Remove an assigned skill from a subagent."""
+    from antigravity_provider.router.skills_service import SkillsService
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    skill_name = str(data.get("skill_name") or data.get("name") or "").strip()
+    agent_id = str(data.get("agent_id") or data.get("id") or "").strip()
+    if not skill_name or not agent_id:
+        raise HTTPException(status_code=400, detail="Укажите 'skill_name' и 'agent_id'")
+
+    try:
+        res = SkillsService.get().unassign_skill(skill_name, agent_id)
+        return JSONResponse(content=jsonable_encoder(res))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@app.get("/api/skills/usage")
+def get_skills_usage_endpoint(authorized: bool = Depends(get_auth_token)):
+    """Return truthful skill invocation statistics."""
+    from antigravity_provider.router.skills_service import SkillsService
+    usage = SkillsService.get().get_skills_usage()
+    return JSONResponse(content=jsonable_encoder(usage))
+
+
+@app.post("/api/skills/diagnose")
+async def diagnose_skill_endpoint(request: Request, authorized: bool = Depends(get_auth_token)):
+    """Run SkillDoctor diagnostics on a skill by name, filepath, or raw content."""
+    from antigravity_provider.router.skills_service import SkillsService
+    try:
+        data = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    skill_name = data.get("skill_name") or data.get("name")
+    filepath = data.get("path") or data.get("filepath")
+    content = data.get("content")
+
+    try:
+        diag = SkillsService.get().diagnose_skill(skill_name=skill_name, filepath=filepath, content=content)
+        return JSONResponse(content=jsonable_encoder({"ok": True, "diagnosis": diag.to_dict()}))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @app.get("/api/settings")
 def get_settings(authorized: bool = Depends(get_auth_token)):
     """Return current server and hub settings without exposing raw auth tokens."""

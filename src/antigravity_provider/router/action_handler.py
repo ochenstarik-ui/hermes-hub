@@ -148,6 +148,12 @@ def do_delete_credentials(provider: str, profile_id: str, actor: str = "system")
     return False, f"Учетных данных для '{profile_id}' не найдено — удалять нечего"
 
 def do_save_settings(settings: Dict[str, Any]) -> Tuple[bool, str]:
+    if "obsidian_vault_path" in settings:
+        from antigravity_provider.router.settings_service import validate_obsidian_vault_path
+        val_ok, val_msg, _ = validate_obsidian_vault_path(settings["obsidian_vault_path"])
+        if not val_ok:
+            return False, f"Ошибка настройки хранилища Obsidian: {val_msg}"
+
     settings_file = paths.get_hermes_home() / "hub_settings.json"
     settings_file.parent.mkdir(parents=True, exist_ok=True)
     existing: Dict[str, Any] = {}
@@ -1062,6 +1068,60 @@ class ActionExecutor:
 
         elif action in ['reset_router_config', 'reset_to_empty_config']:
             res = do_reset_router_config(actor=actor)
+            return {'ok': res.get('ok', False), 'message': res.get('message', ''), 'data': res}
+
+        elif action == 'get_skills':
+            from antigravity_provider.router.skills_service import SkillsService
+            skills = SkillsService.get().discover_skills()
+            return {'ok': True, 'message': f'Обнаружено скиллов: {len(skills)}', 'data': {'skills': [s.to_dict() for s in skills]}}
+
+        elif action == 'assign_skill':
+            from antigravity_provider.router.skills_service import SkillsService
+            s_name = data.get('skill_name') or data.get('name') or ''
+            a_id = data.get('agent_id') or data.get('id') or ''
+            try:
+                res = SkillsService.get().assign_skill(s_name, a_id)
+                return {'ok': True, 'message': res.get('message', 'Скилл назначен'), 'data': res}
+            except Exception as exc:
+                return {'ok': False, 'message': str(exc)}
+
+        elif action == 'unassign_skill':
+            from antigravity_provider.router.skills_service import SkillsService
+            s_name = data.get('skill_name') or data.get('name') or ''
+            a_id = data.get('agent_id') or data.get('id') or ''
+            try:
+                res = SkillsService.get().unassign_skill(s_name, a_id)
+                return {'ok': True, 'message': res.get('message', 'Скилл удалён'), 'data': res}
+            except Exception as exc:
+                return {'ok': False, 'message': str(exc)}
+
+        elif action == 'get_skills_usage':
+            from antigravity_provider.router.skills_service import SkillsService
+            usage = SkillsService.get().get_skills_usage()
+            return {'ok': True, 'message': usage.get('message', ''), 'data': usage}
+
+        elif action == 'diagnose_skill':
+            from antigravity_provider.router.skills_service import SkillsService
+            s_name = data.get('skill_name') or data.get('name')
+            f_path = data.get('path') or data.get('filepath')
+            c_text = data.get('content')
+            try:
+                diag = SkillsService.get().diagnose_skill(skill_name=s_name, filepath=f_path, content=c_text)
+                return {'ok': True, 'message': 'Диагностика завершена', 'data': {'diagnosis': diag.to_dict()}}
+            except Exception as exc:
+                return {'ok': False, 'message': str(exc)}
+
+        elif action == 'check_obsidian_vault':
+            from antigravity_provider.router.settings_service import validate_obsidian_vault_path
+            v_path = data.get('obsidian_vault_path') or data.get('path') or data.get('vault_path')
+            is_valid, msg, details = validate_obsidian_vault_path(v_path)
+            return {'ok': is_valid, 'message': msg, 'data': details}
+
+        elif action == 'setup_memory':
+            from antigravity_provider.router.settings_service import setup_memory_structure
+            v_path = data.get('obsidian_vault_path') or data.get('vault_path')
+            p_name = data.get('project_name', 'hermes-hub')
+            res = setup_memory_structure(vault_path=v_path, project_name=p_name)
             return {'ok': res.get('ok', False), 'message': res.get('message', ''), 'data': res}
 
         else:

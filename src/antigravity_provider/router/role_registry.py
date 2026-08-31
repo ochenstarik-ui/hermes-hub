@@ -193,6 +193,18 @@ CANONICAL_ROLES: Dict[str, RoleDefinition] = {
         max_failover_attempts=3,
         tier="qa_doc",
     ),
+    "skill-doctor": RoleDefinition(
+        role_id="skill-doctor",
+        display_name_ru="Скилл-доктор",
+        short_name_ru="Скилл-доктор",
+        description_ru="Диагностирует и чинит файлы SKILL.md, проверяет однострочный description, позитивные и негативные триггеры.",
+        is_implemented=True,
+        capabilities=["skill-doctor", "diagnostics", "tools", "fast"],
+        fallback_capabilities=["skill-doctor", "diagnostics"],
+        default_preferred_chain=[],
+        max_failover_attempts=3,
+        tier="expert",
+    ),
 }
 
 _CANONICAL_ROLE_ALIASES: Dict[str, str] = {
@@ -237,6 +249,10 @@ _CANONICAL_ROLE_ALIASES: Dict[str, str] = {
     "агент зависимостей": "dependency-agent",
     "готовность": "dependency-agent",
     "dependency": "dependency-agent",
+    "skill-doctor": "skill-doctor",
+    "skill_doctor": "skill-doctor",
+    "скилл-доктор": "skill-doctor",
+    "скиллдоктор": "skill-doctor",
 }
 
 class RoleRegistry:
@@ -374,3 +390,19 @@ class RoleRegistry:
                 was_modified = True
 
         return migrated, was_modified
+
+
+def get_role_definition(role_id: str) -> Optional[RoleDefinition]:
+    return RoleRegistry.get_role(role_id)
+
+
+def normalize_role_name(name_or_alias: str) -> str:
+    return RoleRegistry.resolve_canonical_role(name_or_alias)
+
+
+def list_canonical_roles() -> List[str]:
+    return RoleRegistry.get_role_ids()
+
+
+RoleRegistry.list_canonical_roles = classmethod(lambda cls: cls.get_role_ids())
+RoleRegistry.get_role_definition = classmethod(lambda cls, r_id: cls.get_role(r_id))

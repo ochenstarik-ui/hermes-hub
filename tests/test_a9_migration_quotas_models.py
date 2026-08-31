@@ -85,7 +85,7 @@ class TestA9ConfigMigration(unittest.TestCase):
 
         # 4. Verify user profiles are preserved untouched (16 profiles preserved, no fake profiles injected)
         self.assertEqual(len(migrated_cfg.profiles), 16)
-        self.assertEqual(len(migrated_cfg.roles), 13)
+        self.assertEqual(len(migrated_cfg.roles), 14)
 
         # 5. Verify existing 10 antigravity profiles are 100% untouched
         for pid in ["ag-orch-fallback", "ag-w1", "ag-w2", "ag-w3", "ag-w4", "ag-spare-1", "ag-spare-2", "ag-cold-1", "ag-cold-2", "ag-cold-3"]:
