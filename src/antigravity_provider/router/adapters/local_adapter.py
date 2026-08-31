@@ -76,8 +76,23 @@ class LocalLLMAdapter(BaseProviderAdapter):
         if not query_remote:
             return None
 
-        # 3. Query /models endpoint
+        # 3. Query /props endpoint (llama.cpp native)
         base_url = self._resolve_base_url(profile)
+        # Strip trailing /v1 for props endpoint if needed
+        root_url = base_url[:-3] if base_url.endswith("/v1") else base_url
+        try:
+            req_props = urllib.request.Request(f"{root_url}/props", headers={"User-Agent": "hermes-router/1.0"}, method="GET")
+            with urllib.request.urlopen(req_props, timeout=2) as resp:
+                p_data = json.loads(resp.read().decode("utf-8", errors="replace"))
+                n_ctx = p_data.get("default_generation_settings", {}).get("n_ctx") or p_data.get("n_ctx")
+                if n_ctx:
+                    ctx_val = int(n_ctx)
+                    self._context_window_cache[f"{profile.profile_id}:all"] = ctx_val
+                    return ctx_val
+        except Exception:
+            pass
+
+        # 4. Query /models endpoint
         api_key = self._resolve_api_key(profile)
         headers = {"Accept": "application/json", "User-Agent": "hermes-router/1.0"}
         if api_key:

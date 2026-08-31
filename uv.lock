@@ -301,7 +301,6 @@ version = "0.1.1"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
-    { name = "gguf" },
     { name = "httpx" },
     { name = "psutil" },
     { name = "pydantic" },
@@ -311,6 +310,9 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+benchmarks = [
+    { name = "gguf" },
+]
 dev = [
     { name = "anyio" },
     { name = "pytest" },
@@ -323,7 +325,7 @@ dev = [
 requires-dist = [
     { name = "anyio", marker = "extra == 'dev'", specifier = ">=4.0.0" },
     { name = "fastapi", specifier = ">=0.110.0" },
-    { name = "gguf", specifier = ">=0.19.0" },
+    { name = "gguf", marker = "extra == 'benchmarks'", specifier = ">=0.19.0" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "psutil", specifier = ">=5.9.0" },
     { name = "pydantic", specifier = ">=2.6.0" },
@@ -335,7 +337,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.3.0" },
     { name = "uvicorn", specifier = ">=0.28.0" },
 ]
-provides-extras = ["dev"]
+provides-extras = ["benchmarks", "dev"]
 
 [[package]]
 name = "httpcore"

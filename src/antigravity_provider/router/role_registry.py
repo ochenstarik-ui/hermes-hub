@@ -205,6 +205,18 @@ CANONICAL_ROLES: Dict[str, RoleDefinition] = {
         max_failover_attempts=3,
         tier="expert",
     ),
+    "local-supervisor": RoleDefinition(
+        role_id="local-supervisor",
+        display_name_ru="Надзиратель локальных моделей",
+        short_name_ru="Надзиратель локальных моделей",
+        description_ru="Контролирует подачу работы локальным моделям: измеряет контекст через /props, считает токены через /tokenize, семантически разбивает задачи по границам кода и фиксирует рабочий объём в общей памяти.",
+        is_implemented=True,
+        capabilities=["local-supervisor", "task-splitter", "token-counter", "memory-tracker", "utility"],
+        fallback_capabilities=["local-supervisor", "utility"],
+        default_preferred_chain=[],
+        max_failover_attempts=3,
+        tier="governance",
+    ),
 }
 
 _CANONICAL_ROLE_ALIASES: Dict[str, str] = {
@@ -253,6 +265,11 @@ _CANONICAL_ROLE_ALIASES: Dict[str, str] = {
     "skill_doctor": "skill-doctor",
     "скилл-доктор": "skill-doctor",
     "скиллдоктор": "skill-doctor",
+    "local-supervisor": "local-supervisor",
+    "local_supervisor": "local-supervisor",
+    "надзиратель локальных моделей": "local-supervisor",
+    "supervisor": "local-supervisor",
+    "локальный надзиратель": "local-supervisor",
 }
 
 class RoleRegistry:
