@@ -50,14 +50,14 @@ def clean_a41_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def test_p0_1_clean_default_configuration():
     """P0-1 & P0-3: Clean configuration on first install has 0 profiles and 14 canonical roles with empty chains."""
     # 1. Check CANONICAL_ROLES registry
-    assert len(CANONICAL_ROLES) == 14
+    assert len(CANONICAL_ROLES) == 15
     for role_id, role_def in CANONICAL_ROLES.items():
         assert role_def.default_preferred_chain == [], f"Role {role_id} has non-empty default chain"
 
     # 2. Check get_default_router_config()
     default_cfg = get_default_router_config()
     assert len(default_cfg.profiles) == 0, f"Expected 0 profiles, got {len(default_cfg.profiles)}"
-    assert len(default_cfg.roles) == 14, f"Expected 14 roles, got {len(default_cfg.roles)}"
+    assert len(default_cfg.roles) == 15, f"Expected 15 roles, got {len(default_cfg.roles)}"
     assert default_cfg.default_role == "manager"
 
     for rname, rpol in default_cfg.roles.items():
@@ -157,8 +157,8 @@ def test_p0_3_migration_preserves_user_config_and_adds_missing_roles_cleanly(cle
     assert "developer-1" in migrated_cfg.roles
     assert migrated_cfg.roles["developer-1"].preferred_chain == ["user-primary-ag"]
 
-    # 3. All 14 canonical roles exist
-    assert len(migrated_cfg.roles) == 14
+    # 3. All canonical roles exist
+    assert len(migrated_cfg.roles) == 15
 
     # 4. Missing roles added with clean empty chains
     for rname, rpol in migrated_cfg.roles.items():
@@ -210,10 +210,10 @@ def test_p0_2_p0_4_reset_router_config_and_preserve_credentials(clean_a41_env):
     backup_content = backups[0].read_text(encoding="utf-8")
     assert "codex-1" in backup_content
 
-    # 5. Verify router_profiles.yaml is now in clean state (0 profiles, 14 canonical roles with empty chains)
+    # 5. Verify router_profiles.yaml is now in clean state (0 profiles, 15 canonical roles with empty chains)
     reloaded_cfg = load_router_config(config_file)
     assert len(reloaded_cfg.profiles) == 0
-    assert len(reloaded_cfg.roles) == 14
+    assert len(reloaded_cfg.roles) == 15
     for rname, rpol in reloaded_cfg.roles.items():
         assert rpol.preferred_chain == []
 

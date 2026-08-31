@@ -1,0 +1,204 @@
+{
+  "live_coder_8081": {
+    "port": 8081,
+    "n_ctx": 65536,
+    "total_slots": 1,
+    "tokenize_sample_tokens": 10,
+    "total_vram_mib": 26750,
+    "generation_speed_tps": 107.28,
+    "prompt_speed_tps": 156.8,
+    "timings": {
+      "cache_n": 13,
+      "prompt_n": 6,
+      "prompt_ms": 38.265,
+      "prompt_per_token_ms": 6.3775,
+      "prompt_per_second": 156.80125441003528,
+      "predicted_n": 128,
+      "predicted_ms": 1183.873,
+      "predicted_per_token_ms": 9.321834645669291,
+      "predicted_per_second": 107.27502020909337
+    }
+  },
+  "compressor_evaluation": {
+    "Qwen3-4B-2507_GPU": {
+      "name": "Qwen3-4B-2507",
+      "device": "GPU",
+      "ngl": 99,
+      "cold_start_sec": 3.01,
+      "process_vram_mib": 7446,
+      "avg_generation_tps": 137.18,
+      "avg_prompt_tps": 1595.19,
+      "evaluations": [
+        {
+          "prompt_id": "C01_code_repo_summary",
+          "content_preview": "Hermes Hub Router runs a FastAPI server on port 8765, routing requests to Ollama (port 11434), local llama.cpp (coder on port 8081, compress",
+          "gen_tps": 135.41,
+          "prompt_tps": 273.19
+        },
+        {
+          "prompt_id": "C02_security_audit_log",
+          "content_preview": "- **IP Address**: 192.168.1.105   - **Token Hash**: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855   - **Action**: ",
+          "gen_tps": 138.95,
+          "prompt_tps": 2917.19
+        }
+      ],
+      "status": "OK"
+    },
+    "Qwen3-4B-2507_CPU": {
+      "name": "Qwen3-4B-2507",
+      "device": "CPU",
+      "ngl": 0,
+      "cold_start_sec": 12.01,
+      "process_vram_mib": 2648,
+      "avg_generation_tps": 8.42,
+      "avg_prompt_tps": 71.13,
+      "evaluations": [
+        {
+          "prompt_id": "C01_code_repo_summary",
+          "content_preview": "Hermes Hub Router runs a FastAPI server on port 8765, routing requests to Ollama (port 11434), local llama.cpp (coder on port 8081, compress",
+          "gen_tps": 8.47,
+          "prompt_tps": 42.47
+        },
+        {
+          "prompt_id": "C02_security_audit_log",
+          "content_preview": "- **IP Address**: 192.168.1.105   - **Token Hash**: sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855   - **Action**: ",
+          "gen_tps": 8.36,
+          "prompt_tps": 99.78
+        }
+      ],
+      "status": "OK"
+    },
+    "LFM2.5-2.6B_GPU": {
+      "name": "LFM2.5-2.6B",
+      "device": "GPU",
+      "ngl": 99,
+      "cold_start_sec": 6.01,
+      "process_vram_mib": 2562,
+      "avg_generation_tps": 201.66,
+      "avg_prompt_tps": 2519.75,
+      "evaluations": [
+        {
+          "prompt_id": "C01_code_repo_summary",
+          "content_preview": "",
+          "gen_tps": 201.61,
+          "prompt_tps": 1267.33
+        },
+        {
+          "prompt_id": "C02_security_audit_log",
+          "content_preview": "",
+          "gen_tps": 201.71,
+          "prompt_tps": 3772.17
+        }
+      ],
+      "status": "OK"
+    },
+    "LFM2.5-2.6B_CPU": {
+      "name": "LFM2.5-2.6B",
+      "device": "CPU",
+      "ngl": 0,
+      "cold_start_sec": 4.83,
+      "process_vram_mib": 394,
+      "avg_generation_tps": 14.92,
+      "avg_prompt_tps": 396.87,
+      "evaluations": [
+        {
+          "prompt_id": "C01_code_repo_summary",
+          "content_preview": "",
+          "gen_tps": 15.68,
+          "prompt_tps": 394.56
+        },
+        {
+          "prompt_id": "C02_security_audit_log",
+          "content_preview": "",
+          "gen_tps": 14.16,
+          "prompt_tps": 399.17
+        }
+      ],
+      "status": "OK"
+    }
+  },
+  "candidates_64k_vram": {
+    "Phi-4-14B": {
+      "name": "Phi-4-14B",
+      "status": "OK",
+      "cold_start_sec": 36.07,
+      "process_vram_mib": 15786,
+      "generation_tps": 59.38,
+      "prompt_tps": 189.01
+    },
+    "Qwen2.5-Coder-14B": {
+      "name": "Qwen2.5-Coder-14B",
+      "status": "OK",
+      "cold_start_sec": 48.07,
+      "process_vram_mib": 15400,
+      "generation_tps": 56.58,
+      "prompt_tps": 338.5
+    },
+    "Granite-4.2-8B": {
+      "name": "Granite-4.2-8B",
+      "status": "OK",
+      "cold_start_sec": 39.17,
+      "process_vram_mib": 11212,
+      "generation_tps": 82.35,
+      "prompt_tps": 152.05
+    },
+    "Qwen3-4B-2507": {
+      "name": "Qwen3-4B-2507",
+      "status": "OK",
+      "cold_start_sec": 4.51,
+      "process_vram_mib": 7976,
+      "generation_tps": 122.43,
+      "prompt_tps": 327.94
+    },
+    "Qwen3-Coder-30B-A3B": {
+      "name": "Qwen3-Coder-30B-A3B",
+      "status": "OK",
+      "cold_start_sec": 30.04,
+      "process_vram_mib": 21368,
+      "generation_tps": 107.5,
+      "prompt_tps": 115.08
+    }
+  },
+  "pair_coder_and_compressor": {
+    "status": "SUCCESS",
+    "name_a": "Qwen3-Coder-30B-A3B",
+    "name_b": "Qwen3-4B-2507",
+    "vram_a_mib": 21368,
+    "vram_b_mib": 5368,
+    "total_vram_mib": 26736,
+    "solo_a_tps": 110.08,
+    "solo_b_tps": 122.37,
+    "conc_a_tps": 54.23,
+    "conc_b_tps": 54.28,
+    "total_conc_tps": 108.5,
+    "ratio_vs_solo_a": 0.99
+  },
+  "pair_phi4_and_qwen25_14b": {
+    "status": "SUCCESS",
+    "name_a": "Phi-4-14B",
+    "name_b": "Qwen2.5-Coder-14B",
+    "vram_a_mib": 15786,
+    "vram_b_mib": 15400,
+    "total_vram_mib": 31186,
+    "solo_a_tps": 59.92,
+    "solo_b_tps": 56.86,
+    "conc_a_tps": 24.43,
+    "conc_b_tps": 24.45,
+    "total_conc_tps": 48.88,
+    "ratio_vs_solo_a": 0.82
+  },
+  "pair_qwen3moe_and_granite": {
+    "status": "SUCCESS",
+    "name_a": "Qwen3-Coder-30B-A3B",
+    "name_b": "Granite-4.2-8B",
+    "vram_a_mib": 19640,
+    "vram_b_mib": 8332,
+    "total_vram_mib": 27972,
+    "solo_a_tps": 109.31,
+    "solo_b_tps": 82.81,
+    "conc_a_tps": 42.73,
+    "conc_b_tps": 42.74,
+    "total_conc_tps": 85.47,
+    "ratio_vs_solo_a": 0.78
+  }
+}

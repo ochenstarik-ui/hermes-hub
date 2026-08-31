@@ -250,7 +250,7 @@ class TestLocalLLMConfigAndAutoAssigner:
     def test_default_config_clean_roles_and_local_registration(self):
         cfg = get_default_router_config()
         assert len(cfg.profiles) == 0
-        assert len(cfg.roles) == 14
+        assert len(cfg.roles) == 15
 
         slot = AutoAssigner.find_free_slot("local")
         assert slot == "local-1"
@@ -282,8 +282,8 @@ class TestLocalLLMConfigAndAutoAssigner:
             migrated = load_router_config(config_path)
             # User profile is preserved
             assert "custom-codex" in migrated.profiles
-            # 14 canonical roles are migrated
-            assert len(migrated.roles) == 14
+            # 15 canonical roles are migrated
+            assert len(migrated.roles) == 15
             # No dummy local profiles injected
             assert "local-1" not in migrated.profiles
         finally:
