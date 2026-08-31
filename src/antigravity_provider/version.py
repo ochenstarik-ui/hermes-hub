@@ -1,7 +1,7 @@
 """Single Source of Truth for Hermes Hub Versioning."""
 from __future__ import annotations
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 VERSION_INFO = (0, 1, 1)
 CHANNEL = "stable"
 MINIMUM_HERMES_VERSION = "0.20.0"
