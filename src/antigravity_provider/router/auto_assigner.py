@@ -47,8 +47,8 @@ DEFAULT_SLOT_ROLES = {
     "opengo-1": ("Кодер (OpenCode)", "coder", "fallback_2"),
     "opengo-2": ("Исследователь (OpenCode)", "researcher", "fallback"),
     "opengo-3": ("Резервный роутер (OpenCode)", "orchestrator", "fallback_2"),
-    "local-1": ("Локальный сервер 1", "coder", "primary"),
-    "local-2": ("Локальный сервер 2", "fast", "primary"),
+    "local-1": ("llama.cpp 1", "coder", "primary"),
+    "local-2": ("llama.cpp 2", "fast", "primary"),
     "openrouter-1": ("Кодер (OpenRouter 1)", "coder", "primary"),
     "openrouter-2": ("Исследователь (OpenRouter 2)", "researcher", "fallback"),
     "nvidia-1": ("Кодер (NVIDIA NIM 1)", "coder", "primary"),
@@ -80,7 +80,7 @@ class AutoAssigner:
             "opengo": "OpenCode",
             "claude": "Claude",
             "grok": "Grok",
-            "local": "Локальный сервер",
+            "local": "llama.cpp",
             "openrouter": "OpenRouter",
             "nvidia": "NVIDIA NIM",
             "ollama": "Ollama",
@@ -182,6 +182,34 @@ class AutoAssigner:
         return None
 
     @staticmethod
+    def validate_slot(provider: str, profile_id: str) -> Tuple[bool, str]:
+        """Reject foreign and unsafe slots before any auth/config mutation."""
+        import re
+        aliases = {
+            "antigravity": "ag", "google-antigravity": "ag", "agy": "ag",
+            "openai-codex": "codex", "codex": "codex", "openai": "codex",
+            "opencode-go": "opengo", "opencode": "opengo",
+            "anthropic": "claude", "claude": "claude", "xai": "grok", "grok": "grok",
+            "local": "local", "local-llm": "local", "llama.cpp": "local",
+            "nvidia-nim": "nvidia", "nvidia": "nvidia",
+            "openrouter": "openrouter", "ollama": "ollama", "vllm": "vllm",
+        }
+        owner = aliases.get(provider.strip().lower())
+        if not owner or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,127}", profile_id):
+            return False, "Недопустимый провайдер или идентификатор слота"
+        reserved = profile_id.split("-", 1)[0]
+        if reserved in set(aliases.values()) and reserved != owner:
+            return False, f"Слот {profile_id} не принадлежит провайдеру {provider}"
+        existing = load_router_config().get_profile(profile_id)
+        if existing:
+            valid = aliases.get(existing.provider.lower()) == owner
+        else:
+            valid = profile_id.startswith(owner + "-")
+        if not valid:
+            return False, f"Слот {profile_id} не принадлежит провайдеру {provider}"
+        return True, ""
+
+    @staticmethod
     def ensure_profile_definition(provider: str, profile_id: str) -> Tuple[bool, str]:
         """Persist a router profile for provider slots introduced by the UI.
 
@@ -189,6 +217,9 @@ class AutoAssigner:
         If discovery has not run yet, preferred_models remains empty [] instead
         of inventing unsupported model literals.
         """
+        valid, reason = AutoAssigner.validate_slot(provider, profile_id)
+        if not valid:
+            return False, reason
         config = load_router_config()
         if profile_id in config.profiles:
             return True, "Профиль уже зарегистрирован"

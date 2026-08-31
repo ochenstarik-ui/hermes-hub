@@ -1823,9 +1823,14 @@ body[data-theme="medium"] .nav-icon { stroke:var(--canvas-ink); }
 .account-summary strong { display:block; font-size:24px; font-weight:500; margin:6px 0; }
 .account-summary span,.account-summary small { color:var(--text-muted); font-size:11px; }
 .accounts-groups-container { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
-.provider-group,.accounts-grid { display:contents; }
-.provider-group-header { display:none; }
-.account-card { min-width:0; padding:16px; }
+.provider-group { grid-column:1 / -1; min-width:0; }
+.provider-group-header { display:flex; justify-content:space-between; align-items:center; margin:12px 0; }
+.accounts-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,300px),1fr)); gap:12px; }
+.account-card { min-width:0; padding:16px; height:auto; min-height:164px; gap:10px; }
+.account-card-header { flex-wrap:wrap; }
+.account-badges { min-width:0; flex-wrap:wrap; }
+.account-card .badge-status { white-space:normal; overflow-wrap:anywhere; }
+.badge-status.unhealthy { color:var(--status-error); }
 .account-card-header { gap:8px; }
 .account-provider-tag { display:flex; align-items:center; gap:10px; }
 .account-provider-tag img { width:30px; height:30px; object-fit:contain; }
@@ -2059,3 +2064,15 @@ body[data-theme="medium"] .nav-item.active .nav-icon { stroke:var(--text-accent)
   word-break: break-all;
 }
 
+/* Brand marks are local assets, separate for a provider and the model it hosts. */
+.brand-logo,.account-provider-tag img,.available-account-card>img { width:24px; height:24px; object-fit:contain; padding:3px; border-radius:4px; background:#fff; flex:none; }
+.model-brand { display:inline-flex; align-items:center; gap:6px; min-width:0; }
+.model-brand>span { overflow-wrap:anywhere; }
+.account-models { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; font-size:11px; }
+.account-models:empty { display:none; }
+.route-model-with-logo { display:flex; align-items:center; gap:6px; min-width:0; }
+.route-model-with-logo select { min-width:0; }
+.agent-node-icon .brand-logo { width:27px; height:27px; }
+
+.account-check { font-size:12px; line-height:1.5; color:var(--text-secondary); overflow-wrap:anywhere; }
+.badge-status.checking { color:var(--text-accent); }

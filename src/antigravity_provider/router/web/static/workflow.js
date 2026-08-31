@@ -212,7 +212,7 @@ function renderWorkflowNodes(workflow) {
     const assignment = `${cfg.model || 'Модель: Н/Д'} • ${cfg.account || 'Аккаунт: Н/Д'}`;
     return `<article class="workflow-node ${wfEscape(agent.runtime_state)} ${workflowUi.selectedAgentId === agent.id ? 'selected' : ''}" data-agent-id="${wfEscape(agent.id)}" style="left:${Number(pos.x) || 0}px;top:${Number(pos.y) || 0}px">
       <button class="workflow-port in" aria-label="Вход"></button><button class="workflow-port out" aria-label="Создать связь"></button>
-      <span class="agent-node-icon" aria-hidden="true">⌘</span><h3>${wfEscape(agent.name)}</h3><p title="${wfEscape(agent.agent_file)}">${wfEscape(agent.agent_file?.split('/').pop() || 'Agent File: Н/Д')}</p><p class="node-assignment" title="${wfEscape(cfg.unavailable_reason || assignment)}">${wfEscape(assignment)}</p>
+      <span class="agent-node-icon" aria-hidden="true"><img class="brand-logo" src="/static/${getModelIcon(cfg.model)}" alt=""></span><h3>${wfEscape(agent.name)}</h3><p title="${wfEscape(agent.agent_file)}">${wfEscape(agent.agent_file?.split('/').pop() || 'Agent File: Н/Д')}</p><p class="node-assignment" title="${wfEscape(cfg.unavailable_reason || assignment)}">${wfEscape(assignment)}</p>
       <div class="workflow-node-status"><i></i><span>${wfEscape(runtimeStateLabel(agent.runtime_state))}</span></div>
     </article>`;
   }).join('');

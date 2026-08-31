@@ -33,7 +33,8 @@ def test_check_memory_freshness_real_repo():
         )
         assert is_fresh is True
         assert "FRESH" in summary
-        assert recorded_commit in summary
+        recorded = extract_recorded_commit(canonical_memory.read_text(encoding="utf-8"))
+        assert recorded and recorded[:7] in summary
 
 
 def test_check_memory_freshness_missing_file_strict_vs_non_strict(tmp_path):

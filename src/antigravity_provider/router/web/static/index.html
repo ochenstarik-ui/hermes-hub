@@ -434,6 +434,13 @@
             </div>
             <div class="setting-row">
               <div class="setting-info">
+                <label class="setting-label" for="setting-account-check-interval">Проверка аккаунтов и моделей</label>
+                <div class="setting-desc">Каждые 300 секунд по умолчанию. Проверка отправляет короткий запрос модели и может расходовать квоту.</div>
+              </div>
+              <div class="setting-control"><input id="setting-account-check-interval" class="input-text" type="number" min="60" disabled placeholder="Н/Д: загрузка" aria-label="Интервал проверки аккаунтов, секунды"></div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
                 <div class="setting-label">Интервал обновления квот</div>
                 <div class="setting-desc">Период фонового опроса квот провайдеров (секунды)</div>
               </div>

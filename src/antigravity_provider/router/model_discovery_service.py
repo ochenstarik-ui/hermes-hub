@@ -35,6 +35,7 @@ class ModelDiscoveryService:
         self._cache_path = cache_path
         self._cache_lock = threading.Lock()
         self._cache: Dict[str, Dict[str, Any]] = {}
+        self._probe_context = threading.local()
         self._ttl_seconds: int = 3600  # 1 hour
         self._load_cache_from_disk()
 
@@ -82,10 +83,11 @@ class ModelDiscoveryService:
             return None
         return list(meta["models"])
 
-    def get_models_with_metadata(self, provider: str) -> Dict[str, Any]:
+    def get_models_with_metadata(self, provider: str, profile_id: Optional[str] = None) -> Dict[str, Any]:
         """Return cached models and freshness status without blocking."""
         with self._cache_lock:
-            entry = self._cache.get(provider.lower())
+            key = f"{provider.lower()}:{profile_id}" if profile_id else provider.lower()
+            entry = self._cache.get(key)
             if not entry or "models" not in entry:
                 return {
                     "provider": provider,
@@ -101,10 +103,10 @@ class ModelDiscoveryService:
             models = entry.get("models")
             return {
                 "provider": provider,
-                "models": list(models) if models else None,
+                "models": list(models) if models is not None else None,
                 "discovered_at": discovered_at,
                 "is_stale": is_stale,
-                "has_cache": bool(models),
+                "has_cache": models is not None,
                 "error": entry.get("error"),
             }
 
@@ -188,13 +190,15 @@ class ModelDiscoveryService:
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def discover_models_sync(self, provider: str, timeout: float = 15.0) -> Optional[List[str]]:
+    def discover_models_sync(self, provider: str, timeout: float = 15.0, profile_id: Optional[str] = None) -> Optional[List[str]]:
         """Synchronously probe models with strict timeout without blocking indefinite hangs."""
+        cache_key = f"{provider.lower()}:{profile_id}" if profile_id else provider.lower()
         result_holder: List[Optional[List[str]]] = [None]
         error_holder: List[Optional[str]] = [None]
 
         def _do_probe():
             try:
+                self._probe_context.profile_id = profile_id
                 models, err_msg = self._probe_provider(provider)
                 result_holder[0] = models
                 error_holder[0] = err_msg
@@ -209,9 +213,9 @@ class ModelDiscoveryService:
             logger.warning("Model discovery for provider '%s' timed out (> %.1fs)", provider, timeout)
             timeout_msg = f"Превышено время ожидания ответа от сервера ({timeout:.1f}с)"
             with self._cache_lock:
-                entry = self._cache.get(provider.lower(), {})
+                entry = self._cache.get(cache_key, {})
                 existing_models = entry.get("models")
-                self._cache[provider.lower()] = {
+                self._cache[cache_key] = {
                     "models": existing_models,
                     "discovered_at": entry.get("discovered_at"),
                     "error": timeout_msg,
@@ -222,9 +226,9 @@ class ModelDiscoveryService:
         models = result_holder[0]
         err_text = error_holder[0]
 
-        if models:
+        if models is not None and not err_text:
             with self._cache_lock:
-                self._cache[provider.lower()] = {
+                self._cache[cache_key] = {
                     "models": models,
                     "discovered_at": time.time(),
                     "error": None,
@@ -236,9 +240,9 @@ class ModelDiscoveryService:
         if err_text:
             logger.info("Model discovery probe for '%s' returned error: %s", provider, err_text)
             with self._cache_lock:
-                entry = self._cache.get(provider.lower(), {})
+                entry = self._cache.get(cache_key, {})
                 existing_models = entry.get("models")
-                self._cache[provider.lower()] = {
+                self._cache[cache_key] = {
                     "models": existing_models,
                     "discovered_at": entry.get("discovered_at"),
                     "error": err_text,
@@ -247,9 +251,9 @@ class ModelDiscoveryService:
             return list(existing_models) if existing_models else None
 
         with self._cache_lock:
-            entry = self._cache.get(provider.lower(), {})
+            entry = self._cache.get(cache_key, {})
             existing_models = entry.get("models")
-            self._cache[provider.lower()] = {
+            self._cache[cache_key] = {
                 "models": existing_models,
                 "discovered_at": entry.get("discovered_at"),
                 "error": entry.get("error") or "Модели не найдены",
@@ -257,9 +261,37 @@ class ModelDiscoveryService:
             self._save_cache_to_disk()
             return list(existing_models) if existing_models else None
 
-    def _extract_http_error(self, http_err: urllib.error.HTTPError) -> str:
+    def discover_ollama_cloud(self) -> Dict[str, Any]:
+        """Public catalog documented at https://docs.ollama.com/cloud#listing-models.
+
+        Catalog presence is not proof of an account's inference entitlement.
+        """
+        key = "ollama-cloud-catalog"
+        error = None
+        models = None
         try:
-            raw_err = http_err.read().decode("utf-8", errors="replace")
+            req = urllib.request.Request("https://ollama.com/api/tags", headers={"Accept": "application/json"})
+            with urllib.request.urlopen(req, timeout=10) as response:
+                data = json.loads(response.read().decode("utf-8"))
+            models = sorted({str(m.get("name") or m.get("model")) for m in data.get("models", []) if isinstance(m, dict) and (m.get("name") or m.get("model"))})
+        except urllib.error.HTTPError as exc:
+            error = self._extract_http_error(exc)
+        except Exception as exc:
+            error = str(exc)
+        with self._cache_lock:
+            previous = self._cache.get(key, {})
+            self._cache[key] = {
+                "models": models if models is not None else previous.get("models"),
+                "discovered_at": time.time() if models is not None else previous.get("discovered_at"),
+                "error": error,
+            }
+            self._save_cache_to_disk()
+        return self.get_models_with_metadata(key)
+
+    def _extract_http_error(self, http_err: urllib.error.HTTPError) -> str:
+        raw_err = ""
+        try:
+            raw_err = http_err.read().decode("utf-8", errors="replace")[:2000]
             err_json = json.loads(raw_err)
             if isinstance(err_json, dict):
                 if "error" in err_json:
@@ -278,12 +310,16 @@ class ModelDiscoveryService:
                 msg = raw_err
             return f"HTTP {http_err.code}: {msg}"
         except Exception:
-            return f"HTTP {http_err.code}: {http_err.reason}"
+            return f"HTTP {http_err.code}: {raw_err or http_err.reason}"
 
     def _get_provider_candidate_profiles(self, prov: str) -> List[Tuple[str, Optional[Any]]]:
         from antigravity_provider.router.router_config import load_router_config
         cfg = load_router_config()
         p_lower = prov.lower()
+        requested = getattr(self._probe_context, "profile_id", None)
+        if requested:
+            pcfg = cfg.get_profile(requested)
+            return [(requested, pcfg)] if pcfg else []
         matched = [
             (pid, pcfg)
             for pid, pcfg in cfg.profiles.items()
@@ -326,7 +362,7 @@ class ModelDiscoveryService:
 
         if prov in ("antigravity", "google-antigravity"):
             from antigravity_provider.agy_subprocess import discover_models
-            main_p = ProfileAuthManager.get_main_profile("antigravity") or "ag-orch-fallback"
+            main_p = getattr(self._probe_context, "profile_id", None) or ProfileAuthManager.get_main_profile("antigravity") or "ag-orch-fallback"
             try:
                 res = discover_models(profile_id=main_p)
                 if res:
@@ -614,8 +650,7 @@ class ModelDiscoveryService:
                                 name = m.get("name") or m.get("model") if isinstance(m, dict) else str(m)
                                 if name:
                                     models.append(str(name))
-                        if models:
-                            return sorted(set(models)), None
+                        return sorted(set(models)), None
                 except urllib.error.HTTPError as http_err:
                     last_err = self._extract_http_error(http_err)
                     logger.debug("Ollama /api/tags HTTP error on %s: %s", pid, last_err)
@@ -635,8 +670,7 @@ class ModelDiscoveryService:
                                 mid = m.get("id") or m.get("name") if isinstance(m, dict) else str(m)
                                 if mid:
                                     models.append(str(mid))
-                        if models:
-                            return sorted(set(models)), None
+                        return sorted(set(models)), None
                 except urllib.error.HTTPError as http_err:
                     last_err = self._extract_http_error(http_err)
                     logger.debug("Ollama /v1/models HTTP error on %s: %s", pid, last_err)
