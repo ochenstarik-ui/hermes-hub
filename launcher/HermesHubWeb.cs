@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Diagnostics;
 using System.IO;
 using System.Net;
@@ -336,7 +336,13 @@ namespace HermesHub
                         kill.UseShellExecute = false; kill.CreateNoWindow = true;
                         using (Process process = Process.Start(kill)) { process.WaitForExit(5000); }
                     }
-                    StopOwnedRuntime(home, false);
+                    // Неудачная остановка не повод отменять выход: владелец нажал
+                    // «закрыть», и программа обязана закрыться. Прежде окно с
+                    // ошибкой возвращало его обратно в работающее приложение.
+                    try { StopOwnedRuntime(home, false); }
+                    catch (Exception stopEx) {
+                        MessageBox.Show("Часть процессов остановить не удалось: " + stopEx.Message + " Hermes Hub закроется; при необходимости снимите их в диспетчере задач.", "Hermes Hub", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    }
                     tray.Visible = false; tray.Dispose(); timer.Dispose(); ExitThread();
                 } catch (Exception ex) {
                     closing = false; timer.Start();

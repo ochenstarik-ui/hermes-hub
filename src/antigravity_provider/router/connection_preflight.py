@@ -63,14 +63,35 @@ def validate_connection(provider, token="", base_url="", preferred_model=""):
                 raise ValueError("Каталог NVIDIA пуст: проверить ключ тестовым запросом невозможно")
             if preferred_model and preferred_model not in models:
                 raise ValueError("Выбранной модели нет в каталоге NVIDIA")
-            # NVIDIA also exposes a public catalog. Validate with a real request.
+            # Каталог NVIDIA общий для всех, а доступ к конкретной модели даётся
+            # по аккаунту. Успешный список уже доказывает, что ключ рабочий:
+            # сервер опознал аккаунт и ответил. Пробный запрос — уточнение, а не
+            # условие. Раньше его отказ («Function ... Not found for account»)
+            # объявлялся провалом подключения, хотя ключ был верным.
             chat_models = [model for model in models if any(word in model.lower() for word in ('instruct', 'chat')) and not any(word in model.lower() for word in ('embed', 'guard', 'reward'))]
-            if not preferred_model and not chat_models:
-                raise ValueError("Ключ пока не проверен: в каталоге NVIDIA не найдена чат-модель для теста")
-            result = request("/chat/completions", {"model": preferred_model or chat_models[0],
-                "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1})
-            if not isinstance(result.get("choices"), list) or not result["choices"]:
-                raise ValueError("NVIDIA не вернула результат тестового запроса")
+            probe_target = preferred_model or (chat_models[0] if chat_models else None)
+            if probe_target:
+                try:
+                    result = request("/chat/completions", {"model": probe_target,
+                        "messages": [{"role": "user", "content": "ping"}], "max_tokens": 1})
+                    if not isinstance(result.get("choices"), list) or not result["choices"]:
+                        probe_note = f"модель {probe_target} не вернула результат"
+                    else:
+                        probe_note = ""
+                except Exception as probe_exc:
+                    # 401 и 403 — ключ отвергнут, это отказ подключения.
+                    # 404 и прочее — ключ принят, но модель аккаунту не выдана:
+                    # NVIDIA отвечает «Function ... Not found for account <id>»,
+                    # то есть аккаунт опознан. Валить подключение из-за этого нельзя.
+                    code = getattr(probe_exc, "code", None)
+                    if code in (401, 403):
+                        raise
+                    probe_note = f"модель {probe_target} недоступна вашему аккаунту ({str(probe_exc)[:120]})"
+            else:
+                probe_note = "чат-модель для пробы не найдена"
+            if probe_note:
+                return {"ok": True, "data": {"models": models, "base_url": base_url},
+                        "message": f"Ключ принят, моделей в каталоге: {len(models)}. Проба: {probe_note}. Выберите доступную модель."}
         message = f"Подключено и проверено. Получено моделей: {len(models)}" if models else "Сервер отвечает; моделей пока нет"
         return {"ok": True, "message": message, "data": {"models": models, "base_url": base_url}}
     except Exception as exc:

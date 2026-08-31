@@ -69,6 +69,19 @@ class AccountQuotaService:
         # If not in cache, generate baseline snapshot from profile auth
         return self._generate_baseline_snapshot(provider, profile_id)
 
+    def forget_profile(self, provider: str, profile_id: str) -> None:
+        """Забыть опознание и квоты профиля.
+
+        _identities и _snapshots живут в памяти по ключу «провайдер:слот».
+        При удалении ключа они не чистились, и слот, переиспользованный под
+        другой аккаунт, показывал прежнюю почту: владелец удалил один
+        аккаунт Antigravity, завёл другой и увидел в списке старый адрес.
+        """
+        key = f"{provider}:{profile_id}"
+        with self._cache_lock:
+            self._identities.pop(key, None)
+            self._snapshots.pop(key, None)
+
     def get_identity(self, provider: str, profile_id: str) -> AccountIdentity:
         key = f"{provider}:{profile_id}"
         with self._cache_lock:

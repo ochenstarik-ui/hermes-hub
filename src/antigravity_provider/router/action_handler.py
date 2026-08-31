@@ -142,6 +142,8 @@ def do_delete_credentials(provider: str, profile_id: str, actor: str = "system")
         try:
             auth_p.unlink()
             from .state_store import HubStateStore
+            from antigravity_provider.router.quota_collector import AccountQuotaService
+            AccountQuotaService.get().forget_profile(provider, profile_id)
             HubStateStore.get().apply_delta_account_removed(provider, profile_id)
             EventLogService.get().log(
                 'account',
@@ -835,6 +837,10 @@ class ActionExecutor:
                 # Повторный вызов здесь обращался к auth_data, которой у уже
                 # авторизованного аккаунта не существует: перевод аккаунта в
                 # другую роль падал с ошибкой, хотя ключ вводить не требуется.
+                # Слот мог принадлежать другому аккаунту: старое опознание
+                # обязано уйти вместе с прежними учётными данными.
+                from antigravity_provider.router.quota_collector import AccountQuotaService
+                AccountQuotaService.get().forget_profile(prov_norm, slot)
                 AutoAssigner.assign_profile_to_role(slot, target_role, is_primary=False)
                 if validation:
                     from .model_discovery_service import ModelDiscoveryService
