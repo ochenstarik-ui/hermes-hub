@@ -128,8 +128,23 @@ class CodexAdapter(BaseProviderAdapter):
         err_msg = str(exc)
         err_lower = err_msg.lower()
 
-        # Quota / usage limit
-        if any(k in err_lower for k in ("quota", "insufficient_quota", "usage_limit", "exceeded your current quota")):
+        # 1. Rate limited (429) - must take precedence over generic limit checks
+        if any(k in err_lower for k in ("429", "rate_limit", "rate limit", "tokens per min", "requests per min", "tpm", "rpm", "too many requests")):
+            return ErrorClassification(
+                category=ErrorCategory.RATE_LIMITED,
+                message=err_msg,
+                retry_delay_seconds=60,
+            )
+
+        # 2. Auth errors
+        if any(k in err_lower for k in ("401", "403", "unauthorized", "forbidden", "invalid_api_key", "token_invalidated", "token_revoked", "invalid token")):
+            return ErrorClassification(
+                category=ErrorCategory.AUTH_REQUIRED,
+                message=err_msg,
+            )
+
+        # 3. Real Quota exhausted
+        if any(k in err_lower for k in ("insufficient_quota", "exceeded your current quota", "quota_exceeded", "quota exceeded", "credit balance is too low", "billing", "out of credits", "run out of credits")):
             reset_sec = 1800
             m_sec = re.search(r"(\d+)\s*(?:seconds?|s\b)", err_lower)
             if m_sec:
@@ -140,23 +155,8 @@ class CodexAdapter(BaseProviderAdapter):
                 reset_duration_seconds=reset_sec,
             )
 
-        # Rate limited (429)
-        if "429" in err_lower or "rate limit" in err_lower or "tokens per min" in err_lower:
-            return ErrorClassification(
-                category=ErrorCategory.RATE_LIMITED,
-                message=err_msg,
-                retry_delay_seconds=60,
-            )
-
-        # Auth errors
-        if any(k in err_lower for k in ("401", "unauthorized", "invalid_api_key", "token_invalidated", "token_revoked")):
-            return ErrorClassification(
-                category=ErrorCategory.AUTH_REQUIRED,
-                message=err_msg,
-            )
-
-        # Transient
-        if any(k in err_lower for k in ("timeout", "502", "503", "504", "connection reset")):
+        # 4. Transient network / server errors
+        if any(k in err_lower for k in ("timeout", "500", "502", "503", "504", "connection reset", "connection refused", "transport error")):
             return ErrorClassification(
                 category=ErrorCategory.TRANSIENT,
                 message=err_msg,
