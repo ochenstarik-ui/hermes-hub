@@ -570,6 +570,21 @@ async function executeAction(actionName, actionData = {}) {
 }
 
 // ── GLOBAL HEADER ──
+// Версия между сборками не меняется намеренно, а коммит — строка из
+// шестнадцатеричных цифр. Дата установки отвечает на вопрос «старая сборка
+// загрузилась или новая» сразу и без сверки коммитов.
+function versionTagText(curVer) {
+  const installedAt = currentSettings && currentSettings.installed_at;
+  let stamp = '';
+  if (installedAt) {
+    const d = new Date(installedAt);
+    if (!isNaN(d.getTime())) {
+      stamp = ' · ' + d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+  }
+  return curVer ? `Hermes Hub Web v${curVer}${stamp}` : 'Hermes Hub Web — Н/Д: версия не передана сервером';
+}
+
 function updateGlobalHeader() {
   if (!currentSnapshot) return;
 
@@ -631,7 +646,7 @@ function updateGlobalHeader() {
   const curVer = (currentSnapshot && (currentSnapshot.version || (currentSnapshot.metrics || {}).version)) || (currentSettings && currentSettings.version) || '';
   const versionTag = document.getElementById('version-tag');
   if (versionTag) {
-    versionTag.textContent = curVer ? `Hermes Hub Web v${curVer}` : 'Hermes Hub Web — Н/Д: версия не передана сервером';
+    versionTag.textContent = versionTagText(curVer);
   }
 }
 
@@ -2412,7 +2427,7 @@ function renderUpdateUI() {
   }
   const versionTag = document.getElementById('version-tag');
   if (versionTag) {
-    versionTag.textContent = curVer ? `Hermes Hub Web v${curVer}` : 'Hermes Hub Web — Н/Д: версия не передана сервером';
+    versionTag.textContent = versionTagText(curVer);
   }
 
   if (statusBadge) {

@@ -123,6 +123,14 @@ class ProfileAuthManager:
 
         access_token = token_info.get("access_token") or auth_data.get("access_token") or ""
         refresh_token = token_info.get("refresh_token") or auth_data.get("refresh_token") or ""
+        # Файл без токена доступа бесполезен: agy на нём отвечает «Please sign in
+        # to view available models», а хаб считает аккаунт подключённым. Пустой
+        # вход не должен выдаваться за успешный.
+        if not access_token and not refresh_token:
+            raise ValueError(
+                "Вход не завершён: провайдер не вернул токен доступа. "
+                "Учётные данные agy не записаны."
+            )
         scope = token_info.get("scope") or auth_data.get("scope") or ""
         token_type = token_info.get("token_type") or auth_data.get("token_type") or "Bearer"
         id_token = token_info.get("id_token") or auth_data.get("id_token") or ""
@@ -314,7 +322,16 @@ class ProfileAuthManager:
             try:
                 cls.write_agy_oauth_creds(pdir, auth_data)
             except Exception as e:
-                logger.warning("Failed to write .gemini/oauth_creds.json for profile=%s: %s", profile_id, e)
+                # Прежде сбой оставался только в журнале, и владелец видел
+                # «подключено» при неработающем аккаунте. agy читает именно
+                # этот файл, поэтому без него подключения нет.
+                logger.error(
+                    "Не записаны учётные данные agy для профиля %s: %s", profile_id, e
+                )
+                raise RuntimeError(
+                    f"Учётные данные для agy не записаны ({e}). "
+                    f"Аккаунт {profile_id} подключённым не считается."
+                ) from e
 
         # For Local and OpenAI-compatible providers, synchronize custom_base_url in router_profiles.yaml
         if provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm", "openrouter", "nvidia", "nvidia-nim"):

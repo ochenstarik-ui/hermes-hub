@@ -23,7 +23,7 @@ from antigravity_provider.router.state_store import HubStateStore
 from antigravity_provider.router.action_handler import ActionExecutor
 from antigravity_provider.router.router_config import load_router_config
 
-from antigravity_provider.updater.update_manager import get_installed_commit, UpdateManager
+from antigravity_provider.updater.update_manager import get_installed_commit, get_installed_build_time, UpdateManager
 
 logger = logging.getLogger("hermes.router.web")
 
@@ -410,6 +410,10 @@ def get_settings(authorized: bool = Depends(get_auth_token)):
         "config_dir": system_paths["config_dir"],
         "log_file": system_paths["log_file"],
         "installed_commit": get_installed_commit(),
+        # Версия между сборками не меняется намеренно, а коммит — строка из
+        # шестнадцатеричных цифр, по которой трудно на глаз отличить старую
+        # сборку от новой. Время установки отвечает на этот вопрос сразу.
+        "installed_at": get_installed_build_time(),
         "version": __version__,
         "last_update_check": last_check.to_dict() if last_check else None,
         "network_security": {
