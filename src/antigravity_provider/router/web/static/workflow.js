@@ -7,6 +7,10 @@ const workflowUi = {
   selectedAgentId: null,
   selectedTab: 'main',
   scale: 1,
+  panX: 0,
+  panY: 0,
+  isPanning: false,
+  panStart: { x: 0, y: 0 },
   dirty: false,
   draftEdges: [],
   draftPositions: {},
@@ -31,6 +35,17 @@ function wfUnavailable(elementId, reason) {
   if (detail) detail.textContent = `Н/Д: ${reason}`;
 }
 
+function updateCanvasTransform() {
+  const viewport = document.getElementById('workflow-viewport');
+  if (viewport) {
+    viewport.style.transform = `translate(${workflowUi.panX}px, ${workflowUi.panY}px) scale(${workflowUi.scale})`;
+  }
+  const zoomVal = document.getElementById('workflow-zoom-value');
+  if (zoomVal) {
+    zoomVal.textContent = `${Math.round(workflowUi.scale * 100)}%`;
+  }
+}
+
 function initWorkflowOverview() {
   if (workflowUi.initialized) return;
   workflowUi.initialized = true;
@@ -46,10 +61,28 @@ function initWorkflowOverview() {
   document.getElementById('workflow-zoom-out')?.addEventListener('click', () => setWorkflowScale(workflowUi.scale - 0.1));
   document.getElementById('workflow-fit')?.addEventListener('click', fitWorkflowGraph);
   const canvas = document.getElementById('workflow-canvas');
+  canvas?.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = e.clientX - rect.left;
+    const mouseY = e.clientY - rect.top;
+    const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
+    setWorkflowScale(workflowUi.scale * zoomFactor, mouseX, mouseY);
+  }, { passive: false });
+  canvas?.addEventListener('mousedown', (e) => {
+    if (e.target.closest('.workflow-node') || e.target.closest('.workflow-port') || e.target.closest('.workflow-minimap') || e.target.closest('.workflow-dialog')) return;
+    if (e.button === 0 || e.button === 1) {
+      workflowUi.isPanning = true;
+      workflowUi.panStart = { x: e.clientX - workflowUi.panX, y: e.clientY - workflowUi.panY };
+      canvas.style.cursor = 'grabbing';
+    }
+  });
   canvas?.addEventListener('mousemove', workflowPointerMove);
   canvas?.addEventListener('mouseup', workflowPointerUp);
   canvas?.addEventListener('mouseleave', workflowPointerCancel);
-  window.addEventListener('resize', drawWorkflowEdges);
+  window.addEventListener('resize', () => {
+    drawWorkflowEdges();
+  });
 }
 
 function renderWorkflowOverview(snapshot) {
@@ -103,8 +136,18 @@ function renderWorkflowKpis(snapshot) {
   const readiness = snapshot.readiness || {};
   if (readiness.roles_ready_count === null || readiness.roles_ready_count === undefined || readiness.total_roles === undefined) {
     wfUnavailable('workflow-kpi-online', 'readiness не содержит число готовых ролей');
+    wfUnavailable('workflow-kpi-status', 'readiness не содержит данных');
   } else {
-    setWorkflowKpi('workflow-kpi-online', `${readiness.roles_ready_count} / ${readiness.total_roles}`, 'Источник: readiness');
+    const readyCount = readiness.roles_ready_count;
+    const totalCount = readiness.total_roles;
+    setWorkflowKpi('workflow-kpi-online', `${readyCount} / ${totalCount}`, 'Источник: readiness');
+    if (readyCount === totalCount && totalCount > 0) {
+      setWorkflowKpi('workflow-kpi-status', 'Все сервисы работают', `Отлично (${readyCount}/${totalCount} ролей)`);
+    } else if (readyCount > 0) {
+      setWorkflowKpi('workflow-kpi-status', 'Частично готов', `${readyCount} из ${totalCount} ролей готовы`);
+    } else {
+      setWorkflowKpi('workflow-kpi-status', 'Требует настройки', '0 ролей настроено');
+    }
   }
   if (!global.total_calls) {
     wfUnavailable('workflow-kpi-latency', 'за 24 часа нет измеренных вызовов');
@@ -165,7 +208,7 @@ function renderWorkflowNodes(workflow) {
       <div class="workflow-node-status"><i></i><span>${wfEscape(runtimeStateLabel(agent.runtime_state))}</span></div>
     </article>`;
   }).join('');
-  layer.style.transform = `scale(${workflowUi.scale})`;
+  updateCanvasTransform();
   layer.querySelectorAll('.workflow-node').forEach((node) => {
     node.addEventListener('click', () => selectWorkflowAgent(node.dataset.agentId));
     node.addEventListener('mousedown', beginNodeDrag);
@@ -200,10 +243,17 @@ function beginNodeDrag(event) {
   const node = event.currentTarget;
   const position = workflowUi.draftPositions[node.dataset.agentId] || { x: node.offsetLeft, y: node.offsetTop };
   workflowUi.drag = { id: node.dataset.agentId, startX: event.clientX, startY: event.clientY, original: { ...position }, moved: false };
+  event.stopPropagation();
   event.preventDefault();
 }
 
 function workflowPointerMove(event) {
+  if (workflowUi.isPanning) {
+    workflowUi.panX = event.clientX - workflowUi.panStart.x;
+    workflowUi.panY = event.clientY - workflowUi.panStart.y;
+    updateCanvasTransform();
+    return;
+  }
   if (workflowUi.drag) {
     const drag = workflowUi.drag;
     const dx = (event.clientX - drag.startX) / workflowUi.scale;
@@ -220,6 +270,11 @@ function workflowPointerMove(event) {
 }
 
 function workflowPointerUp(event) {
+  if (workflowUi.isPanning) {
+    workflowUi.isPanning = false;
+    const canvas = document.getElementById('workflow-canvas');
+    if (canvas) canvas.style.cursor = '';
+  }
   if (workflowUi.drag) {
     if (workflowUi.drag.moved) markWorkflowDirty();
     workflowUi.drag = null;
@@ -231,6 +286,11 @@ function workflowPointerUp(event) {
 }
 
 function workflowPointerCancel() {
+  if (workflowUi.isPanning) {
+    workflowUi.isPanning = false;
+    const canvas = document.getElementById('workflow-canvas');
+    if (canvas) canvas.style.cursor = '';
+  }
   if (workflowUi.drag) {
     workflowUi.draftPositions[workflowUi.drag.id] = workflowUi.drag.original;
     workflowUi.drag = null;
@@ -257,21 +317,19 @@ function finishConnection(event) {
 }
 
 function drawWorkflowEdges() {
-  const canvas = document.getElementById('workflow-canvas');
   const svg = document.getElementById('workflow-edges');
   const layer = document.getElementById('workflow-edge-layer');
-  if (!canvas || !svg || !layer) return;
-  svg.setAttribute('viewBox', `0 0 ${canvas.clientWidth} ${canvas.clientHeight}`);
+  if (!svg || !layer) return;
   const parts = [];
   workflowUi.draftEdges.forEach((edge) => {
     const source = document.querySelector(`.workflow-node[data-agent-id="${CSS.escape(edge.source)}"]`);
     const target = document.querySelector(`.workflow-node[data-agent-id="${CSS.escape(edge.target)}"]`);
     if (!source || !target) return;
-    const x1 = (source.offsetLeft + source.offsetWidth) * workflowUi.scale;
-    const y1 = (source.offsetTop + source.offsetHeight / 2) * workflowUi.scale;
-    const x2 = target.offsetLeft * workflowUi.scale;
-    const y2 = (target.offsetTop + target.offsetHeight / 2) * workflowUi.scale;
-    const bend = Math.max(45, Math.abs(x2 - x1) * .42);
+    const x1 = source.offsetLeft + source.offsetWidth;
+    const y1 = source.offsetTop + source.offsetHeight / 2;
+    const x2 = target.offsetLeft;
+    const y2 = target.offsetTop + target.offsetHeight / 2;
+    const bend = Math.max(45, Math.abs(x2 - x1) * 0.42);
     const path = `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
     const klass = String(edge.condition || '').toLowerCase();
     const labelX = (x1 + x2) / 2;
@@ -296,18 +354,58 @@ function renderWorkflowMinimap(agents) {
   }).join('');
 }
 
-function setWorkflowScale(value) {
-  workflowUi.scale = Math.max(.5, Math.min(1.6, Math.round(value * 10) / 10));
-  document.getElementById('workflow-zoom-value').textContent = `${Math.round(workflowUi.scale * 100)}%`;
-  renderWorkflowOverview(currentSnapshot);
+function setWorkflowScale(value, focusX, focusY) {
+  const canvas = document.getElementById('workflow-canvas');
+  if (!canvas) return;
+  const oldScale = workflowUi.scale;
+  const newScale = Math.max(0.3, Math.min(2.5, Math.round(value * 100) / 100));
+  if (focusX === undefined || focusY === undefined) {
+    focusX = canvas.clientWidth / 2;
+    focusY = canvas.clientHeight / 2;
+  }
+  workflowUi.panX = focusX - (focusX - workflowUi.panX) * (newScale / oldScale);
+  workflowUi.panY = focusY - (focusY - workflowUi.panY) * (newScale / oldScale);
+  workflowUi.scale = newScale;
+  updateCanvasTransform();
 }
 
 function fitWorkflowGraph() {
-  const agents = currentSnapshot?.workflow?.agents || [];
-  const maxX = Math.max(...agents.map((agent) => (workflowUi.draftPositions[agent.id]?.x || 0) + 210), 600);
-  const maxY = Math.max(...agents.map((agent) => (workflowUi.draftPositions[agent.id]?.y || 0) + 110), 400);
   const canvas = document.getElementById('workflow-canvas');
-  setWorkflowScale(Math.min(canvas.clientWidth / maxX, canvas.clientHeight / maxY, 1));
+  if (!canvas) return;
+  const agents = currentSnapshot?.workflow?.agents || [];
+  if (!agents.length) {
+    workflowUi.scale = 1;
+    workflowUi.panX = 0;
+    workflowUi.panY = 0;
+    updateCanvasTransform();
+    return;
+  }
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  agents.forEach((agent) => {
+    const pos = workflowUi.draftPositions[agent.id] || agent.position || { x: 80, y: 80 };
+    minX = Math.min(minX, pos.x);
+    maxX = Math.max(maxX, pos.x + 210);
+    minY = Math.min(minY, pos.y);
+    maxY = Math.max(maxY, pos.y + 110);
+  });
+  const width = maxX - minX || 200;
+  const height = maxY - minY || 120;
+  const pad = 60;
+  const cW = canvas.clientWidth || 800;
+  const cH = canvas.clientHeight || 500;
+  const fitScale = Math.max(0.4, Math.min(1.4, Math.min((cW - pad * 2) / width, (cH - pad * 2) / height)));
+
+  const viewport = document.getElementById('workflow-viewport');
+  if (viewport) viewport.style.transition = 'transform 0.25s ease-out';
+
+  workflowUi.scale = fitScale;
+  workflowUi.panX = (cW - width * fitScale) / 2 - minX * fitScale;
+  workflowUi.panY = (cH - height * fitScale) / 2 - minY * fitScale;
+  updateCanvasTransform();
+
+  setTimeout(() => {
+    if (viewport) viewport.style.transition = '';
+  }, 260);
 }
 
 function markWorkflowDirty() {

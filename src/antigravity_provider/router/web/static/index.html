@@ -4,6 +4,9 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Hermes Hub — Панель управления</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="static/workflow.css">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
@@ -111,6 +114,7 @@
             <article class="workflow-kpi"><span>Среднее время ответа</span><strong id="workflow-kpi-latency">Загрузка…</strong><small id="workflow-kpi-latency-reason">Получение телеметрии</small></article>
             <article class="workflow-kpi"><span>Использование токенов</span><strong id="workflow-kpi-tokens">Загрузка…</strong><small id="workflow-kpi-tokens-reason">Получение телеметрии</small></article>
             <article class="workflow-kpi"><span>Успешность задач</span><strong id="workflow-kpi-success">Загрузка…</strong><small id="workflow-kpi-success-reason">Получение телеметрии</small></article>
+            <article class="workflow-kpi"><span>Статус системы</span><strong id="workflow-kpi-status">Загрузка…</strong><small id="workflow-kpi-status-reason">Проверка готовности</small></article>
           </div>
 
           <div class="workflow-main-layout">
@@ -121,8 +125,10 @@
                 <div class="workflow-zoom"><button id="workflow-zoom-out" title="Уменьшить">−</button><span id="workflow-zoom-value">100%</span><button id="workflow-zoom-in" title="Увеличить">+</button><button id="workflow-fit" title="Вписать граф">⛶</button></div>
               </header>
               <div class="workflow-canvas" id="workflow-canvas" tabindex="0" aria-label="Редактор графа workflow">
-                <svg id="workflow-edges" class="workflow-edges" aria-hidden="true"><defs><marker id="wf-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z"></path></marker></defs><g id="workflow-edge-layer"></g></svg>
-                <div id="workflow-node-layer" class="workflow-node-layer"></div>
+                <div id="workflow-viewport" class="workflow-viewport">
+                  <svg id="workflow-edges" class="workflow-edges" aria-hidden="true"><defs><marker id="wf-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z"></path></marker></defs><g id="workflow-edge-layer"></g></svg>
+                  <div id="workflow-node-layer" class="workflow-node-layer"></div>
+                </div>
                 <div id="workflow-empty" class="workflow-empty hidden"><strong>В workflow пока нет агентов</strong><span>Добавьте агента, затем переключитесь в EDIT и соедините узлы.</span></div>
                 <div class="workflow-minimap" id="workflow-minimap" aria-label="Мини-карта"></div>
               </div>

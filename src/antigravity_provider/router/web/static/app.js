@@ -567,7 +567,7 @@ function updateGlobalHeader() {
   if (kpiAccountsSub) kpiAccountsSub.textContent = `Подключено: ${connectedAccounts}`;
   if (kpiReadyRoles) kpiReadyRoles.textContent = `${readyRoles}/${totalRoles}`;
   if (kpiRolesSub) kpiRolesSub.textContent = `${readyRoles} из ${totalRoles} ролей маршрутизации активны`;
-  if (kpiProvidersCount) kpiProvidersCount.textContent = (currentSnapshot.providers || []).length || 5;
+  if (kpiProvidersCount) kpiProvidersCount.textContent = (currentSnapshot.providers || []).length;
 }
 
 // ── VIEW ROUTER ──
@@ -1062,6 +1062,28 @@ function renderRoutingView() {
       const prov = prof.provider || 'unknown';
       const icon = getProviderIcon(prov);
       
+      const quotaSnap = prof.quota_snapshot || (currentSnapshot.quotas || {})[pid] || {};
+      const buckets = quotaSnap.buckets || [];
+      let quotaBarsHtml = '';
+      let resetHtml = '—';
+      if (buckets.length > 0) {
+        quotaBarsHtml = buckets.slice(0, 2).map((b) => {
+          const pct = typeof b.remaining_percent === 'number' ? Math.max(0, Math.min(100, b.remaining_percent)) : 0;
+          const color = pct < 20 ? 'var(--status-error)' : pct < 50 ? 'var(--status-warning)' : 'var(--status-healthy)';
+          return `<div class="cell-bar-track" style="margin-top:2px;" title="${escapeHtml(b.label || 'Квота')}: ${pct}%"><div class="cell-bar-fill" style="width:${pct}%; background:${color};"></div></div>`;
+        }).join('');
+        if (buckets[0].reset_time_formatted) {
+          resetHtml = escapeHtml(buckets[0].reset_time_formatted);
+        } else if (buckets[0].reset_after_formatted) {
+          resetHtml = escapeHtml(buckets[0].reset_after_formatted);
+        }
+      } else {
+        const reason = quotaSnap.unavailable_reason || (prof.enabled === false ? 'Отключён' : 'Провайдер не отдаёт лимиты');
+        quotaBarsHtml = `<div style="font-size:10px; color:var(--text-muted);" title="${escapeHtml(reason)}">Н/Д</div>`;
+      }
+      const healthClass = prof.health_state || (prof.enabled ? 'healthy' : 'disabled');
+      const healthLabel = prof.health_label_ru || (prof.enabled ? 'Активен' : 'Отключён');
+
       rolesHtml += `
         <div class="account-row draggable-item" draggable="true" data-pid="${escapeHtml(pid)}" data-role="${escapeHtml(roleId)}">
           <div class="drag-handle"><i class="fa-solid fa-grip-vertical"></i></div>
@@ -1083,14 +1105,14 @@ function renderRoutingView() {
             ${escapeHtml(prov)}
           </div>
           <div>
-            <div class="cell-bar-track"><div class="cell-bar-fill" style="width:70%; background:var(--status-healthy);"></div></div>
-            <div class="cell-bar-track" style="margin-top:4px;"><div class="cell-bar-fill" style="width:40%; background:var(--status-healthy);"></div></div>
+            ${quotaBarsHtml}
           </div>
           <div style="font-size:10px; color:var(--text-muted);">
-            26 авг.,<br>18:42
+            ${resetHtml}
           </div>
           <div>
-            <span style="color:var(--status-healthy);">● Активен</span>
+            <span class="status-dot ${escapeHtml(healthClass)}"></span>
+            <span style="font-size:11px; margin-left:4px;">${escapeHtml(healthLabel)}</span>
           </div>
           <div style="text-align:center; cursor:pointer; color:var(--status-warning);" onclick="removeProfileFromChain('${escapeHtml(roleId)}', '${escapeHtml(pid)}')">
             <i class="fa-solid fa-xmark"></i>
@@ -1339,6 +1361,276 @@ async function handleAddNodeToChain(roleId) {
       feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml(res.message || 'Ошибка сохранения')}</div>`;
     }
   }
+}
+
+// ── ANALYTICS VIEW ──
+function renderAnalyticsView() {
+  if (!currentSnapshot) return;
+  const metrics = currentSnapshot.metrics || {};
+  const telemetry = metrics.telemetry || {};
+  const global = telemetry.global || {};
+
+  const totalCallsEl = document.getElementById('analytics-total-calls');
+  const callsBreakdownEl = document.getElementById('analytics-calls-breakdown');
+  const errorRateEl = document.getElementById('analytics-error-rate');
+  const errorRateSubEl = document.getElementById('analytics-error-rate-sub');
+  const latencyP50El = document.getElementById('analytics-latency-p50');
+  const latencySubEl = document.getElementById('analytics-latency-sub');
+  const tokensTotalEl = document.getElementById('analytics-tokens-total');
+  const tokensSubEl = document.getElementById('analytics-tokens-sub');
+
+  if (global.total_calls !== undefined) {
+    if (totalCallsEl) totalCallsEl.textContent = new Intl.NumberFormat('ru-RU').format(global.total_calls);
+    if (callsBreakdownEl) callsBreakdownEl.textContent = `Успешно: ${global.successful_calls ?? 0} · Сбоев: ${global.failed_calls ?? 0}`;
+    const errRate = global.total_calls > 0 ? (((global.failed_calls ?? 0) / global.total_calls) * 100).toFixed(1) : '0.0';
+    if (errorRateEl) errorRateEl.textContent = `${errRate}%`;
+    if (errorRateSubEl) errorRateSubEl.textContent = `${global.failed_calls ?? 0} сбоев из ${global.total_calls} вызовов`;
+  } else {
+    if (totalCallsEl) totalCallsEl.textContent = '—';
+    if (callsBreakdownEl) callsBreakdownEl.textContent = 'Нет данных за 24 ч';
+    if (errorRateEl) errorRateEl.textContent = '—';
+    if (errorRateSubEl) errorRateSubEl.textContent = 'Нет зарегистрированных сбоев';
+  }
+
+  if (global.latency_p50_ms !== undefined) {
+    if (latencyP50El) latencyP50El.textContent = `${global.latency_p50_ms} мс`;
+    if (latencySubEl) latencySubEl.textContent = `p95: ${global.latency_p95_ms ?? '—'} мс · max: ${global.latency_max_ms ?? '—'} мс`;
+  } else {
+    if (latencyP50El) latencyP50El.textContent = '—';
+    if (latencySubEl) latencySubEl.textContent = 'Задержка не измерена';
+  }
+
+  if (global.total_tokens !== undefined && global.total_tokens !== null) {
+    if (tokensTotalEl) tokensTotalEl.textContent = new Intl.NumberFormat('ru-RU').format(global.total_tokens);
+    if (tokensSubEl) tokensSubEl.textContent = `Вход: ${new Intl.NumberFormat('ru-RU').format(global.prompt_tokens ?? 0)} · Выход: ${new Intl.NumberFormat('ru-RU').format(global.completion_tokens ?? 0)}`;
+  } else {
+    if (tokensTotalEl) tokensTotalEl.textContent = 'Н/Д';
+    if (tokensSubEl) tokensSubEl.textContent = 'Н/Д: провайдеры не отдают usage';
+  }
+
+  // Providers telemetry table
+  const providersContainer = document.getElementById('analytics-providers-table');
+  const providersData = telemetry.providers || {};
+  if (providersContainer) {
+    const provKeys = Object.keys(providersData);
+    if (provKeys.length === 0) {
+      providersContainer.innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-muted);">Нет накопленной телеметрии по провайдерам</div>';
+    } else {
+      let tableHtml = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Провайдер</th>
+              <th>Всего вызовов</th>
+              <th>Успешных</th>
+              <th>Ошибок</th>
+              <th>p50 задержка</th>
+              <th>Расход токенов</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      provKeys.forEach((pKey) => {
+        const item = providersData[pKey] || {};
+        tableHtml += `
+          <tr>
+            <td><strong>${escapeHtml(pKey)}</strong></td>
+            <td>${item.total_calls ?? 0}</td>
+            <td style="color:var(--status-healthy);">${item.successful_calls ?? 0}</td>
+            <td style="color:${(item.failed_calls ?? 0) > 0 ? 'var(--status-error)' : 'inherit'};">${item.failed_calls ?? 0}</td>
+            <td>${item.latency_p50_ms ? `${item.latency_p50_ms} мс` : '—'}</td>
+            <td>${item.total_tokens ? new Intl.NumberFormat('ru-RU').format(item.total_tokens) : 'Н/Д'}</td>
+          </tr>
+        `;
+      });
+      tableHtml += '</tbody></table>';
+      providersContainer.innerHTML = tableHtml;
+    }
+  }
+
+  // Roles telemetry table
+  const rolesContainer = document.getElementById('analytics-roles-table');
+  const rolesData = telemetry.roles || {};
+  if (rolesContainer) {
+    const roleKeys = Object.keys(rolesData);
+    if (roleKeys.length === 0) {
+      rolesContainer.innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-muted);">Нет накопленной телеметрии по ролям</div>';
+    } else {
+      let tableHtml = `
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Роль</th>
+              <th>Всего вызовов</th>
+              <th>Успешных</th>
+              <th>Ошибок</th>
+              <th>p50 задержка</th>
+            </tr>
+          </thead>
+          <tbody>
+      `;
+      roleKeys.forEach((rKey) => {
+        const item = rolesData[rKey] || {};
+        tableHtml += `
+          <tr>
+            <td><strong>${escapeHtml(rKey)}</strong></td>
+            <td>${item.total_calls ?? 0}</td>
+            <td style="color:var(--status-healthy);">${item.successful_calls ?? 0}</td>
+            <td style="color:${(item.failed_calls ?? 0) > 0 ? 'var(--status-error)' : 'inherit'};">${item.failed_calls ?? 0}</td>
+            <td>${item.latency_p50_ms ? `${item.latency_p50_ms} мс` : '—'}</td>
+          </tr>
+        `;
+      });
+      tableHtml += '</tbody></table>';
+      rolesContainer.innerHTML = tableHtml;
+    }
+  }
+}
+
+// ── HEALTH VIEW ──
+function renderHealthView() {
+  if (!currentSnapshot) return;
+  const readiness = currentSnapshot.readiness || {};
+  const banner = document.getElementById('health-readiness-banner');
+  if (banner) {
+    const stateClass = readiness.state === 'READY' ? 'ready' : (readiness.state === 'DEGRADED' ? 'warning' : 'not-ready');
+    banner.className = `readiness-banner ${stateClass}`;
+    banner.innerHTML = `
+      <div class="readiness-banner-header">
+        <span class="status-dot ${stateClass}"></span>
+        <h3>${escapeHtml(readiness.title_ru || 'Состояние готовности')}</h3>
+      </div>
+      <p class="readiness-banner-desc">${escapeHtml(readiness.summary_ru || 'Проверка состояния маршрутизатора')}</p>
+      <div class="readiness-banner-metrics">
+        <span>Готовых ролей: <strong>${readiness.roles_ready_count ?? 0} из ${readiness.total_roles ?? 13}</strong></span>
+        <span>Подключенных аккаунтов: <strong>${(currentSnapshot.all_profiles ? Object.values(currentSnapshot.all_profiles).filter(isConnectedProfile).length : 0)}</strong></span>
+      </div>
+    `;
+  }
+
+  const resContainer = document.getElementById('health-host-resources');
+  if (resContainer) {
+    const host = currentSnapshot.host_resources || {};
+    resContainer.innerHTML = `
+      <div class="resource-card">
+        <div class="resource-label">CPU</div>
+        <div class="resource-value">${host.cpu_percent !== undefined ? `${host.cpu_percent}%` : 'Н/Д'}</div>
+        <div class="resource-sub">${host.cpu_count ? `${host.cpu_count} ядер` : 'Системный CPU'}</div>
+      </div>
+      <div class="resource-card">
+        <div class="resource-label">Память (RAM)</div>
+        <div class="resource-value">${host.memory_percent !== undefined ? `${host.memory_percent}%` : 'Н/Д'}</div>
+        <div class="resource-sub">${host.memory_used_gb ? `${host.memory_used_gb} ГБ / ${host.memory_total_gb} ГБ` : 'Оперативная память'}</div>
+      </div>
+      <div class="resource-card">
+        <div class="resource-label">Диск</div>
+        <div class="resource-value">${host.disk_percent !== undefined ? `${host.disk_percent}%` : 'Н/Д'}</div>
+        <div class="resource-sub">${host.disk_free_gb ? `Свободно ${host.disk_free_gb} ГБ` : 'Хранилище'}</div>
+      </div>
+      <div class="resource-card">
+        <div class="resource-label">Время работы (Uptime)</div>
+        <div class="resource-value">${host.uptime_formatted || host.uptime || 'В сети'}</div>
+        <div class="resource-sub">Процесс Hermes Hub</div>
+      </div>
+    `;
+  }
+
+  const warningsContainer = document.getElementById('health-warnings-list');
+  if (warningsContainer) {
+    const warnings = readiness.warnings || [];
+    if (warnings.length === 0) {
+      warningsContainer.innerHTML = '<div style="padding:14px; color:var(--status-healthy); font-size:12px;">✓ Критических предупреждений и деградаций не обнаружено</div>';
+    } else {
+      warningsContainer.innerHTML = warnings.map((w) => `
+        <div class="warning-item" style="padding:8px 12px; margin-bottom:6px; border-left:3px solid var(--status-warning); background:var(--surface-muted); font-size:12px;">
+          <strong>⚠ ${escapeHtml(w.title || 'Предупреждение')}</strong>: ${escapeHtml(w.message || w)}
+        </div>
+      `).join('');
+    }
+  }
+}
+
+// ── LOGS VIEW ──
+let cachedLogs = [];
+
+async function fetchLogs() {
+  const container = document.getElementById('logs-container');
+  if (container) {
+    container.innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-muted);">⏳ Загрузка журнала событий...</div>';
+  }
+  try {
+    const res = await fetch('/api/events');
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    cachedLogs = Array.isArray(data) ? data : (data.events || []);
+    renderLogsList(cachedLogs);
+  } catch (err) {
+    if (container) {
+      container.innerHTML = `<div style="padding:16px; color:var(--status-error); text-align:center;">❌ Ошибка загрузки журнала: ${escapeHtml(err.message)}</div>`;
+    }
+  }
+}
+
+function renderLogsView() {
+  fetchLogs();
+}
+
+function renderLogsList(events) {
+  const listToRender = events || cachedLogs;
+  const container = document.getElementById('logs-container');
+  if (!container) return;
+  const searchEl = document.getElementById('logs-search');
+  const levelEl = document.getElementById('logs-filter-level');
+  const catEl = document.getElementById('logs-filter-category');
+
+  const q = searchEl ? searchEl.value.toLowerCase().trim() : '';
+  const levelFilter = levelEl ? levelEl.value : 'all';
+  const catFilter = catEl ? catEl.value : 'all';
+
+  const filtered = listToRender.filter((ev) => {
+    if (levelFilter !== 'all' && (ev.level || '').toLowerCase() !== levelFilter) return false;
+    if (catFilter !== 'all' && (ev.category || '').toLowerCase() !== catFilter) return false;
+    if (q) {
+      const matchText = `${ev.message || ''} ${ev.details || ''} ${ev.category || ''} ${ev.profile_id || ''}`.toLowerCase();
+      if (!matchText.includes(q)) return false;
+    }
+    return true;
+  });
+
+  if (filtered.length === 0) {
+    container.innerHTML = '<div style="padding:24px; text-align:center; color:var(--text-muted); font-size:12px;">События не найдены</div>';
+    return;
+  }
+
+  container.innerHTML = `
+    <table class="data-table">
+      <thead>
+        <tr>
+          <th style="width:140px;">Время</th>
+          <th style="width:90px;">Уровень</th>
+          <th style="width:110px;">Категория</th>
+          <th>Сообщение</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${filtered.map((ev) => {
+          const lvl = (ev.level || 'info').toLowerCase();
+          const lvlClass = lvl === 'error' ? 'error' : (lvl === 'warning' || lvl === 'warn' ? 'warning' : (lvl === 'success' ? 'healthy' : 'info'));
+          return `
+            <tr>
+              <td style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">${escapeHtml(ev.timestamp || '—')}</td>
+              <td><span class="badge ${lvlClass}" style="font-size:10px; text-transform:uppercase;">${escapeHtml(ev.level || 'INFO')}</span></td>
+              <td style="font-size:11px; color:var(--text-secondary);">${escapeHtml(ev.category || 'system')}</td>
+              <td style="font-size:12px;">
+                <div>${escapeHtml(ev.message || '')}</div>
+                ${ev.details ? `<div style="font-size:10px; color:var(--text-muted); font-family:var(--font-mono); margin-top:2px;">${escapeHtml(typeof ev.details === 'object' ? JSON.stringify(ev.details) : ev.details)}</div>` : ''}
+              </td>
+            </tr>
+          `;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
 }
 
 // ── SETTINGS MANAGEMENT ──
