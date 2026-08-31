@@ -393,8 +393,8 @@ function focusWorkflowStart() {
   const node = document.querySelector('.workflow-node.selected') || document.querySelector('.workflow-node');
   if (!canvas || !node) return;
   workflowUi.scale = .85;
-  workflowUi.panX = 80 - node.offsetLeft * workflowUi.scale;
-  workflowUi.panY = 110 - node.offsetTop * workflowUi.scale;
+  workflowUi.panX = canvas.clientWidth / 2 - (node.offsetLeft + node.offsetWidth / 2) * workflowUi.scale;
+  workflowUi.panY = 60 - node.offsetTop * workflowUi.scale;
   updateCanvasTransform();
 }
 
