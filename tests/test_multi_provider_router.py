@@ -51,7 +51,7 @@ class TestRouterConfig:
     def test_default_config_is_clean(self):
         config = get_default_router_config()
         assert len(config.profiles) == 0
-        assert len(config.roles) == 13
+        assert len(config.roles) == 14
         assert config.default_role == "manager"
         assert config.enabled is True
 

@@ -100,6 +100,7 @@ function switchView(viewName) {
     overview: 'Обзор системы',
     accounts: 'Аккаунты и квоты',
     routing: 'Маршрутизация',
+    skills: 'Реестр навыков (Agent Skills · SkillDoctor)',
     analytics: 'Аналитика и телеметрия',
     health: 'Состояние системы',
     logs: 'Журнал событий',
@@ -107,6 +108,10 @@ function switchView(viewName) {
   };
   if (elements.pageTitle) {
     elements.pageTitle.textContent = titles[viewName] || 'Hermes Hub';
+  }
+
+  if (viewName === 'skills') {
+    fetchSkills();
   }
 
   if (currentSnapshot) {
@@ -194,6 +199,36 @@ function initEventListeners() {
   const btnResetConfig = document.getElementById('btn-reset-router-config');
   if (btnResetConfig) {
     btnResetConfig.addEventListener('click', () => openResetConfigModal());
+  }
+
+  // Skills view event listeners
+  const skillsSearch = document.getElementById('skills-search');
+  const filterSkillsSource = document.getElementById('filter-skills-source');
+  const filterSkillsStatus = document.getElementById('filter-skills-status');
+  const btnRefreshSkills = document.getElementById('btn-refresh-skills');
+  const btnDoctorAll = document.getElementById('btn-doctor-all-skills');
+
+  if (skillsSearch) skillsSearch.addEventListener('input', () => renderSkillsView());
+  if (filterSkillsSource) filterSkillsSource.addEventListener('change', () => renderSkillsView());
+  if (filterSkillsStatus) filterSkillsStatus.addEventListener('change', () => renderSkillsView());
+  if (btnRefreshSkills) btnRefreshSkills.addEventListener('click', () => fetchSkills());
+  if (btnDoctorAll) btnDoctorAll.addEventListener('click', () => runDoctorAllSkills());
+
+  // Obsidian Vault event listeners
+  const btnCheckVault = document.getElementById('btn-check-obsidian-vault');
+  if (btnCheckVault) {
+    btnCheckVault.addEventListener('click', () => {
+      const p = document.getElementById('setting-obsidian-vault-path')?.value;
+      checkObsidianVault(p);
+    });
+  }
+
+  const btnSetupMemory = document.getElementById('btn-setup-memory-structure');
+  if (btnSetupMemory) {
+    btnSetupMemory.addEventListener('click', () => {
+      const p = document.getElementById('setting-obsidian-vault-path')?.value;
+      setupMemoryStructure(p);
+    });
   }
 }
 
@@ -584,6 +619,9 @@ function renderCurrentView() {
       break;
     case 'routing':
       renderRoutingView();
+      break;
+    case 'skills':
+      renderSkillsView();
       break;
     case 'analytics':
       renderAnalyticsView();
@@ -1468,6 +1506,11 @@ function renderSettingsView() {
   if (monitorIntervalInput && s.monitoring_interval_seconds !== undefined) {
     monitorIntervalInput.value = s.monitoring_interval_seconds;
   }
+
+  const vaultPathInput = document.getElementById('setting-obsidian-vault-path');
+  if (vaultPathInput) {
+    vaultPathInput.value = s.obsidian_vault_path || '/srv/projects/AI-Memory';
+  }
 }
 
 async function saveHubServerSettings() {
@@ -1475,12 +1518,14 @@ async function saveHubServerSettings() {
   const quotaActionSel = document.getElementById('setting-quota-threshold-action');
   const emailMaskingSel = document.getElementById('setting-email-masking-mode');
   const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
+  const vaultPathInput = document.getElementById('setting-obsidian-vault-path');
 
   const newSettings = {};
   if (quotaThresholdSel?.value) newSettings.quota_threshold_percent = Number(quotaThresholdSel.value);
   if (quotaActionSel?.value) newSettings.quota_threshold_action = quotaActionSel.value;
   if (emailMaskingSel?.value) newSettings.email_masking_mode = emailMaskingSel.value;
   if (monitorIntervalInput?.value) newSettings.monitoring_interval_seconds = Number(monitorIntervalInput.value);
+  if (vaultPathInput?.value) newSettings.obsidian_vault_path = vaultPathInput.value.trim();
   if (!Object.keys(newSettings).length) { showToast('Нет выбранных изменений', 'info'); return; }
 
   showToast('Сохранение настроек сервера...', 'info');
@@ -3310,3 +3355,351 @@ function openExportQuotasModal() {
   `;
   showModal();
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  SKILLS VIEW & SKILL DOCTOR
+// ═══════════════════════════════════════════════════════════════
+let currentSkills = [];
+let skillsUsageData = null;
+
+async function fetchSkills() {
+  try {
+    const headers = {};
+    if (authToken) headers['X-Hub-Token'] = authToken;
+    const [resSkills, resUsage] = await Promise.all([
+      fetch('/api/skills', { headers }).then(r => r.json()).catch(() => ({ skills: [] })),
+      fetch('/api/skills/usage', { headers }).then(r => r.json()).catch(() => null),
+    ]);
+    currentSkills = resSkills.skills || [];
+    skillsUsageData = resUsage;
+
+    const navBadge = document.getElementById('nav-skills-count');
+    if (navBadge) navBadge.textContent = currentSkills.length;
+
+    renderSkillsView();
+  } catch (err) {
+    console.error('Error fetching skills:', err);
+  }
+}
+
+function renderSkillsView() {
+  const container = document.getElementById('skills-cards-container');
+  if (!container) return;
+
+  const searchQuery = (document.getElementById('skills-search')?.value || '').toLowerCase().trim();
+  const filterSource = document.getElementById('filter-skills-source')?.value || 'all';
+  const filterStatus = document.getElementById('filter-skills-status')?.value || 'all';
+
+  const sourceSel = document.getElementById('filter-skills-source');
+  if (sourceSel) {
+    const currentVal = sourceSel.value;
+    const sources = Array.from(new Set(currentSkills.map(s => s.source_dir).filter(Boolean)));
+    sourceSel.innerHTML = '<option value="all">Все источники</option>' + sources.map(src => `<option value="${escapeHtml(src)}">${escapeHtml(src)}</option>`).join('');
+    if (sources.includes(currentVal)) sourceSel.value = currentVal;
+  }
+
+  const usageBadge = document.getElementById('skills-usage-summary-badge');
+  if (usageBadge) {
+    if (skillsUsageData && skillsUsageData.has_usage && skillsUsageData.total_calls > 0) {
+      usageBadge.textContent = `${skillsUsageData.total_calls} вызовов зарегистрировано`;
+      usageBadge.className = 'badge healthy';
+    } else {
+      usageBadge.textContent = 'Н/Д: вызовы со скиллами ещё не регистрировались';
+      usageBadge.className = 'badge';
+    }
+  }
+
+  const filtered = currentSkills.filter(s => {
+    if (searchQuery) {
+      const matchName = s.name.toLowerCase().includes(searchQuery);
+      const matchDesc = (s.description || '').toLowerCase().includes(searchQuery);
+      const matchTags = (s.tags || []).some(t => t.toLowerCase().includes(searchQuery));
+      const matchAgents = (s.assigned_agents || []).some(a => a.toLowerCase().includes(searchQuery));
+      if (!matchName && !matchDesc && !matchTags && !matchAgents) return false;
+    }
+    if (filterSource !== 'all' && s.source_dir !== filterSource) return false;
+    if (filterStatus === 'valid' && !s.is_valid) return false;
+    if (filterStatus === 'invalid' && s.is_valid) return false;
+    if (filterStatus === 'assigned' && (!s.assigned_agents || !s.assigned_agents.length)) return false;
+    if (filterStatus === 'unassigned' && s.assigned_agents && s.assigned_agents.length > 0) return false;
+    return true;
+  });
+
+  const statsSummary = document.getElementById('skills-stats-summary');
+  if (statsSummary) {
+    statsSummary.textContent = `Показано ${filtered.length} из ${currentSkills.length} скиллов`;
+  }
+
+  if (!filtered.length) {
+    container.innerHTML = `
+      <div style="grid-column: 1 / -1; padding: 36px; text-align: center; color: var(--text-muted); background: var(--surface); border: 1px dashed var(--border); border-radius: var(--radius-md);">
+        <h3>Скиллы не найдены</h3>
+        <p style="font-size: 13px; margin-top: 6px;">Проверьте строку поиска, фильтры или добавьте файлы <code>SKILL.md</code> в <code>~/.hermes/skills/</code>, <code>~/.claude/skills/</code> или <code>.agents/skills/</code>.</p>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = filtered.map(s => {
+    const isValid = s.is_valid;
+    const statusBadge = isValid
+      ? '<span class="badge healthy" style="font-size:10px;">🟢 Валиден</span>'
+      : `<span class="badge error" style="font-size:10px;" title="${escapeHtml((s.critical_errors || []).join('; '))}">🔴 Ошибки (${s.critical_errors?.length || 1})</span>`;
+
+    const tagsHtml = (s.tags || []).map(t => `<span class="skill-tag">#${escapeHtml(t)}</span>`).join('');
+
+    const assignedHtml = (s.assigned_agents && s.assigned_agents.length)
+      ? s.assigned_agents.map(a => `
+          <span class="skill-agent-badge">
+            👤 ${escapeHtml(a)}
+            <span class="remove-btn" title="Снять скилл с агента" onclick="unassignSkillFromAgent('${escapeHtml(s.name)}', '${escapeHtml(a)}')">×</span>
+          </span>
+        `).join('')
+      : '<span style="color:var(--text-muted); font-size:11px;">Не назначен ни одному субагенту</span>';
+
+    const callsText = (s.usage_count > 0)
+      ? `Вызовы: ${s.usage_count} (успешно: ${s.success_count})`
+      : 'Н/Д: ещё не вызывался';
+
+    return `
+      <div class="skill-card">
+        <div class="skill-card-header">
+          <div>
+            <div class="skill-card-title">${escapeHtml(s.name)}</div>
+            <div class="skill-card-meta">${escapeHtml(s.path)}</div>
+          </div>
+          ${statusBadge}
+        </div>
+
+        <div class="skill-card-desc">
+          ${escapeHtml(s.description || 'Описание отсутствует')}
+        </div>
+
+        ${tagsHtml ? `<div class="skill-card-tags">${tagsHtml}</div>` : ''}
+
+        <div class="skill-card-assigned">
+          <strong style="font-size:11px; color:var(--text-muted);">Субагенты:</strong>
+          ${assignedHtml}
+        </div>
+
+        <div style="font-size:11px; color:var(--text-muted); display:flex; justify-content:space-between; align-items:center;">
+          <span>${callsText}</span>
+          ${s.last_used_at ? `<span>Последний: ${formatTimeAgo(s.last_used_at)}</span>` : ''}
+        </div>
+
+        <div class="skill-card-actions">
+          <button class="btn btn-secondary btn-sm" onclick="openSkillDoctorModal('${escapeHtml(s.name)}', '${escapeHtml(s.path)}')">
+            🩺 Скилл-доктор
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="openAssignSkillModal('${escapeHtml(s.name)}')">
+            + Назначить субагенту
+          </button>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+async function openSkillDoctorModal(skillName, filepath) {
+  elements.modalTitle.textContent = `🩺 Скилл-доктор: ${skillName}`;
+  elements.modalBody.innerHTML = '<div style="padding:24px; text-align:center; color:var(--text-muted);">Диагностика файла SKILL.md...</div>';
+  elements.modalFooter.innerHTML = '<button class="btn btn-ghost" onclick="closeModal()">Закрыть</button>';
+  showModal();
+
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (authToken) headers['X-Hub-Token'] = authToken;
+    const res = await fetch('/api/skills/diagnose', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ skill_name: skillName, path: filepath }),
+    });
+    const result = await res.json();
+    if (!result.ok || !result.diagnosis) {
+      elements.modalBody.innerHTML = `<div class="modal-feedback error">Ошибка диагностики: ${escapeHtml(result.detail || result.message || 'Неизвестная ошибка')}</div>`;
+      return;
+    }
+
+    const diag = result.diagnosis;
+    const isVal = diag.is_valid;
+    const statusBadge = isVal
+      ? '<span class="badge healthy" style="font-size:12px;">🟢 ВАЛИДЕН</span>'
+      : '<span class="badge error" style="font-size:12px;">🔴 ОБНАРУЖЕНЫ КРИТИЧЕСКИЕ ОШИБКИ</span>';
+
+    const checksHtml = Object.values(diag.checks || {}).map(c => `
+      <div style="display:flex; align-items:flex-start; gap:8px; margin-bottom:6px; font-size:12px;">
+        <span>${c.passed ? '✅' : '❌'}</span>
+        <div>
+          <strong>${escapeHtml(c.name)}</strong>:
+          <span style="color:var(--text-secondary);">${escapeHtml(c.details)}</span>
+        </div>
+      </div>
+    `).join('');
+
+    const errorsHtml = (diag.critical_errors || []).length
+      ? `
+        <div class="modal-feedback error" style="margin-top:12px; margin-bottom:12px;">
+          <strong>Критические ошибки (требуют обязательного исправления):</strong>
+          <ul style="margin:4px 0 0 16px; padding:0;">
+            ${diag.critical_errors.map(e => `<li>${escapeHtml(e)}</li>`).join('')}
+          </ul>
+        </div>
+      `
+      : '';
+
+    const warningsHtml = (diag.warnings || []).length
+      ? `
+        <div class="modal-feedback warning" style="margin-bottom:12px;">
+          <strong>Предупреждения и рекомендации:</strong>
+          <ul style="margin:4px 0 0 16px; padding:0;">
+            ${diag.warnings.map(w => `<li>${escapeHtml(w)}</li>`).join('')}
+          </ul>
+        </div>
+      `
+      : '';
+
+    const posQueries = (diag.test_queries?.positive || []).map(q => `<li><em>«${escapeHtml(q)}»</em></li>`).join('');
+    const negQueries = (diag.test_queries?.negative || []).map(q => `<li><em>«${escapeHtml(q)}»</em></li>`).join('');
+
+    elements.modalBody.innerHTML = `
+      <div class="doctor-report-body">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+          <div>
+            <div style="font-weight:700; font-size:15px; font-family:var(--font-mono);">${escapeHtml(diag.skill_name)}</div>
+            <div style="font-size:11px; color:var(--text-muted);">${escapeHtml(diag.file_path || diag.file_name)}</div>
+          </div>
+          ${statusBadge}
+        </div>
+
+        ${errorsHtml}
+        ${warningsHtml}
+
+        <h3 style="font-size:13px; margin:10px 0 6px;">Результаты чек-листа:</h3>
+        <div style="background:var(--surface-muted); padding:10px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:12px;">
+          ${checksHtml}
+        </div>
+
+        <h3 style="font-size:13px; margin:10px 0 6px;">5 контрольных запросов (тестовые сценарии):</h3>
+        <div style="font-size:12px; margin-bottom:6px; color:var(--status-healthy); font-weight:600;">Позитивные триггеры (скилл ДОЛЖЕН запускаться):</div>
+        <ol style="font-size:12px; margin:0 0 10px 18px; color:var(--text-secondary);">${posQueries}</ol>
+        <div style="font-size:12px; margin-bottom:6px; color:var(--status-error); font-weight:600;">Негативные триггеры (скилл НЕ ДОЛЖЕН запускаться):</div>
+        <ol style="font-size:12px; margin:0 0 12px 18px; color:var(--text-secondary);">${negQueries}</ol>
+
+        <h3 style="font-size:13px; margin:10px 0 6px;">Рекомендованный исправленный однострочный <code>description</code>:</h3>
+        <pre id="fixed-description-block">${escapeHtml(diag.fixed_description)}</pre>
+      </div>
+    `;
+
+    elements.modalFooter.innerHTML = `
+      <button class="btn btn-secondary" id="btn-copy-fixed-desc">📋 Скопировать исправленный description</button>
+      <button class="btn btn-ghost" onclick="closeModal()">Закрыть</button>
+    `;
+
+    document.getElementById('btn-copy-fixed-desc')?.addEventListener('click', () => {
+      if (diag.fixed_description) {
+        navigator.clipboard.writeText(diag.fixed_description);
+        showToast('Исправленный description скопирован в буфер обмена', 'success');
+      }
+    });
+  } catch (err) {
+    elements.modalBody.innerHTML = `<div class="modal-feedback error">Ошибка: ${escapeHtml(err.message)}</div>`;
+  }
+}
+
+async function runDoctorAllSkills() {
+  if (!currentSkills.length) {
+    showToast('Скиллы не найдены', 'warning');
+    return;
+  }
+  showToast(`Запуск диагностики ${currentSkills.length} скиллов...`, 'info');
+  await fetchSkills();
+  showToast('Диагностика всех скиллов завершена', 'success');
+}
+
+function openAssignSkillModal(skillName) {
+  const agents = currentSnapshot?.workflow?.agents || [
+    { id: 'manager', name: 'Оркестратор (Manager)' },
+    { id: 'developer-1', name: 'Кодер 1' },
+    { id: 'developer-2', name: 'Кодер 2' },
+    { id: 'code-reviewer', name: 'Ревьюер кода' },
+    { id: 'tester', name: 'Тестировщик' },
+    { id: 'tech-writer', name: 'Технический писатель' },
+    { id: 'skill-doctor', name: 'Скилл-доктор' },
+  ];
+
+  elements.modalTitle.textContent = `Назначить скилл: ${skillName}`;
+  elements.modalBody.innerHTML = `
+    <div style="font-size:13px; margin-bottom:14px; color:var(--text-secondary);">
+      Выберите субагента, которому будет назначен навык <strong>${escapeHtml(skillName)}</strong>. Навык будет добавлен в конфигурацию инструментов агента в <code>workflow_state.json</code>.
+    </div>
+    <label class="inspector-field" style="margin-bottom:12px;">
+      Субагент:
+      <select id="modal-assign-agent-select" class="select-filter" style="width:100%;">
+        ${agents.map(a => `<option value="${escapeHtml(a.id)}">${escapeHtml(a.name || a.id)} (${escapeHtml(a.id)})</option>`).join('')}
+      </select>
+    </label>
+    <div id="assign-skill-feedback"></div>
+  `;
+
+  elements.modalFooter.innerHTML = `
+    <button class="btn btn-ghost" onclick="closeModal()">Отмена</button>
+    <button class="btn btn-primary" id="btn-modal-confirm-assign">Назначить навык</button>
+  `;
+
+  document.getElementById('btn-modal-confirm-assign')?.addEventListener('click', async () => {
+    const selectedAgent = document.getElementById('modal-assign-agent-select')?.value;
+    if (!selectedAgent) return;
+    const res = await executeAction('assign_skill', { skill_name: skillName, agent_id: selectedAgent });
+    if (res && res.ok) {
+      closeModal();
+      await fetchSkills();
+    }
+  });
+
+  showModal();
+}
+
+async function unassignSkillFromAgent(skillName, agentId) {
+  const res = await executeAction('unassign_skill', { skill_name: skillName, agent_id: agentId });
+  if (res && res.ok) {
+    await fetchSkills();
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+//  OBSIDIAN VAULT & SHARED MEMORY
+// ═══════════════════════════════════════════════════════════════
+async function checkObsidianVault(path) {
+  const badge = document.getElementById('obsidian-vault-status-badge');
+  const details = document.getElementById('obsidian-vault-details');
+  const p = path || document.getElementById('setting-obsidian-vault-path')?.value || '/srv/projects/AI-Memory';
+  if (badge) { badge.textContent = 'Проверка...'; badge.className = 'badge'; }
+  if (details) details.textContent = 'Выполняется проверка хранилища Obsidian...';
+
+  const res = await executeAction('check_obsidian_vault', { obsidian_vault_path: p });
+  if (res && res.ok) {
+    if (badge) { badge.textContent = 'Доступно'; badge.className = 'badge healthy'; }
+    if (details) details.innerHTML = `✓ ${escapeHtml(res.message)} (Заметок: ${res.data?.notes_count || 0})`;
+  } else {
+    if (badge) { badge.textContent = 'Недоступно'; badge.className = 'badge error'; }
+    if (details) details.innerHTML = `⚠️ ${escapeHtml(res.message || 'Ошибка проверки хранилища')}`;
+  }
+}
+
+async function setupMemoryStructure(path) {
+  const details = document.getElementById('obsidian-vault-details');
+  const p = path || document.getElementById('setting-obsidian-vault-path')?.value || '/srv/projects/AI-Memory';
+  if (details) details.textContent = 'Развёртывание структуры памяти...';
+
+  const res = await executeAction('setup_memory', { obsidian_vault_path: p, project_name: 'hermes-hub' });
+  if (res && res.ok) {
+    if (details) {
+      details.innerHTML = `✓ ${escapeHtml(res.message)}<br><small>Создано папок: ${(res.data?.created_dirs || []).join(', ') || 'все существовали'}</small>`;
+    }
+    showToast(res.message || 'Структура памяти развёрнута', 'success');
+  } else {
+    if (details) details.innerHTML = `⚠️ ${escapeHtml(res.message || 'Ошибка развёртывания структуры')}`;
+    showToast(res.message || 'Ошибка развёртывания памяти', 'error');
+  }
+}
+

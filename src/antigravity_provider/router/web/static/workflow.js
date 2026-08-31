@@ -548,10 +548,56 @@ function renderWorkflowInspector(snapshot, workflow) {
     content.innerHTML = `<div class="agent-file-card"><strong>Agent File</strong><code>${wfEscape(agent.agent_file)}</code><span>${agent.agent_file_exists ? 'Файл существует' : 'Н/Д: файл отсутствует'}</span><div class="inspector-actions"><button class="btn btn-secondary btn-sm" id="agent-file-open">Открыть в редакторе</button></div></div>`;
     document.getElementById('agent-file-open').onclick = () => openAgentFileEditor(agent);
   } else if (workflowUi.selectedTab === 'tools') {
-    content.innerHTML = `<label class="inspector-field">Инструменты, через запятую<input id="agent-tools" value="${wfEscape((agent.tools || []).join(', '))}"></label><button class="btn btn-primary btn-sm" id="agent-tools-save">Сохранить</button>`;
-    document.getElementById('agent-tools-save').onclick = () => executeAction('update_agent', { agent_id: agent.id, tools: document.getElementById('agent-tools').value.split(',').map((v) => v.trim()).filter(Boolean) });
+    const assignedSkills = (agent.tools || []).filter(t => t.startsWith('skill:')).map(t => t.replace(/^skill:/, ''));
+    const regularTools = (agent.tools || []).filter(t => !t.startsWith('skill:'));
+    content.innerHTML = `
+      <h3>Назначенные скиллы</h3>
+      <div class="tool-chips" style="margin-bottom:12px;">
+        ${assignedSkills.length ? assignedSkills.map(s => `
+          <span class="skill-agent-badge" style="display:inline-flex; align-items:center; gap:6px; padding:4px 8px; font-size:12px; margin-right:6px; margin-bottom:6px;">
+            <span>🧩 ${wfEscape(s)}</span>
+            <button class="remove-btn" title="Удалить скилл" data-skill="${wfEscape(s)}" style="background:none; border:none; color:var(--text-muted); cursor:pointer; font-size:14px; line-height:1;">×</button>
+          </span>
+        `).join('') : '<p class="inspector-value">Скиллы не назначены. Назначьте во вкладке «Скиллы».</p>'}
+      </div>
+      <label class="inspector-field">Инструменты и функции (через запятую)<input id="agent-tools" value="${wfEscape(regularTools.join(', '))}"></label>
+      <div class="inspector-actions">
+        <button class="btn btn-primary btn-sm" id="agent-tools-save">Сохранить инструменты</button>
+      </div>
+    `;
+    content.querySelectorAll('.remove-btn').forEach(btn => {
+      btn.onclick = async () => {
+        const skillName = btn.dataset.skill;
+        await executeAction('unassign_skill', { skill_name: skillName, agent_id: agent.id });
+      };
+    });
+    document.getElementById('agent-tools-save').onclick = () => {
+      const reg = document.getElementById('agent-tools').value.split(',').map(v => v.trim()).filter(Boolean);
+      const allTools = [...reg, ...assignedSkills.map(s => `skill:${s}`)];
+      executeAction('update_agent', { agent_id: agent.id, tools: allTools });
+    };
   } else if (workflowUi.selectedTab === 'memory') {
-    content.innerHTML = `<div class="inspector-value">${Object.keys(agent.memory_configuration || {}).length ? `<pre>${wfEscape(JSON.stringify(agent.memory_configuration, null, 2))}</pre>` : 'Н/Д: конфигурация памяти не задана'}</div>`;
+    const vaultPath = (typeof currentSettings !== 'undefined' && currentSettings && currentSettings.obsidian_vault_path) || '/srv/projects/AI-Memory';
+    const agentEvents = (workflow.events || []).filter(e => e.agent_id === agent.id);
+    content.innerHTML = `
+      <section class="inspector-section" style="margin-bottom:12px;">
+        <h3>Хранилище Obsidian</h3>
+        <p class="mono-path" style="font-size:11px; margin-bottom:8px;">${wfEscape(vaultPath)}</p>
+        <div style="font-size:12px; line-height:1.6; color:var(--text-secondary);">
+          <div><strong>Чтение:</strong> <code>00_SYSTEM/</code>, <code>01_PROJECTS/hermes-hub/</code>, <code>03_LESSONS/</code>, <code>04_PATTERNS/</code></div>
+          <div><strong>Запись:</strong> <code>01_PROJECTS/hermes-hub/worklog/</code>, <code>worklog/</code></div>
+        </div>
+      </section>
+      <section class="inspector-section">
+        <h3>Последние записи ворклога</h3>
+        ${agentEvents.length ? agentEvents.slice(-5).reverse().map(e => `
+          <div style="font-size:11px; padding:6px 8px; background:var(--surface-muted); border-radius:4px; margin-bottom:6px; border-left:3px solid var(--accent);">
+            <div><strong>${wfEscape(formatWorkflowTime(e.timestamp))}</strong> · ${wfEscape(e.type)}</div>
+            <div style="color:var(--text-secondary); margin-top:2px;">${wfEscape(e.message)}</div>
+          </div>
+        `).join('') : '<p class="inspector-value">Н/Д: нет недавних записей активности</p>'}
+      </section>
+    `;
   } else {
     const history = (workflow.events || []).filter((event) => event.agent_id === agent.id);
     content.innerHTML = history.length ? history.slice(-20).reverse().map((event) => `<div class="workflow-event ${wfEscape(event.level)}"><time>${wfEscape(formatWorkflowTime(event.timestamp))}</time><span>${wfEscape(event.message)}</span><em>${event.duration_seconds == null ? '' : `${event.duration_seconds} с`}</em></div>`).join('') : '<div class="inspector-value">Н/Д: у агента ещё нет запусков</div>';

@@ -1,14 +1,20 @@
 """Hermes Hub — Central Hub Settings Service.
 
-Provides unified reading, saving, and querying of runtime settings from hub_settings.json.
+Provides unified reading, saving, and querying of runtime settings from hub_settings.json,
+along with Obsidian shared memory validation and canonical structure setup.
 """
 from __future__ import annotations
 
 import json
+import logging
+import os
+import tempfile
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List, Optional, Tuple
 
 from antigravity_provider.paths import get_hermes_home
+
+logger = logging.getLogger("hermes.router.settings")
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "session_affinity": True,
@@ -24,8 +30,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "quota_threshold_action": "notify",
     "email_masking_mode": "none",
     "default_role": "manager",
+    "obsidian_vault_path": "/srv/projects/AI-Memory",
 }
-
 
 
 _SETTINGS_CACHE: Dict[str, Any] | None = None
@@ -109,6 +115,9 @@ def get_hub_settings() -> Dict[str, Any]:
     default_role = str(merged.get("default_role", "manager")).strip().lower()
     merged["default_role"] = default_role or "manager"
 
+    vault_path = str(merged.get("obsidian_vault_path", "/srv/projects/AI-Memory")).strip()
+    merged["obsidian_vault_path"] = vault_path
+
     _SETTINGS_CACHE = dict(merged)
     _SETTINGS_CACHE_MTIME = current_mtime
     _SETTINGS_CACHE_PATH = sfile_str
@@ -128,3 +137,134 @@ def save_hub_settings(settings: Dict[str, Any]) -> bool:
         return True
     except Exception:
         return False
+
+
+def validate_obsidian_vault_path(path: Optional[str]) -> Tuple[bool, str, Dict[str, Any]]:
+    """Validate that the given path is an existing, writable Obsidian vault containing .obsidian.
+
+    Returns (is_valid, message, details_dict).
+    """
+    if not path or not str(path).strip():
+        return True, "Хранилище не указано. Хаб работает штатно без памяти.", {
+            "configured": False,
+            "valid": True,
+            "path": None,
+            "notes_count": 0,
+        }
+
+    clean_path = str(path).strip()
+    p = Path(clean_path).expanduser().resolve()
+
+    if not p.exists():
+        return False, f"Каталог '{p}' не существует", {
+            "configured": True,
+            "valid": False,
+            "path": str(p),
+            "error": "directory_not_found",
+        }
+
+    if not p.is_dir():
+        return False, f"Путь '{p}' не является директорией", {
+            "configured": True,
+            "valid": False,
+            "path": str(p),
+            "error": "not_a_directory",
+        }
+
+    # Test write permissions
+    try:
+        test_file = p / f".hermes_write_test_{os.getpid()}"
+        test_file.write_text("test", encoding="utf-8")
+        test_file.unlink(missing_ok=True)
+    except Exception as exc:
+        return False, f"Каталог '{p}' недоступен для записи: {exc}", {
+            "configured": True,
+            "valid": False,
+            "path": str(p),
+            "error": "not_writable",
+        }
+
+    # Check for .obsidian marker directory
+    obsidian_dir = p / ".obsidian"
+    if not obsidian_dir.exists() or not obsidian_dir.is_dir():
+        return False, f"Каталог '{p}' не содержит папку '.obsidian' (не является хранилищем Obsidian)", {
+            "configured": True,
+            "valid": False,
+            "path": str(p),
+            "error": "missing_obsidian_dir",
+        }
+
+    # Count notes
+    try:
+        notes_count = len(list(p.glob("**/*.md")))
+    except Exception:
+        notes_count = 0
+
+    return True, f"Хранилище Obsidian доступно ({notes_count} заметок)", {
+        "configured": True,
+        "valid": True,
+        "path": str(p),
+        "notes_count": notes_count,
+    }
+
+
+def setup_memory_structure(
+    vault_path: Optional[str] = None,
+    project_name: str = "hermes-hub",
+) -> Dict[str, Any]:
+    """Check and deploy canonical Obsidian memory structure without modifying or deleting existing notes.
+
+    Canonical structure:
+    - 00_SYSTEM/
+    - 01_PROJECTS/<project_name>/
+    - 01_PROJECTS/<project_name>/worklog/
+    - 03_LESSONS/
+    - 04_PATTERNS/
+    - 05_AGENTS/
+    - worklog/
+    """
+    target_path = vault_path or get_hub_settings().get("obsidian_vault_path") or "/srv/projects/AI-Memory"
+    is_valid, msg, details = validate_obsidian_vault_path(target_path)
+    if not is_valid:
+        return {
+            "ok": False,
+            "message": f"Не удалось развернуть память: {msg}",
+            "details": details,
+        }
+
+    p = Path(target_path).expanduser().resolve()
+    canonical_dirs = [
+        "00_SYSTEM",
+        f"01_PROJECTS/{project_name}",
+        f"01_PROJECTS/{project_name}/worklog",
+        "03_LESSONS",
+        "04_PATTERNS",
+        "05_AGENTS",
+        "worklog",
+    ]
+
+    created_dirs: List[str] = []
+    existing_dirs: List[str] = []
+
+    for d_rel in canonical_dirs:
+        d_abs = p / d_rel
+        if d_abs.exists():
+            existing_dirs.append(d_rel)
+        else:
+            try:
+                d_abs.mkdir(parents=True, exist_ok=True)
+                created_dirs.append(d_rel)
+            except Exception as exc:
+                logger.error("Failed to create memory directory %s: %s", d_abs, exc)
+
+    # Count total notes
+    notes_count = len(list(p.glob("**/*.md")))
+
+    return {
+        "ok": True,
+        "message": f"Структура памяти Obsidian проверена и развёрнута ({len(created_dirs)} создано, {len(existing_dirs)} существовало, {notes_count} заметок).",
+        "vault_path": str(p),
+        "notes_count": notes_count,
+        "created_dirs": created_dirs,
+        "existing_dirs": existing_dirs,
+    }

@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" width="1200" height="750">
+  <!-- The Common Review — Editorial (NYT Magazine / Pentagram) -->
+  <defs>
+    <style>
+      .surface { fill: #FFFFFF; }
+      .ink { fill: #111111; }
+      .ink-muted { fill: #4A4A4A; }
+      .accent { fill: #C8281C; }
+      .hairline { stroke: #E5E5E5; }
+      .serif { font-family: 'Source Serif 4', 'Source Serif Pro', Charter, Georgia, serif; }
+      .mono { font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect class="surface" width="1200" height="750"/>
+
+  <!-- Masthead -->
+  <line x1="60" y1="56" x2="1140" y2="56" stroke="#111" stroke-width="1"/>
+  <text x="600" y="42" class="mono" font-size="10" letter-spacing="2.5" fill="#4A4A4A" text-anchor="middle">VOL. XIV · WINTER 2026 · £14 / $18</text>
+
+  <text x="600" y="92" class="serif" font-size="32" font-weight="700" letter-spacing="-0.5" fill="#111" text-anchor="middle">The Common Review</text>
+  <text x="600" y="112" class="mono" font-size="9" letter-spacing="2.5" fill="#4A4A4A" text-anchor="middle">A QUARTERLY OF ESSAYS, CRITICISM &amp; LETTERS · EST. 2012</text>
+  <line x1="60" y1="130" x2="1140" y2="130" stroke="#111" stroke-width="1"/>
+
+  <!-- Hero / Cover -->
+  <text x="60" y="170" class="mono" font-size="11" letter-spacing="2" fill="#C8281C">ISSUE 14</text>
+  <text x="60" y="170" class="mono" font-size="11" letter-spacing="2" fill="#4A4A4A" dx="68">· ON REPAIR</text>
+
+  <text x="60" y="280" class="serif" font-size="92" font-weight="700" letter-spacing="-3" fill="#111">On mending</text>
+  <text x="60" y="365" class="serif" font-size="92" font-weight="700" letter-spacing="-3" fill="#111">what was</text>
+  <text x="60" y="450" class="serif" font-size="92" font-weight="400" font-style="italic" letter-spacing="-3" fill="#C8281C">not broken.</text>
+
+  <!-- Cover art on right -->
+  <rect x="780" y="170" width="360" height="380" fill="#111"/>
+  <g fill="none" stroke="#FFFFFF" stroke-width="0.8">
+    <line x1="850" y1="250" x2="1070" y2="250"/>
+    <line x1="850" y1="270" x2="1070" y2="270"/>
+    <line x1="880" y1="270" x2="880" y2="320"/>
+    <line x1="960" y1="270" x2="960" y2="320"/>
+    <line x1="1040" y1="270" x2="1040" y2="320"/>
+    <line x1="850" y1="320" x2="1070" y2="320"/>
+    <line x1="880" y1="345" x2="960" y2="345"/>
+    <line x1="1000" y1="350" x2="1040" y2="350"/>
+    <line x1="880" y1="370" x2="960" y2="370"/>
+    <line x1="820" y1="420" x2="1100" y2="420"/>
+    <line x1="820" y1="440" x2="1100" y2="440"/>
+    <line x1="850" y1="460" x2="1070" y2="460"/>
+  </g>
+  <path d="M 970 320 L 980 360 L 960 400 L 985 430 L 965 460" fill="none" stroke="#C8281C" stroke-width="1.5"/>
+  <text x="960" y="510" class="mono" font-size="9" letter-spacing="2" fill="#FFFFFF" text-anchor="middle">PLATE IV · AFTER RUSKIN · 2026</text>
+
+  <!-- Section marker -->
+  <line x1="60" y1="590" x2="1140" y2="590" class="hairline" stroke-width="1"/>
+  <text x="600" y="615" class="mono" font-size="11" letter-spacing="2.5" fill="#4A4A4A" text-anchor="middle">§ 01 — IN THIS ISSUE</text>
+
+  <text x="60" y="655" class="serif" font-size="11" letter-spacing="2" fill="#4A4A4A" class="mono" font-family="JetBrains Mono, monospace">001</text>
+  <text x="140" y="655" class="serif" font-size="22" font-weight="600" fill="#111">The Last Violin Maker of Cremona</text>
+  <text x="700" y="655" class="serif" font-size="14" font-style="italic" fill="#4A4A4A">by Marta Bellucci</text>
+  <text x="1130" y="655" class="mono" font-size="10" letter-spacing="2" fill="#4A4A4A" text-anchor="end">pp. 6 — 19</text>
+  <line x1="60" y1="680" x2="1140" y2="680" class="hairline" stroke-width="1"/>
+
+  <text x="60" y="705" class="mono" font-size="10" letter-spacing="2" fill="#4A4A4A">002</text>
+  <text x="140" y="705" class="serif" font-size="22" font-weight="600" fill="#111">A Letter from Bangalore, on Servers</text>
+  <text x="700" y="705" class="serif" font-size="14" font-style="italic" fill="#4A4A4A">by Pranav Iyer</text>
+  <text x="1130" y="705" class="mono" font-size="10" letter-spacing="2" fill="#4A4A4A" text-anchor="end">pp. 20 — 33</text>
+  <line x1="60" y1="730" x2="1140" y2="730" class="hairline" stroke-width="1"/>
+
+  <!-- Tag in corner -->
+  <text x="1140" y="745" class="mono" font-size="9" letter-spacing="1.5" fill="#4A4A4A" text-anchor="end">— EX.MAGAZINE — EDITORIAL / NYT MAG STYLE</text>
+</svg>

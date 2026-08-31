@@ -1,0 +1,122 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 750" width="1200" height="750">
+  <!-- Latch — SaaS (Refined Minimal / Linear-style) -->
+  <defs>
+    <style>
+      .surface { fill: #0A0A0B; }
+      .surface-1 { fill: #131316; }
+      .surface-2 { fill: #1C1C20; }
+      .surface-3 { fill: #26262C; }
+      .ink { fill: #F4F4F5; }
+      .ink-muted { fill: #A1A1AA; }
+      .ink-subtle { fill: #71717A; }
+      .accent { fill: #6EE7B7; }
+      .hairline { stroke: #1F1F23; }
+      .hairline-strong { stroke: #2E2E33; }
+      .good { fill: #34D399; }
+      .bad { fill: #F87171; }
+      .warn { fill: #FBBF24; }
+      .info { fill: #60A5FA; }
+      .sans { font-family: 'Inter', -apple-system, sans-serif; }
+      .mono { font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect class="surface" width="1200" height="750"/>
+  <!-- Subtle radial accent -->
+  <ellipse cx="350" cy="0" rx="700" ry="500" fill="#6EE7B7" opacity="0.06"/>
+
+  <!-- Nav -->
+  <line x1="60" y1="68" x2="1140" y2="68" class="hairline" stroke-width="1"/>
+  <g transform="translate(76, 32)">
+    <path d="M0 5 H20 V8 H0 Z M0 12 H15 V15 H0 Z" fill="#6EE7B7"/>
+  </g>
+  <text x="106" y="48" class="sans" font-size="15" font-weight="600" letter-spacing="-0.3" fill="#F4F4F5">Latch</text>
+
+  <text x="780" y="48" class="sans" font-size="13" fill="#A1A1AA">Product</text>
+  <text x="850" y="48" class="sans" font-size="13" fill="#A1A1AA">Pricing</text>
+  <text x="915" y="48" class="sans" font-size="13" fill="#A1A1AA">Docs</text>
+  <text x="965" y="48" class="sans" font-size="13" fill="#A1A1AA">Sign in</text>
+  <rect x="1080" y="32" width="60" height="26" fill="none" stroke="#2E2E33" stroke-width="1" rx="4"/>
+  <text x="1087" y="49" class="sans" font-size="12" fill="#F4F4F5">Start →</text>
+
+  <!-- Hero -->
+  <circle cx="76" cy="135" r="4" fill="#6EE7B7"/>
+  <text x="88" y="138" class="mono" font-size="11" letter-spacing="2" fill="#A1A1AA">V3.2 — NOW WITH LOCAL EVALUATION, 0MS OVERHEAD</text>
+
+  <text x="60" y="240" class="sans" font-size="68" font-weight="600" letter-spacing="-2.5" fill="#F4F4F5">Feature flags</text>
+  <text x="60" y="315" class="sans" font-size="68" font-weight="600" letter-spacing="-2.5" fill="#F4F4F5">that don't</text>
+  <text x="60" y="390" class="sans" font-size="68" font-weight="600" letter-spacing="-2.5" fill="#F4F4F5">get in the way.</text>
+
+  <!-- Right: dashboard panel -->
+  <rect x="700" y="135" width="460" height="380" fill="#131316" stroke="#2E2E33" stroke-width="1" rx="8"/>
+
+  <!-- Panel chrome -->
+  <circle cx="720" cy="158" r="4" fill="#FF5F57"/>
+  <circle cx="734" cy="158" r="4" fill="#FEBC2E"/>
+  <circle cx="748" cy="158" r="4" fill="#28C840"/>
+  <text x="770" y="161" class="mono" font-size="10" fill="#71717A">latch.run / flags / acme-prod</text>
+  <line x1="700" y1="180" x2="1160" y2="180" class="hairline" stroke-width="1"/>
+
+  <!-- Panel head -->
+  <text x="720" y="212" class="sans" font-size="16" font-weight="600" fill="#F4F4F5">Flags</text>
+  <rect x="1060" y="195" width="84" height="22" fill="#1C1C20" stroke="#1F1F23" stroke-width="1" rx="3"/>
+  <text x="1070" y="210" class="mono" font-size="10" fill="#71717A">Dev</text>
+  <text x="1095" y="210" class="mono" font-size="10" fill="#71717A">Stg</text>
+  <text x="1122" y="210" class="mono" font-size="10" fill="#F4F4F5">Prod</text>
+
+  <line x1="700" y1="235" x2="1160" y2="235" class="hairline" stroke-width="1"/>
+
+  <!-- Flag rows -->
+  <g class="flag-row">
+    <text x="720" y="265" class="mono" font-size="12" fill="#F4F4F5">checkout-v3-redesign</text>
+    <text x="720" y="282" class="sans" font-size="11" fill="#A1A1AA">New checkout flow with Apple Pay</text>
+    <rect x="1050" y="252" width="36" height="18" rx="3" fill="#F87171" opacity="0.15"/>
+    <text x="1068" y="265" class="mono" font-size="9" letter-spacing="1.5" fill="#F87171" text-anchor="middle">PROD</text>
+    <rect x="1110" y="254" width="32" height="18" rx="999" fill="#6EE7B7"/>
+    <circle cx="1134" cy="263" r="6" fill="#0A0A0B"/>
+  </g>
+  <line x1="700" y1="295" x2="1160" y2="295" class="hairline" stroke-width="1"/>
+
+  <g class="flag-row">
+    <text x="720" y="320" class="mono" font-size="12" fill="#F4F4F5">ai-summarize-beta</text>
+    <text x="720" y="337" class="sans" font-size="11" fill="#A1A1AA">GPT-4 summary on doc pages</text>
+    <rect x="1050" y="307" width="36" height="18" rx="3" fill="#FBBF24" opacity="0.15"/>
+    <text x="1068" y="320" class="mono" font-size="9" letter-spacing="1.5" fill="#FBBF24" text-anchor="middle">STG</text>
+    <rect x="1110" y="309" width="32" height="18" rx="999" fill="#6EE7B7"/>
+    <circle cx="1134" cy="318" r="6" fill="#0A0A0B"/>
+  </g>
+  <line x1="700" y1="350" x2="1160" y2="350" class="hairline" stroke-width="1"/>
+
+  <g class="flag-row">
+    <text x="720" y="375" class="mono" font-size="12" fill="#F4F4F5">dark-mode-default</text>
+    <text x="720" y="392" class="sans" font-size="11" fill="#A1A1AA">Auto-dark for system pref users</text>
+    <rect x="1050" y="362" width="36" height="18" rx="3" fill="#F87171" opacity="0.15"/>
+    <text x="1068" y="375" class="mono" font-size="9" letter-spacing="1.5" fill="#F87171" text-anchor="middle">PROD</text>
+    <rect x="1110" y="364" width="32" height="18" rx="999" fill="#6EE7B7"/>
+    <circle cx="1134" cy="373" r="6" fill="#0A0A0B"/>
+  </g>
+  <line x1="700" y1="405" x2="1160" y2="405" class="hairline" stroke-width="1"/>
+
+  <g class="flag-row">
+    <text x="720" y="430" class="mono" font-size="12" fill="#F4F4F5">referral-rewards-v2</text>
+    <text x="720" y="447" class="sans" font-size="11" fill="#A1A1AA">New tiered referral program</text>
+    <rect x="1050" y="417" width="36" height="18" rx="3" fill="#F87171" opacity="0.15"/>
+    <text x="1068" y="430" class="mono" font-size="9" letter-spacing="1.5" fill="#F87171" text-anchor="middle">PROD</text>
+    <rect x="1110" y="419" width="32" height="18" rx="999" fill="#26262C"/>
+    <circle cx="1118" cy="428" r="6" fill="#71717A"/>
+  </g>
+  <line x1="700" y1="460" x2="1160" y2="460" class="hairline" stroke-width="1"/>
+
+  <g class="flag-row">
+    <text x="720" y="485" class="mono" font-size="12" fill="#F4F4F5">homepage-experiment-q1</text>
+    <text x="720" y="502" class="sans" font-size="11" fill="#A1A1AA">50/50 split, 14 day window</text>
+    <rect x="1050" y="472" width="36" height="18" rx="3" fill="#F87171" opacity="0.15"/>
+    <text x="1068" y="485" class="mono" font-size="9" letter-spacing="1.5" fill="#F87171" text-anchor="middle">PROD</text>
+    <rect x="1110" y="474" width="32" height="18" rx="999" fill="#6EE7B7"/>
+    <circle cx="1134" cy="483" r="6" fill="#0A0A0B"/>
+  </g>
+
+  <!-- Tag in corner -->
+  <text x="1140" y="745" class="mono" font-size="9" letter-spacing="1.5" fill="#71717A" text-anchor="end">— EX.SAAS — REFINED MINIMAL / DARK / LINEAR-STYLE</text>
+</svg>

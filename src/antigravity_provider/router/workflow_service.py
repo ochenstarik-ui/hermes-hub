@@ -140,6 +140,116 @@ class WorkflowDefinition:
     start_agent_id: Optional[str] = None
 
 
+CANONICAL_NODE_POSITIONS: dict[str, dict[str, float]] = {
+    "manager": {"x": 60.0, "y": 140.0},
+    "dependency-agent": {"x": 320.0, "y": 60.0},
+    "researcher": {"x": 320.0, "y": 220.0},
+    "developer-1": {"x": 580.0, "y": 140.0},
+    "developer-2": {"x": 840.0, "y": 140.0},
+    "code-reviewer": {"x": 1100.0, "y": 140.0},
+    "tester": {"x": 1360.0, "y": 140.0},
+    "tech-writer": {"x": 1620.0, "y": 140.0},
+    "analyst": {"x": 60.0, "y": 360.0},
+    "security-expert": {"x": 320.0, "y": 360.0},
+    "integration-expert": {"x": 580.0, "y": 360.0},
+    "skill-doctor": {"x": 840.0, "y": 360.0},
+    "guardian": {"x": 1100.0, "y": 360.0},
+    "cost-controller": {"x": 1360.0, "y": 360.0},
+}
+
+
+def get_canonical_pipeline() -> WorkflowDefinition:
+    """Return canonical Antigravity workflow pipeline with all 14 roles, forward flow, and 3 feedback loops."""
+    return WorkflowDefinition(
+        id="canonical-pipeline",
+        name="Канонический конвейер (14 ролей)",
+        start_agent_id="manager",
+        max_iterations=5,
+        edges=[
+            WorkflowEdge(
+                id="edge-manager-to-dep",
+                source="manager",
+                target="dependency-agent",
+                condition="SUCCESS",
+                label="Проверка окружения",
+            ),
+            WorkflowEdge(
+                id="edge-dep-to-dev1",
+                source="dependency-agent",
+                target="developer-1",
+                condition="SUCCESS",
+                label="Готов к разработке",
+            ),
+            WorkflowEdge(
+                id="edge-researcher-to-dev1",
+                source="researcher",
+                target="developer-1",
+                condition="SUCCESS",
+                label="Исследование перед кодингом",
+            ),
+            WorkflowEdge(
+                id="edge-dev1-to-dev2",
+                source="developer-1",
+                target="developer-2",
+                condition="SUCCESS",
+                label="Реализация на проверку",
+            ),
+            WorkflowEdge(
+                id="edge-dev2-to-dev1",
+                source="developer-2",
+                target="developer-1",
+                condition="REVIEW_FAILED",
+                label="Доработка Кодеру 1",
+                max_iterations=5,
+            ),
+            WorkflowEdge(
+                id="edge-dev2-to-reviewer",
+                source="developer-2",
+                target="code-reviewer",
+                condition="REVIEW_PASSED",
+                label="Одобрено Кодером 2",
+            ),
+            WorkflowEdge(
+                id="edge-reviewer-to-dev2",
+                source="code-reviewer",
+                target="developer-2",
+                condition="REVIEW_FAILED",
+                label="Переделка Кодеру 2",
+                max_iterations=5,
+            ),
+            WorkflowEdge(
+                id="edge-reviewer-to-tester",
+                source="code-reviewer",
+                target="tester",
+                condition="REVIEW_PASSED",
+                label="Код одобрен",
+            ),
+            WorkflowEdge(
+                id="edge-tester-to-dev1",
+                source="tester",
+                target="developer-1",
+                condition="REVIEW_FAILED",
+                label="Дефекты в коде",
+                max_iterations=5,
+            ),
+            WorkflowEdge(
+                id="edge-tester-to-techwriter",
+                source="tester",
+                target="tech-writer",
+                condition="SUCCESS",
+                label="Тесты пройдены",
+            ),
+            WorkflowEdge(
+                id="edge-techwriter-to-manager",
+                source="tech-writer",
+                target="manager",
+                condition="SUCCESS",
+                label="Приёмка / Документация готова",
+            ),
+        ],
+    )
+
+
 def get_canonical_a36_pipeline() -> WorkflowDefinition:
     """Return canonical Antigravity 4-agent workflow with nested feedback loops."""
     return WorkflowDefinition(
@@ -229,6 +339,7 @@ class WorkflowService:
         self._completed_steps: list[dict[str, Any]] = []
         self._load()
         self._migrate_router_roles()
+        WorkflowService._instance = self
 
     @classmethod
     def get(cls) -> "WorkflowService":
@@ -394,21 +505,31 @@ class WorkflowService:
                 description = getattr(definition, "description_ru", "") or getattr(definition, "description", "")
             except (ImportError, AttributeError, TypeError):
                 pass
+            pos = CANONICAL_NODE_POSITIONS.get(
+                role_id,
+                {"x": 70.0 + (index % 2) * 280.0, "y": 45.0 + (index // 2) * 125.0},
+            )
             agent = AgentDefinition(
                 id=role_id,
                 name=name,
                 role=role_id,
                 description=description,
                 agent_file=relative,
-                position={"x": 70.0 + (index % 2) * 280.0, "y": 45.0 + (index // 2) * 125.0},
+                position=dict(pos),
             )
             self.agents[role_id] = agent
             self._ensure_file(target, agent)
             changed = True
 
         if not self.workflow.edges:
-            a36_roles = {"manager", "developer-1", "developer-2", "code-reviewer"}
-            if a36_roles.issubset(self.agents.keys()):
+            a49_roles = {"manager", "dependency-agent", "developer-1", "developer-2", "code-reviewer", "tester", "tech-writer"}
+            if a49_roles.issubset(self.agents.keys()):
+                self.workflow = get_canonical_pipeline()
+                for r_id, pos in CANONICAL_NODE_POSITIONS.items():
+                    if r_id in self.agents:
+                        self.agents[r_id].position = dict(pos)
+                changed = True
+            elif {"manager", "developer-1", "developer-2", "code-reviewer"}.issubset(self.agents.keys()):
                 self.workflow = get_canonical_a36_pipeline()
                 if "manager" in self.agents:
                     self.agents["manager"].position = {"x": 60.0, "y": 140.0}

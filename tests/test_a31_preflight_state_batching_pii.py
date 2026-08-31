@@ -49,7 +49,7 @@ from antigravity_provider.router.workflow_service import (
 
 def test_dependency_agent_role_registered():
     """Verify 13th role 'dependency-agent' and its canonical aliases in RoleRegistry."""
-    assert len(CANONICAL_ROLES) == 13
+    assert len(CANONICAL_ROLES) == 14
     assert "dependency-agent" in CANONICAL_ROLES
 
     role_def = CANONICAL_ROLES["dependency-agent"]
