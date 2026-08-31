@@ -46,12 +46,32 @@ def _find_agy_exe() -> str:
     if env and Path(env).is_file():
         return env
 
-    # 2. Standard location based on hermes home parent
+    # 2. Стандартные места установки.
+    #
+    # Раньше проверялась только раскладка Windows (%LOCALAPPDATA%/agy/bin), а в
+    # Linux agy ставится в ~/.local/bin. Хаб запускается с урезанным окружением,
+    # где этого каталога в PATH нет, и вход в Antigravity падал с «agy executable
+    # not found» при установленной и работающей утилите.
     from antigravity_provider.paths import get_hermes_home
+
     exe_name = "agy.exe" if os.name == "nt" else "agy"
-    candidate = get_hermes_home().parent / "agy" / "bin" / exe_name
-    if candidate.is_file():
-        return str(candidate)
+    candidates = [
+        get_hermes_home().parent / "agy" / "bin" / exe_name,
+        Path.home() / ".local" / "bin" / exe_name,
+        Path("/usr/local/bin") / exe_name,
+        Path("/usr/bin") / exe_name,
+        Path("/snap/bin") / exe_name,
+    ]
+    checked = []
+    for candidate in candidates:
+        checked.append(str(candidate))
+        try:
+            if candidate.is_file():
+                return str(candidate)
+        except OSError as exc:
+            # Каталог может быть закрыт правами: это «не смогли проверить»,
+            # а не «файла нет».
+            checked[-1] = f"{candidate} (нет доступа: {exc.strerror or exc})"
 
     # 3. PATH
     found = shutil.which("agy") or shutil.which("agy.exe")
@@ -59,8 +79,9 @@ def _find_agy_exe() -> str:
         return found
 
     raise FileNotFoundError(
-        "agy executable not found.  Set the AGY_EXE_PATH environment "
-        "variable, install agy, or ensure it is on PATH."
+        "Утилита agy не найдена. Проверено: "
+        + "; ".join(checked)
+        + "; и PATH процесса. Задайте путь переменной AGY_EXE_PATH либо установите agy."
     )
 
 

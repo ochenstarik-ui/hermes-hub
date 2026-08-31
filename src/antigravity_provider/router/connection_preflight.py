@@ -97,6 +97,41 @@ def validate_connection(provider, token="", base_url="", preferred_model=""):
     except Exception as exc:
         exc_str = str(exc)
         exc_lower = exc_str.lower()
+        # У Ollama Cloud локального сервера нет вовсе: там только ключ. Если
+        # ключ задан, а локальный адрес не отвечает, это не отказ подключения —
+        # аккаунт облачный. Проверяем его по общедоступному каталогу и
+        # принимаем, честно сказав, что локальные модели недоступны.
+        if provider == "ollama" and token and any(
+            k in exc_lower for k in ("connection refused", "winerror 10061", "errno 111", "refused", "failed to connect", "target machine actively refused")
+        ):
+            try:
+                cloud = urllib.request.Request(
+                    "https://ollama.com/api/tags",
+                    headers={"Accept": "application/json", "Authorization": f"Bearer {token}"},
+                )
+                with urllib.request.urlopen(cloud, timeout=15) as response:
+                    payload = json.load(response)
+                cloud_models = sorted({
+                    m.get("name") for m in (payload.get("models") or [])
+                    if isinstance(m, dict) and isinstance(m.get("name"), str)
+                })
+                return {
+                    "ok": True,
+                    "message": (
+                        f"Облачный аккаунт Ollama принят. Моделей в каталоге: {len(cloud_models)}. "
+                        f"Локальный сервер по адресу {base_url} не отвечает — локальные модели недоступны."
+                    ),
+                    "data": {"models": cloud_models, "base_url": base_url, "cloud_only": True},
+                }
+            except Exception as cloud_exc:
+                return {
+                    "ok": False,
+                    "message": (
+                        f"Локальный сервер {base_url} не отвечает, и облачный каталог Ollama недоступен: "
+                        f"{str(cloud_exc)[:160]}"
+                    ),
+                    "data": {"models": []},
+                }
         if provider == "ollama" and any(k in exc_lower for k in ("connection refused", "winerror 10061", "errno 111", "111", "refused", "failed to connect", "target machine actively refused")):
             return {
                 "ok": False,
