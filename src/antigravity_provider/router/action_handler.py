@@ -739,6 +739,16 @@ class ActionExecutor:
                 valid, reason = AutoAssigner.validate_slot(prov_norm, slot)
                 if not valid:
                     return {'ok': False, 'message': reason}
+            # Поддержку провайдера проверяем ДО требования ключа: у чужого
+            # провайдера ключ не поможет, и сообщение «не указан API-ключ»
+            # уводит владельца не туда.
+            _SUPPORTED_DIRECT_ADD = (
+                'openrouter', 'nvidia', 'claude', 'anthropic', 'opencode-go', 'opencode',
+                'openai-codex', 'codex', 'grok', 'xai', 'antigravity', 'google-antigravity',
+                'local', 'local-llm', 'llama.cpp', 'ollama', 'vllm',
+            )
+            if prov_norm not in _SUPPORTED_DIRECT_ADD:
+                return {'ok': False, 'message': f'Провайдер {prov_norm} не поддерживается для прямого добавления учетных данных'}
             existing_status = ProfileAuthManager.get_profile_status(prov_norm, slot) if slot else {}
             if not token and prov_norm not in ('local', 'vllm', 'ollama') and not existing_status.get('authenticated'):
                 return {'ok': False, 'message': 'Не указан API-ключ или не завершена авторизация'}
