@@ -9,6 +9,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
+from antigravity_provider.agy_subprocess import hidden_process_kwargs
 
 
 def _hermes_home() -> Path:
@@ -94,6 +95,7 @@ def load_agy_keychain_credentials(*, runner: Callable[[], str] | None = None) ->
             ["security", "find-generic-password", "-a", "antigravity", "-s", "gemini", "-w"],
             stderr=subprocess.DEVNULL,
             timeout=5,
+            **hidden_process_kwargs(),
         ).decode("utf-8")
 
     try:

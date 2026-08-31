@@ -21,6 +21,7 @@ import sys
 import traceback
 from pathlib import Path
 from typing import Dict, List, Tuple
+from antigravity_provider.agy_subprocess import hidden_process_kwargs
 
 
 def get_startup_log_path() -> Path:
@@ -96,6 +97,7 @@ def self_heal_dependencies(missing_packages: List[str]) -> Tuple[bool, str]:
             capture_output=True,
             text=True,
             timeout=90,
+            **hidden_process_kwargs(),
         )
         if res.returncode == 0:
             log_startup("Self-healing successful. Re-verifying package imports...")

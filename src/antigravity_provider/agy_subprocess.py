@@ -162,6 +162,7 @@ def discover_models(profile_id: str | None = None) -> dict[str, str]:
             errors="replace",
             env=env,
             stdin=subprocess.DEVNULL,
+            **hidden_process_kwargs(),
         )
         raw = result.stdout.strip()
         if not raw or result.returncode != 0:
@@ -618,6 +619,26 @@ BLOCKED_SECRET_PATTERNS: tuple[str, ...] = (
 )
 
 
+def hidden_process_kwargs() -> dict:
+    """Флаги запуска подпроцесса без видимого окна консоли (только Windows).
+
+    Хаб — оконное приложение без консоли, поэтому каждый запуск консольного
+    exe (agy.exe и прочие) открывал отдельное чёрное окно. Пока проверка шла
+    по нажатию, это было незаметно. После A50 проверка аккаунтов запускается
+    сама раз в минуту, и окна стали появляться постоянно, мешая работе.
+
+    Применять ко всем ФОНОВЫМ вызовам. Для входа по OAuth окно нужно
+    видимым — там сознательно используется CREATE_NEW_CONSOLE.
+    """
+    if os.name != "nt":
+        return {}
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0x08000000)
+    startupinfo = subprocess.STARTUPINFO()
+    startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+    startupinfo.wShowWindow = subprocess.SW_HIDE
+    return {"creationflags": flags, "startupinfo": startupinfo}
+
+
 def build_safe_subprocess_env(
     base_env: dict[str, str] | None = None,
     allow_extra_keys: set[str] | list[str] | None = None,
@@ -748,6 +769,7 @@ def agy_generate(
             encoding="utf-8",
             errors="replace",
             env=custom_env if custom_env is not None else build_safe_subprocess_env(),
+            **hidden_process_kwargs(),
         )
     except subprocess.TimeoutExpired:
         return _error_completion(model_raw, "agy subprocess timed out")

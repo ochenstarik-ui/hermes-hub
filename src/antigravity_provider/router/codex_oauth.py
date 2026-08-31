@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 from antigravity_provider.router.profile_manager import ProfileAuthManager, mask_email
+from antigravity_provider.agy_subprocess import hidden_process_kwargs
 
 logger = logging.getLogger("hermes.router.codex_oauth")
 
@@ -380,6 +381,7 @@ def stop_running_codex_processes() -> list[int]:
                 out = subprocess.check_output(
                     ["tasklist", "/FI", f"IMAGENAME eq {proc_name}", "/FO", "CSV", "/NH"],
                     stderr=subprocess.DEVNULL,
+                    **hidden_process_kwargs(),
                     text=True,
                 )
                 for line in out.strip().splitlines():
@@ -389,7 +391,7 @@ def stop_running_codex_processes() -> list[int]:
                             pid_str = parts[1].strip('"')
                             if pid_str.isdigit():
                                 pid = int(pid_str)
-                                subprocess.run(["taskkill", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                subprocess.run(["taskkill", "/F", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, **hidden_process_kwargs())
                                 stopped_pids.append(pid)
             except Exception:
                 pass

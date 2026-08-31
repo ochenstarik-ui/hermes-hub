@@ -28,6 +28,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 from antigravity_provider import paths
 from antigravity_provider.version import __version__, CHANNEL, MINIMUM_HERMES_VERSION
+from antigravity_provider.agy_subprocess import hidden_process_kwargs
 
 logger = logging.getLogger("hermes.hub.updater")
 
@@ -119,6 +120,7 @@ def get_installed_commit() -> str:
                 capture_output=True,
                 text=True,
                 timeout=5,
+                **hidden_process_kwargs(),
             )
             if res.returncode == 0 and res.stdout.strip():
                 return res.stdout.strip()
@@ -778,6 +780,7 @@ class UpdateManager:
                 capture_output=True,
                 text=True,
                 timeout=15,
+                **hidden_process_kwargs(),
             )
             if res.returncode != 0 or "OK" not in res.stdout:
                 raise RuntimeError(f"Post-update verification failed: {res.stderr or res.stdout}")
