@@ -594,6 +594,70 @@
             <div id="obsidian-vault-details" style="font-size:12px; color:var(--text-muted); margin-top:8px; font-family:var(--font-mono);"></div>
           </div>
 
+          <!-- Context Compression Settings (A56) -->
+          <div class="settings-card" style="margin-top:16px;" id="settings-compression-card">
+            <div class="section-card-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <div>
+                <h2 class="settings-group-title" style="margin:0;">Сжатие контекста (Context Compression)</h2>
+                <div class="setting-desc">Автоматическое сжатие длинного контекста с сохранением 100% технических фактов и сущностей</div>
+              </div>
+              <span id="compression-status-badge" class="badge">Н/Д: модель для сжатия не выбрана</span>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Профиль модели для сжатия</div>
+                <div class="setting-desc">Служебная модель-компрессор (например, Qwen3-4B на порту 8082). Не участвует в маршрутизации Hermes.</div>
+              </div>
+              <div class="setting-control">
+                <select id="setting-compressor-profile" class="select-filter">
+                  <option value="none">Н/Д: модель для сжатия не выбрана (отключено)</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Порог заполнения контекста для запуска сжатия</div>
+                <div class="setting-desc">Сжатие начинается при превышении процента от измеренного контекста модели (/props)</div>
+              </div>
+              <div class="setting-control">
+                <select id="setting-compression-threshold-percent" class="select-filter">
+                  <option value="50">50% контекста (агрессивное сжатие)</option>
+                  <option value="60">60% контекста</option>
+                  <option value="70">70% контекста</option>
+                  <option value="75" selected>75% контекста (рекомендуется — около 3/4)</option>
+                  <option value="80">80% контекста</option>
+                  <option value="85">85% контекста</option>
+                  <option value="90">90% контекста (позднее сжатие)</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Количество свежих сообщений (Fresh Window)</div>
+                <div class="setting-desc">Последние сообщения, которые всегда остаются 100% дословными и не подлежат сжатию</div>
+              </div>
+              <div class="setting-control">
+                <select id="setting-compression-keep-recent" class="select-filter">
+                  <option value="2">2 последних сообщения</option>
+                  <option value="3" selected>3 последних сообщения (рекомендуется)</option>
+                  <option value="4">4 последних сообщения</option>
+                  <option value="5">5 последних сообщений</option>
+                </select>
+              </div>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Диагностика и проверка сжатия</div>
+                <div class="setting-desc" id="compression-diagnostic-desc">Проверить отклик компрессора и 100% удержание путей, портов, IP и хэшей</div>
+              </div>
+              <div class="setting-control" style="display:flex; gap:8px;">
+                <button class="btn btn-secondary btn-sm" id="btn-check-compression-status">Статус компрессора</button>
+                <button class="btn btn-primary btn-sm" id="btn-test-compression">Тестовое сжатие (100% фактов)</button>
+              </div>
+            </div>
+            <div id="compression-details-box" style="font-size:12px; color:var(--text-muted); margin-top:8px; font-family:var(--font-mono); white-space:pre-wrap;"></div>
+          </div>
+
           <!-- Hub Updates -->
           <div class="settings-card" style="margin-top:16px;" id="settings-updates-card">
             <h2 class="settings-group-title">Обновление Hermes Hub</h2>

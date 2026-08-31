@@ -144,9 +144,36 @@ class LocalLLMAdapter(BaseProviderAdapter):
 
         messages = list(request.get("messages", []))
 
-        # Context Truncation Guard: safely bound prompt if context_window is known to prevent VRAM overflow
+        # Context Compression & Truncation Guard
         context_window = self.get_context_window(profile, model, query_remote=False)
         if context_window is not None and context_window > 0 and len(messages) > 1:
+            from antigravity_provider.router.settings_service import get_hub_settings
+            from antigravity_provider.router.local_supervisor import LocalSupervisor
+            from antigravity_provider.router.router_config import load_router_config
+
+            hub_settings = get_hub_settings()
+            threshold_pct = float(hub_settings.get("compression_threshold_percent", 75.0))
+            keep_recent = int(hub_settings.get("compression_keep_recent_messages", 3))
+            compressor_pid = hub_settings.get("compressor_profile_id")
+
+            compressor_pconfig = None
+            if compressor_pid:
+                try:
+                    rcfg = load_router_config()
+                    compressor_pconfig = rcfg.get_profile(compressor_pid)
+                except Exception:
+                    pass
+
+            supervisor = LocalSupervisor(base_url=base_url)
+            messages, outcome = supervisor.compress_context_if_needed(
+                messages=messages,
+                target_context_limit=context_window,
+                compressor_profile=compressor_pconfig,
+                threshold_percent=threshold_pct,
+                keep_recent_messages=keep_recent,
+            )
+
+            # Secondary Safety Guard: if still exceeding token budget (e.g. huge single message or compressor disabled/failed)
             max_tok = int(request.get("max_tokens", 0) or 0)
             token_budget = context_window - max_tok - 64
             if token_budget > 100:
@@ -156,7 +183,7 @@ class LocalLLMAdapter(BaseProviderAdapter):
 
                 if _est_tok(messages) > token_budget:
                     logger.warning(
-                        "Context truncation guard active for %s: prompt exceeds context window (%d). Truncating middle messages.",
+                        "Context safety boundary active for %s: prompt exceeds token budget (%d). Truncating middle messages.",
                         profile.profile_id,
                         context_window,
                     )

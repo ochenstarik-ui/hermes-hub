@@ -22,6 +22,15 @@ from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from .context_compressor import (
+    COMPRESSION_MEMORY_FILE,
+    CompressionOutcome,
+    ContextCompressor,
+    FactualEntities,
+    extract_factual_entities,
+    verify_facts_retention,
+)
+
 logger = logging.getLogger(__name__)
 
 SHARED_MEMORY_VAULT = Path("/srv/projects/AI-Memory")
@@ -85,9 +94,11 @@ class LocalSupervisor:
         self,
         base_url: str = "http://127.0.0.1:8081",
         memory_path: Optional[Path] = None,
+        compressor: Optional[ContextCompressor] = None,
     ):
         self.base_url = base_url.rstrip("/")
         self.memory_path = memory_path or LOCAL_MEMORY_FILE
+        self.compressor = compressor or ContextCompressor()
 
     # -------------------------------------------------------------
     # P0-5: Measured limits via /props and /tokenize
@@ -395,3 +406,81 @@ class LocalSupervisor:
         clean = Path(name).stem
         clean = clean.replace(".gguf", "").replace("-Q4_K_M", "").replace("-Instruct", "").strip()
         return clean or "local-model"
+
+    # -------------------------------------------------------------
+    # P0-1, P0-2, P0-3, P0-4, P0-5: Context Compression Integration
+    # -------------------------------------------------------------
+    def compress_context_if_needed(
+        self,
+        messages: List[Dict[str, Any]],
+        target_context_limit: int,
+        compressor_profile: Optional[Any] = None,
+        threshold_percent: float = 75.0,
+        keep_recent_messages: int = 3,
+        timeout_sec: float = 60.0,
+    ) -> Tuple[List[Dict[str, Any]], CompressionOutcome]:
+        """Compress old context via ContextCompressor if measured tokens exceed threshold."""
+        full_text = "\n\n".join(str(m.get("content", "")) for m in messages if isinstance(m, dict))
+        current_token_count = self.count_tokens(full_text).tokens_count
+
+        return self.compressor.compress_messages_if_needed(
+            messages=messages,
+            target_context_limit=target_context_limit,
+            current_token_count=current_token_count,
+            compressor_profile=compressor_profile,
+            threshold_percent=threshold_percent,
+            keep_recent_messages=keep_recent_messages,
+            timeout_sec=timeout_sec,
+        )
+
+    def get_compression_status(self, compressor_profile: Optional[Any] = None) -> Dict[str, Any]:
+        """Return real-time diagnostic status of context compressor."""
+        if not compressor_profile and not os.environ.get("LOCAL_COMPRESSOR_BASE_URL"):
+            return {
+                "configured": False,
+                "status": "unconfigured",
+                "display_status": "Н/Д: модель для сжатия не выбрана",
+                "profile_id": None,
+                "endpoint": None,
+                "model": None,
+                "history_count": len(self.compressor._history_snapshots),
+                "total_saved_tokens": sum(h.saved_tokens for h in self.compressor._history_snapshots if h.status == "SUCCESS"),
+            }
+
+        base_url, model_name, _ = self.compressor.resolve_compressor_endpoint(compressor_profile)
+        # Check health of compressor endpoint
+        is_healthy = False
+        n_ctx = 32768
+        props_url = f"{base_url}/props"
+        if props_url.endswith("/v1/props"):
+            props_url = props_url.replace("/v1/props", "/props")
+
+        try:
+            req = urllib.request.Request(props_url, headers={"User-Agent": "Hermes-CompressorCheck/1.0"})
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                gen_settings = data.get("default_generation_settings", {})
+                n_ctx = int(gen_settings.get("n_ctx") or data.get("n_ctx") or 32768)
+                is_healthy = True
+        except Exception:
+            is_healthy = False
+
+        recent = self.compressor.get_compression_history(limit=5)
+        return {
+            "configured": True,
+            "status": "ready" if is_healthy else "offline",
+            "display_status": (
+                f"🟢 Готов: {model_name} ({base_url}) | Контекст: {n_ctx}"
+                if is_healthy
+                else f"⚠️ Недоступен: {base_url} (сжатие пропускается, задачи не прерываются)"
+            ),
+            "profile_id": getattr(compressor_profile, "profile_id", None) or "local-compressor",
+            "endpoint": base_url,
+            "model": model_name,
+            "n_ctx": n_ctx,
+            "is_healthy": is_healthy,
+            "history_count": len(self.compressor._history_snapshots),
+            "total_saved_tokens": sum(h.saved_tokens for h in self.compressor._history_snapshots if h.status == "SUCCESS"),
+            "recent_compressions": recent,
+        }
+
