@@ -188,3 +188,16 @@ body[data-workflow-mode="edit"] .workflow-toolbar { display:flex; justify-conten
 .workflow-inspector .inspector-section { padding:10px; margin:8px 0; }
 .workflow-inspector .inspector-section p { line-height:1.4; margin:6px 0; }
 .workflow-inspector dl { gap:6px 10px; margin:8px 0; }
+/* Keep the interaction hit area invisible: it must not paint over colored links. */
+.workflow-edges .workflow-edge-hit { stroke:transparent; stroke-width:16; fill:none; marker-end:none; }
+.edge-success { --edge-color:var(--status-healthy); }
+.edge-return { --edge-color:var(--status-error); }
+.edge-next { --edge-color:var(--accent); }
+.workflow-edges .workflow-link { stroke:var(--edge-color); stroke-width:1.6; stroke-linecap:round; stroke-linejoin:round; marker-end:revert-layer; }
+.workflow-edges .workflow-link.edge-success { marker-end:url(#wf-arrow-success); }
+.workflow-edges .workflow-link.edge-return { marker-end:url(#wf-arrow-return); stroke-dasharray:5 5; }
+.workflow-edges .workflow-link.edge-next { marker-end:url(#wf-arrow-next); }
+.workflow-edges marker path { fill:var(--edge-color); stroke:none; marker-end:none; }
+.edge-label-group .workflow-edge-label { fill:var(--edge-color); font-size:10px; }
+.edge-label-group .workflow-label-bg { fill:var(--canvas-bg); stroke:none; }
+.edge-legend.next { color:var(--accent); }

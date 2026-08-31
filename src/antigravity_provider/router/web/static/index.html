@@ -128,7 +128,7 @@
               </header>
               <div class="workflow-canvas" id="workflow-canvas" tabindex="0" aria-label="Редактор графа workflow">
                 <div class="canvas-tools" role="toolbar" aria-label="Инструменты холста"><button id="canvas-select" title="Выбор агента" aria-label="Выбор агента">↖</button><button id="canvas-add" title="Добавить агента" aria-label="Добавить агента на холст">+</button><button id="canvas-connect" title="Соединить агентов в EDIT" aria-label="Создать связь агентов">⇄</button><button id="canvas-fit" title="Вписать граф" aria-label="Вписать весь граф">⛶</button><button id="canvas-arrange" title="Разнести узлы (черновик)" aria-label="Разнести узлы">▦</button></div><div id="workflow-viewport" class="workflow-viewport">
-                  <svg id="workflow-edges" class="workflow-edges" aria-hidden="true"><defs><marker id="wf-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z"></path></marker></defs><g id="workflow-edge-layer"></g></svg>
+                  <svg id="workflow-edges" class="workflow-edges" aria-hidden="true"><defs><marker id="wf-arrow-success" class="edge-success" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1,1 L8,4.5 L1,8 L3,4.5 Z"/></marker><marker id="wf-arrow-return" class="edge-return" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1,1 L8,4.5 L1,8 L3,4.5 Z"/></marker><marker id="wf-arrow-next" class="edge-next" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto" markerUnits="userSpaceOnUse"><path d="M1,1 L8,4.5 L1,8 L3,4.5 Z"/></marker></defs><g id="workflow-edge-layer"></g></svg>
                   <div id="workflow-node-layer" class="workflow-node-layer"></div><svg class="workflow-labels" aria-hidden="true"><g id="workflow-label-layer"></g></svg>
                 </div>
                 <div id="workflow-empty" class="workflow-empty hidden"><strong>В workflow пока нет агентов</strong><span>Добавьте агента, затем переключитесь в EDIT и соедините узлы.</span></div>
@@ -136,7 +136,7 @@
               </div>
               <footer class="workflow-legend">
                 <span><i class="state-waiting"></i>Ожидает</span><span><i class="state-working"></i>Работает</span><span><i class="state-reviewing"></i>Проверяет</span><span><i class="state-error"></i>Ошибка</span><span><i class="state-completed"></i>Завершено</span>
-                <span class="edge-legend success">→ Успех</span><span class="edge-legend return">⇢ Возврат</span>
+                <span class="edge-legend success">→ Успех</span><span class="edge-legend return">⇢ Возврат / ошибка</span><span class="edge-legend next">→ Следующий шаг</span>
               </footer>
             </section>
 

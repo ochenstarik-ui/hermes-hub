@@ -326,33 +326,76 @@ function finishConnection(event) {
   openEdgeDialog({ id: `edge-${Date.now()}`, source, target, condition: 'SUCCESS', label: '' }, true);
 }
 
+function roundedWorkflowPath(points, radius = 18) {
+  let path = `M ${points[0].x} ${points[0].y}`;
+  for (let i = 1; i < points.length - 1; i++) {
+    const prev = points[i-1], corner = points[i], next = points[i+1];
+    const before = Math.hypot(corner.x-prev.x,corner.y-prev.y);
+    const after = Math.hypot(next.x-corner.x,next.y-corner.y);
+    const r = Math.min(radius,before/2,after/2);
+    if (!r) continue;
+    const x = corner.x+(prev.x-corner.x)*r/before, y = corner.y+(prev.y-corner.y)*r/before;
+    const nx = corner.x+(next.x-corner.x)*r/after, ny = corner.y+(next.y-corner.y)*r/after;
+    path += ` L ${x} ${y} Q ${corner.x} ${corner.y} ${nx} ${ny}`;
+  }
+  const end = points.at(-1);
+  return path + ` L ${end.x} ${end.y}`;
+}
+
+function workflowEdgeRoute(source, target, lane = 0) {
+  const sx = source.x+source.width/2, tx = target.x+target.width/2;
+  const sy = source.y+source.height/2, ty = target.y+target.height/2;
+  // Downward branches leave the bottom and enter the top of the next row.
+  if (target.y >= source.y+source.height+32) {
+    const y = (source.y+source.height+target.y)/2;
+    return {points:[{x:sx,y:source.y+source.height+5},{x:sx,y},{x:tx,y},{x:tx,y:target.y-7}],x:(sx+tx)/2,y:y-10,width:Math.max(100,Math.abs(tx-sx)-24)};
+  }
+  // Forward transitions between peers use the open horizontal corridor.
+  if (Math.abs(sy-ty)<40 && target.x >= source.x+source.width+24) {
+    const x1=source.x+source.width+5, x2=target.x-7;
+    return {points:[{x:x1,y:sy},{x:x2,y:ty}],x:(x1+x2)/2,y:Math.min(sy,ty)-16,width:Math.max(50,x2-x1-10)};
+  }
+  // Feedback between peers runs below their row, separate from forward arrows.
+  if (Math.abs(sy-ty)<40) {
+    const y=Math.max(source.y+source.height,target.y+target.height)+38+lane*28;
+    return {points:[{x:sx,y:source.y+source.height+5},{x:sx,y},{x:tx,y},{x:tx,y:target.y+target.height+7}],x:(sx+tx)/2,y:y+14,width:Math.max(90,Math.abs(tx-sx)-30)};
+  }
+  // Upward return travels outside both nodes and enters from the right.
+  const x=Math.max(source.x+source.width,target.x+target.width)+48+lane*24;
+  return {points:[{x:source.x+source.width+5,y:sy},{x,y:sy},{x,y:ty},{x:target.x+target.width+7,y:ty}],x:(x+target.x+target.width)/2,y:ty-14,width:Math.max(80,x-target.x-target.width-24)};
+}
+
+function workflowLabelLines(text, width) {
+  const limit=Math.max(8,Math.floor(width/5.7));
+  const words=String(text).split(/\s+/), lines=[];
+  let line='';
+  for (const word of words) {
+    if (line && (line+' '+word).length>limit) { lines.push(line); line=''; }
+    line+=(line?' ':'')+word;
+  }
+  if(line) lines.push(line);
+  return lines;
+}
+
 function drawWorkflowEdges() {
   const svg = document.getElementById('workflow-edges');
   const layer = document.getElementById('workflow-edge-layer');
   if (!svg || !layer) return;
-  const parts = [];
-  const labels = [];
-  const occupiedLabels = [];
+  const parts = [], labels = [];
+  let feedbackLane=0;
   workflowUi.draftEdges.forEach((edge) => {
     const source = document.querySelector(`.workflow-node[data-agent-id="${CSS.escape(edge.source)}"]`);
     const target = document.querySelector(`.workflow-node[data-agent-id="${CSS.escape(edge.target)}"]`);
     if (!source || !target) return;
-    const x1 = source.offsetLeft + source.offsetWidth;
-    const y1 = source.offsetTop + source.offsetHeight / 2;
-    const x2 = target.offsetLeft;
-    const y2 = target.offsetTop + target.offsetHeight / 2;
-    const klass = String(edge.condition || '').toLowerCase();
-    const label = edge.label || edge.condition;
-    const labelWidth = Math.max(70, String(label).length * 6 + 16);
-    const labelX = (x1 + x2) / 2;
-    let labelY = Math.min(source.offsetTop, target.offsetTop) - 30;
-    const boxes = [...document.querySelectorAll('.workflow-node')].map(node => ({left:node.offsetLeft,top:node.offsetTop,width:node.offsetWidth,height:node.offsetHeight}));
-    const overlaps = box => labelX + labelWidth/2 > box.left - 6 && labelX - labelWidth/2 < box.left + box.width + 6 && labelY + 12 > box.top - 6 && labelY - 12 < box.top + box.height + 6;
-    while ([...boxes,...occupiedLabels].some(overlaps)) labelY -= 30;
-    occupiedLabels.push({left:labelX-labelWidth/2,top:labelY-12,width:labelWidth,height:24});
-    const path = `M ${x1} ${y1} C ${x1+28} ${y1}, ${x1+28} ${labelY}, ${x1} ${labelY} L ${x2} ${labelY} C ${x2-28} ${labelY}, ${x2-28} ${y2}, ${x2} ${y2}`;
-    labels.push(`<g><rect class="workflow-label-bg" x="${labelX-labelWidth/2}" y="${labelY-12}" width="${labelWidth}" height="24" rx="4"></rect><text class="workflow-edge-label" x="${labelX}" y="${labelY+3}">${wfEscape(label)}</text></g>`);
-    parts.push(`<path class="${wfEscape(klass)}" d="${path}"></path><path class="workflow-edge-hit" data-edge-id="${wfEscape(edge.id)}" d="${path}"></path>`);
+    const rect=node=>({x:node.offsetLeft,y:node.offsetTop,width:node.offsetWidth,height:node.offsetHeight});
+    const condition=String(edge.condition || '').toUpperCase();
+    const tone=['REVIEW_FAILED','ERROR'].includes(condition)?'return':['SUCCESS','REVIEW_PASSED'].includes(condition)?'success':'next';
+    const route=workflowEdgeRoute(rect(source),rect(target),tone==='return'?feedbackLane++:0);
+    const path=roundedWorkflowPath(route.points);
+    const lines=workflowLabelLines(edge.label || condition,Math.min(220,route.width));
+    const width=Math.max(...lines.map(line=>line.length))*5.7+12, height=lines.length*13+6;
+    labels.push(`<g class="edge-label-group edge-${tone}"><title>${wfEscape(edge.label || condition)} · ${wfEscape(condition)}</title><rect class="workflow-label-bg" x="${route.x-width/2}" y="${route.y-height/2}" width="${width}" height="${height}" rx="4"/><text class="workflow-edge-label" x="${route.x}" y="${route.y-(lines.length-1)*6.5+3}">${lines.map((line,i)=>`<tspan x="${route.x}" dy="${i?13:0}">${wfEscape(line)}</tspan>`).join('')}</text></g>`);
+    parts.push(`<path class="workflow-link edge-${tone}" d="${path}" marker-end="url(#wf-arrow-${tone})"></path><path class="workflow-edge-hit" data-edge-id="${wfEscape(edge.id)}" d="${path}"></path>`);
   });
   layer.innerHTML = parts.join('');
   document.getElementById('workflow-label-layer').innerHTML = labels.join('');
@@ -423,6 +466,11 @@ function fitWorkflowGraph() {
     minX = Math.min(minX, x); minY = Math.min(minY, y);
     maxX = Math.max(maxX, x + Number(label.getAttribute('width')));
     maxY = Math.max(maxY, y + Number(label.getAttribute('height')));
+  });
+  document.querySelectorAll('.workflow-link').forEach(path => {
+    const box = path.getBBox();
+    minX = Math.min(minX, box.x); minY = Math.min(minY, box.y);
+    maxX = Math.max(maxX, box.x+box.width); maxY = Math.max(maxY, box.y+box.height);
   });
   const width = maxX - minX || 200;
   const height = maxY - minY || 120;
