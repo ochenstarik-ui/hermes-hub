@@ -43,6 +43,45 @@ ALLOWED_UPDATE_HOSTS = {
 }
 
 
+def get_installed_build_time() -> str:
+    """Время установки текущей сборки из deployment_manifest.json (поле deployed_at).
+
+    Нужно, чтобы отличать более новый релиз от более старого. Сравнение
+    коммитов на равенство этого не умеет: любое расхождение оно объявляет
+    обновлением, включая коммит-предок. Владелец нажимал «Обновить» и
+    получал откат программы назад.
+    """
+    for mf in (
+        paths.get_repo_root() / "deployment_manifest.json",
+        paths.get_hermes_home() / "plugins" / "antigravity-provider" / "deployment_manifest.json",
+    ):
+        try:
+            if mf.is_file():
+                data = json.loads(mf.read_text(encoding="utf-8-sig"))
+                val = str(data.get("deployed_at") or "").strip()
+                if val:
+                    return val
+        except Exception as exc:
+            logger.debug("Не удалось прочитать %s: %s", mf, exc)
+    return ""
+
+
+def _is_release_older(published_at: str, installed_at: str) -> bool:
+    """True, если релиз опубликован раньше, чем установлена текущая сборка."""
+    if not published_at or not installed_at:
+        return False
+    try:
+        from datetime import datetime
+
+        def _parse(v: str):
+            return datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
+
+        return _parse(published_at) < _parse(installed_at)
+    except Exception as exc:
+        logger.debug("Не удалось сравнить даты %r и %r: %s", published_at, installed_at, exc)
+        return False
+
+
 def get_installed_commit() -> str:
     """Return currently installed git commit hash, checking deployment manifest, env, and git."""
     # 1. Environment variable override
@@ -389,6 +428,14 @@ class UpdateManager:
                 if inst_clean == lat_clean or inst_clean.startswith(lat_clean) or lat_clean.startswith(inst_clean):
                     update_available = False
                     message = "Установлена последняя сборка"
+                elif _is_release_older(published_at, get_installed_build_time()):
+                    # Коммиты разные, но релиз старше установленной сборки —
+                    # это откат назад, а не обновление.
+                    update_available = False
+                    message = (
+                        f"Установлена сборка новее опубликованного релиза "
+                        f"({lat_clean[:7]} от {published_at[:10]})"
+                    )
                 else:
                     update_available = True
                     message = f"Доступно обновление (сборка {lat_clean[:7]})"
