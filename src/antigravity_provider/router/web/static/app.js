@@ -880,7 +880,21 @@ function renderAccountCheck(profile) {
     <details ${models.length <= 16 ? 'open' : ''}><summary>Каталог моделей (${models.length})</summary><div class="account-models">${models.map(modelBrandLabel).join('')}</div></details>
     ${profile.provider === 'ollama' ? `<p>Выше — модели указанного сервера Ollama.</p><p>Облачный каталог Ollama: ${meta.cloud?.error ? 'Н/Д — ' + escapeHtml(meta.cloud.error) : meta.cloud?.models ? escapeHtml(meta.cloud.models.join(', ')) : 'Н/Д — ещё не получен'}</p><p>Доступ аккаунта к облачным моделям: Н/Д до успешного вызова. Для прямого вызова нужен API-ключ Ollama; для локального клиента — вход через ollama signin.</p>` : ''}
     <button class="btn btn-ghost btn-sm" ${checking ? 'disabled' : ''} onclick="event.stopPropagation(); handleAccountProbe('${escapeHtml(profile.profile_id)}')">${checking ? 'Проверяется…' : 'Проверить подключение'}</button>
+    ${['nvidia', 'nvidia-nim', 'openrouter'].includes(String(profile.provider || '').toLowerCase())
+      ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); handleProbeAccountModels('${escapeHtml(profile.profile_id)}', '${escapeHtml(profile.provider)}')" title="Каталог провайдера общий для всех и о правах аккаунта не сообщает. Доступность выясняется опросом моделей и расходует вызовы.">Определить доступные модели</button>`
+      : ''}
   </div>`;
+}
+
+// Каталог NVIDIA и OpenRouter публичный: он одинаков у всех и о правах
+// аккаунта ничего не говорит. Доступность выясняется опросом моделей, а он
+// тратит вызовы — поэтому только по явному нажатию, и результат сохраняется.
+async function handleProbeAccountModels(profileId, provider) {
+  if (!confirm('Хаб опросит каталог провайдера, чтобы выяснить, какие модели доступны этому аккаунту. Каталог общий для всех и о правах не сообщает, поэтому каждая модель проверяется отдельным запросом. Недоступная отвечает отказом и ничего не стоит, доступная расходует один токен. Продолжить?')) return;
+  showToast('Опрос моделей начат. Это может занять около минуты.', 'info');
+  const res = await executeAction('probe_account_models', { profile_id: profileId, provider: provider });
+  showToast(res?.message || 'Нет ответа от сервера', res?.ok ? 'success' : 'error');
+  await fetchSnapshot();
 }
 
 async function handleAccountProbe(profileId) {
