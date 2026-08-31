@@ -1,0 +1,1829 @@
+[
+  {
+    "model_id": "/srv/ai/models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf",
+    "display_name": "Qwen3.8-27B (Reasoning OFF)",
+    "meta": {
+      "exists": true,
+      "file_path": "/srv/ai/models/qwen3.8-27b/Qwen3.8-27B-Q4_K_M.gguf",
+      "file_size_bytes": 18973870432,
+      "file_size_gib": 17.67,
+      "sha256_64mb": "b3c52bbad3b02e28f4ae76d3bdb240128958af6cdde66a920e12cebd07b19ca5",
+      "general_name": "Qwen3.8-27B",
+      "general_arch": "qwen35"
+    },
+    "status": "COMPLETED",
+    "passed_tasks": 10,
+    "total_tasks": 12,
+    "pass_rate_pct": 83.3,
+    "gen_tokens_per_sec": 30.31,
+    "prompt_tokens_per_sec": 217.1,
+    "cold_load_sec": 0.89,
+    "vram_active_mib": 24696,
+    "raw_timings_sample": {
+      "cache_n": 27,
+      "prompt_n": 163,
+      "prompt_ms": 765.23,
+      "prompt_per_token_ms": 4.694662576687117,
+      "prompt_per_second": 213.00785384786272,
+      "predicted_n": 330,
+      "predicted_ms": 10814.64,
+      "predicted_per_token_ms": 32.8712462006079,
+      "predicted_per_second": 30.421724625137777
+    },
+    "tasks": [
+      {
+        "task_id": "T01_extract_model_family",
+        "title": "Extract Model Family",
+        "passed": true,
+        "message": "All 8 model families correctly extracted",
+        "elapsed": 11.59,
+        "tokens": 330,
+        "timings": {
+          "cache_n": 27,
+          "prompt_n": 163,
+          "prompt_ms": 765.23,
+          "prompt_per_token_ms": 4.694662576687117,
+          "prompt_per_second": 213.00785384786272,
+          "predicted_n": 330,
+          "predicted_ms": 10814.64,
+          "predicted_per_token_ms": 32.8712462006079,
+          "predicted_per_second": 30.421724625137777
+        }
+      },
+      {
+        "task_id": "T02_verify_auth_token",
+        "title": "Constant-Time Byte Token Comparison",
+        "passed": true,
+        "message": "Constant-time byte comparison passed all cases",
+        "elapsed": 4.53,
+        "tokens": 98,
+        "timings": {
+          "cache_n": 27,
+          "prompt_n": 96,
+          "prompt_ms": 665.821,
+          "prompt_per_token_ms": 6.935635416666667,
+          "prompt_per_second": 144.18289600358054,
+          "predicted_n": 98,
+          "predicted_ms": 3188.074,
+          "predicted_per_token_ms": 32.866742268041236,
+          "predicted_per_second": 30.42589350184469
+        }
+      },
+      {
+        "task_id": "T03_scrub_secrets",
+        "title": "Recursive Secret & PII Scrubbing",
+        "passed": true,
+        "message": "Secret scrubbing passed recursive and string checks",
+        "elapsed": 15.47,
+        "tokens": 437,
+        "timings": {
+          "cache_n": 27,
+          "prompt_n": 115,
+          "prompt_ms": 668.593,
+          "prompt_per_token_ms": 5.813852173913043,
+          "prompt_per_second": 172.00299733918843,
+          "predicted_n": 437,
+          "predicted_ms": 14307.865,
+          "predicted_per_token_ms": 32.81620412844037,
+          "predicted_per_second": 30.472750476748278
+        }
+      },
+      {
+        "task_id": "T04_cycle_tracker",
+        "title": "DAG Loop & Cycle Iteration Tracker",
+        "passed": true,
+        "message": "CycleTracker correctly enforced edge iteration limits",
+        "elapsed": 3.88,
+        "tokens": 81,
+        "timings": {
+          "cache_n": 27,
+          "prompt_n": 78,
+          "prompt_ms": 688.823,
+          "prompt_per_token_ms": 8.831064102564103,
+          "prompt_per_second": 113.23663698802159,
+          "predicted_n": 81,
+          "predicted_ms": 2631.763,
+          "predicted_per_token_ms": 32.897037499999996,
+          "predicted_per_second": 30.397873972694352
+        }
+      },
+      {
+        "task_id": "T05_validate_file_path",
+        "title": "Safe File Path Boundary Validation",
+        "passed": true,
+        "message": "Path boundary validation passed all containment and forbidden checks",
+        "elapsed": 18.02,
+        "tokens": 514,
+        "timings": {
+          "cache_n": 27,
+          "prompt_n": 129,
+          "prompt_ms": 670.762,
+          "prompt_per_token_ms": 5.199705426356589,
+          "prompt_per_second": 192.3185869205471,
+          "predicted_n": 514,
+          "predicted_ms": 16830.679,
+          "predicted_per_token_ms": 32.80834113060429,
+          "predicted_per_second": 30.48005371619291
+        }
+      },
+      {
+        "task_id": "T06_is_destructive_command",
+        "title": "Shell Command Classifier",
+        "passed": false,
+        "message": "Failed on 'rm -rf': got is_dest=True, cmd=rm, targets=[]",
+        "elapsed": 13.51,
+        "tokens": 375,
+        "timings": {
+          "cache_n": 27,
+          "prompt_n": 126,
+          "prompt_ms": 680.55,
+          "prompt_per_token_ms": 5.401190476190476,
+          "prompt_per_second": 185.14436852545737,
+          "predicted_n": 375,
+          "predicted_ms": 12313.97,
+          "predicted_per_token_ms": 32.925053475935826,
+          "predicted_per_second": 30.372008377476966
+        }
+      },
+      {
+        "task_id": "T07_is_outbound_allowed",
+        "title": "Outbound Destination Network Whitelist",
+        "passed": true,
+        "message": "Network whitelist passed",
+        "elapsed": 12.07,
+        "tokens": 333,
+        "timings": {
+          "cache_n": 27,
+          "prompt_n": 99,
+          "prompt_ms": 659.256,
+          "prompt_per_token_ms": 6.659151515151515,
+          "prompt_per_second": 150.1692817357749,
+          "predicted_n": 333,
+          "predicted_ms": 10901.94,
+          "predicted_per_token_ms": 32.837168674698795,
+          "predicted_per_second": 30.45329546851294
+        }
+      },
+      {
+        "task_id": "T08_sanitize_hermes_response",
+        "title": "Router Safety Fuse Response Sanitizer",
+        "passed": false,
+        "error": "SyntaxError: expected an indented block after 'else' statement on line 22 (<unknown>, line 28)",
+        "elapsed": 9.15,
+        "tokens": 242,
+        "timings": {
+          "cache_n": 27,
+          "prompt_n": 93,
+          "prompt_ms": 672.478,
+          "prompt_per_token_ms": 7.23094623655914,
+          "prompt_per_second": 138.29448695719415,
+          "predicted_n": 242,
+          "predicted_ms": 7879.685,
+          "predicted_per_token_ms": 32.69578838174274,
+          "predicted_per_second": 30.584978968067883
+        },
+        "code_snippet": "```python\ndef sanitize_hermes_response(completion: dict, fallback_message: str) -> dict:\n    \"\"\"\n    Sanitize a Hermes completion response to ensure raw router errors\n    never become assistant conten"
+      },
+      {
+        "task_id": "T09_resolve_role",
+        "title": "4-Level Dynamic Role Resolver",
+        "passed": true,
+        "message": "4-level role resolution passed in strict hierarchy",
+        "elapsed": 8.85,
+        "tokens": 236,
+        "timings": {
+          "cache_n": 27,
+          "prompt_n": 181,
+          "prompt_ms": 690.342,
+          "prompt_per_token_ms": 3.8140441988950275,
+          "prompt_per_second": 262.18888608834465,
+          "predicted_n": 236,
+          "predicted_ms": 7682.41,
+          "predicted_per_token_ms": 32.691106382978724,
+          "predicted_per_second": 30.589359328648168
+        }
+      },
+      {
+        "task_id": "T10_build_safe_env",
+        "title": "Isolated Subprocess Environment Constructor",
+        "passed": true,
+        "message": "Safe environment constructor passed",
+        "elapsed": 5.51,
+        "tokens": 132,
+        "timings": {
+          "cache_n": 27,
+          "prompt_n": 94,
+          "prompt_ms": 679.266,
+          "prompt_per_token_ms": 7.226234042553191,
+          "prompt_per_second": 138.38466815651012,
+          "predicted_n": 132,
+          "predicted_ms": 4274.755,
+          "predicted_per_token_ms": 32.63171755725191,
+          "predicted_per_second": 30.645031118742477
+        }
+      },
+      {
+        "task_id": "T11_determine_profile_health",
+        "title": "Unified Health Status Priority Resolver",
+        "passed": true,
+        "message": "Unified health status priority passed",
+        "elapsed": 5.84,
+        "tokens": 142,
+        "timings": {
+          "cache_n": 27,
+          "prompt_n": 133,
+          "prompt_ms": 683.52,
+          "prompt_per_token_ms": 5.139248120300752,
+          "prompt_per_second": 194.5809925093633,
+          "predicted_n": 142,
+          "predicted_ms": 4610.461,
+          "predicted_per_token_ms": 32.698304964539005,
+          "predicted_per_second": 30.582625034676575
+        }
+      },
+      {
+        "task_id": "T12_long_context_lease_manager",
+        "title": "Long Context (32k+) Thread-Safe Lease Manager",
+        "passed": true,
+        "message": "Long-context LeaseManager correctly implemented concurrent slots and release",
+        "elapsed": 34.04,
+        "tokens": 407,
+        "timings": {
+          "cache_n": 27,
+          "prompt_n": 13383,
+          "prompt_ms": 19074.126,
+          "prompt_per_token_ms": 1.4252503922887245,
+          "prompt_per_second": 701.6310996372782,
+          "predicted_n": 407,
+          "predicted_ms": 14371.019,
+          "predicted_per_token_ms": 35.39659852216749,
+          "predicted_per_second": 28.25130215192117
+        }
+      }
+    ]
+  },
+  {
+    "model_id": "/srv/ai/models/qwen3-4b-compressor/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+    "display_name": "Qwen3-4B-Instruct",
+    "meta": {
+      "exists": true,
+      "file_path": "/srv/ai/models/qwen3-4b-compressor/Qwen_Qwen3-4B-Instruct-2507-Q4_K_M.gguf",
+      "file_size_bytes": 2497280736,
+      "file_size_gib": 2.33,
+      "sha256_64mb": "7f455c41b395b958d72f27e68516106403000f644f3639df623bf015bb6c5f7b",
+      "general_name": "Qwen3 4B Instruct 2507",
+      "general_arch": "qwen3"
+    },
+    "status": "COMPLETED",
+    "passed_tasks": 10,
+    "total_tasks": 12,
+    "pass_rate_pct": 83.3,
+    "gen_tokens_per_sec": 118.22,
+    "prompt_tokens_per_sec": 1582.86,
+    "cold_load_sec": 0.84,
+    "vram_active_mib": 24894,
+    "raw_timings_sample": {
+      "cache_n": 30,
+      "prompt_n": 156,
+      "prompt_ms": 81.485,
+      "prompt_per_token_ms": 0.5223397435897436,
+      "prompt_per_second": 1914.4627845615757,
+      "predicted_n": 146,
+      "predicted_ms": 1189.35,
+      "predicted_per_token_ms": 8.202413793103448,
+      "predicted_per_second": 121.91533190398117
+    },
+    "tasks": [
+      {
+        "task_id": "T01_extract_model_family",
+        "title": "Extract Model Family",
+        "passed": true,
+        "message": "All 8 model families correctly extracted",
+        "elapsed": 1.3,
+        "tokens": 146,
+        "timings": {
+          "cache_n": 30,
+          "prompt_n": 156,
+          "prompt_ms": 81.485,
+          "prompt_per_token_ms": 0.5223397435897436,
+          "prompt_per_second": 1914.4627845615757,
+          "predicted_n": 146,
+          "predicted_ms": 1189.35,
+          "predicted_per_token_ms": 8.202413793103448,
+          "predicted_per_second": 121.91533190398117
+        }
+      },
+      {
+        "task_id": "T02_verify_auth_token",
+        "title": "Constant-Time Byte Token Comparison",
+        "passed": true,
+        "message": "Constant-time byte comparison passed all cases",
+        "elapsed": 0.62,
+        "tokens": 61,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 84,
+          "prompt_ms": 71.26,
+          "prompt_per_token_ms": 0.8483333333333334,
+          "prompt_per_second": 1178.7819253438113,
+          "predicted_n": 61,
+          "predicted_ms": 490.697,
+          "predicted_per_token_ms": 8.178283333333333,
+          "predicted_per_second": 122.27504957234301
+        }
+      },
+      {
+        "task_id": "T03_scrub_secrets",
+        "title": "Recursive Secret & PII Scrubbing",
+        "passed": false,
+        "message": "Exception during secret scrub: 'api_key'",
+        "elapsed": 1.98,
+        "tokens": 230,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 103,
+          "prompt_ms": 74.233,
+          "prompt_per_token_ms": 0.7207087378640777,
+          "prompt_per_second": 1387.5230692549135,
+          "predicted_n": 230,
+          "predicted_ms": 1867.462,
+          "predicted_per_token_ms": 8.154855895196507,
+          "predicted_per_second": 122.62632385558581
+        }
+      },
+      {
+        "task_id": "T04_cycle_tracker",
+        "title": "DAG Loop & Cycle Iteration Tracker",
+        "passed": true,
+        "message": "CycleTracker correctly enforced edge iteration limits",
+        "elapsed": 0.87,
+        "tokens": 93,
+        "timings": {
+          "cache_n": 33,
+          "prompt_n": 68,
+          "prompt_ms": 69.263,
+          "prompt_per_token_ms": 1.0185735294117648,
+          "prompt_per_second": 981.7651559995957,
+          "predicted_n": 93,
+          "predicted_ms": 748.089,
+          "predicted_per_token_ms": 8.131402173913044,
+          "predicted_per_second": 122.98001975700753
+        }
+      },
+      {
+        "task_id": "T05_validate_file_path",
+        "title": "Safe File Path Boundary Validation",
+        "passed": true,
+        "message": "Path boundary validation passed all containment and forbidden checks",
+        "elapsed": 1.43,
+        "tokens": 161,
+        "timings": {
+          "cache_n": 33,
+          "prompt_n": 119,
+          "prompt_ms": 74.319,
+          "prompt_per_token_ms": 0.6245294117647059,
+          "prompt_per_second": 1601.2056136385042,
+          "predicted_n": 161,
+          "predicted_ms": 1308.669,
+          "predicted_per_token_ms": 8.179181250000001,
+          "predicted_per_second": 122.26162612547556
+        }
+      },
+      {
+        "task_id": "T06_is_destructive_command",
+        "title": "Shell Command Classifier",
+        "passed": false,
+        "message": "Failed on 'rm -rf': got is_dest=True, cmd=rm, targets=[]",
+        "elapsed": 1.97,
+        "tokens": 227,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 114,
+          "prompt_ms": 73.881,
+          "prompt_per_token_ms": 0.6480789473684211,
+          "prompt_per_second": 1543.0218865472855,
+          "predicted_n": 227,
+          "predicted_ms": 1841.705,
+          "predicted_per_token_ms": 8.149137168141593,
+          "predicted_per_second": 122.71237793240503
+        }
+      },
+      {
+        "task_id": "T07_is_outbound_allowed",
+        "title": "Outbound Destination Network Whitelist",
+        "passed": true,
+        "message": "Network whitelist passed",
+        "elapsed": 1.46,
+        "tokens": 166,
+        "timings": {
+          "cache_n": 36,
+          "prompt_n": 86,
+          "prompt_ms": 70.874,
+          "prompt_per_token_ms": 0.8241162790697674,
+          "prompt_per_second": 1213.4210006490393,
+          "predicted_n": 166,
+          "predicted_ms": 1337.463,
+          "predicted_per_token_ms": 8.105836363636364,
+          "predicted_per_second": 123.36789877551753
+        }
+      },
+      {
+        "task_id": "T08_sanitize_hermes_response",
+        "title": "Router Safety Fuse Response Sanitizer",
+        "passed": true,
+        "message": "Router safety fuse response sanitization passed",
+        "elapsed": 0.66,
+        "tokens": 68,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 81,
+          "prompt_ms": 71.099,
+          "prompt_per_token_ms": 0.8777654320987655,
+          "prompt_per_second": 1139.256529627702,
+          "predicted_n": 68,
+          "predicted_ms": 542.504,
+          "predicted_per_token_ms": 8.097074626865671,
+          "predicted_per_second": 123.50139353811217
+        }
+      },
+      {
+        "task_id": "T09_resolve_role",
+        "title": "4-Level Dynamic Role Resolver",
+        "passed": true,
+        "message": "4-level role resolution passed in strict hierarchy",
+        "elapsed": 1.45,
+        "tokens": 166,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 169,
+          "prompt_ms": 76.47,
+          "prompt_per_token_ms": 0.4524852071005917,
+          "prompt_per_second": 2210.01700013077,
+          "predicted_n": 166,
+          "predicted_ms": 1346.794,
+          "predicted_per_token_ms": 8.162387878787879,
+          "predicted_per_second": 122.51316830933312
+        }
+      },
+      {
+        "task_id": "T10_build_safe_env",
+        "title": "Isolated Subprocess Environment Constructor",
+        "passed": true,
+        "message": "Safe environment constructor passed",
+        "elapsed": 1.38,
+        "tokens": 155,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 82,
+          "prompt_ms": 71.009,
+          "prompt_per_token_ms": 0.8659634146341464,
+          "prompt_per_second": 1154.7831964962188,
+          "predicted_n": 155,
+          "predicted_ms": 1250.473,
+          "predicted_per_token_ms": 8.119954545454545,
+          "predicted_per_second": 123.15339875391153
+        }
+      },
+      {
+        "task_id": "T11_determine_profile_health",
+        "title": "Unified Health Status Priority Resolver",
+        "passed": true,
+        "message": "Unified health status priority passed",
+        "elapsed": 1.07,
+        "tokens": 116,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 121,
+          "prompt_ms": 74.441,
+          "prompt_per_token_ms": 0.6152148760330579,
+          "prompt_per_second": 1625.4483416396877,
+          "predicted_n": 116,
+          "predicted_ms": 936.409,
+          "predicted_per_token_ms": 8.14268695652174,
+          "predicted_per_second": 122.8095842735386
+        }
+      },
+      {
+        "task_id": "T12_long_context_lease_manager",
+        "title": "Long Context (32k+) Thread-Safe Lease Manager",
+        "passed": true,
+        "message": "Long-context LeaseManager correctly implemented concurrent slots and release",
+        "elapsed": 11.55,
+        "tokens": 483,
+        "timings": {
+          "cache_n": 30,
+          "prompt_n": 13376,
+          "prompt_ms": 4393.251,
+          "prompt_per_token_ms": 0.3284428080143541,
+          "prompt_per_second": 3044.670108764557,
+          "predicted_n": 483,
+          "predicted_ms": 7039.209,
+          "predicted_per_token_ms": 14.60416804979253,
+          "predicted_per_second": 68.47360264484263
+        }
+      }
+    ]
+  },
+  {
+    "model_id": "/srv/ai/models/granite-3.2-8b/granite-3.2-8b-instruct-preview.Q4_K_M.gguf",
+    "display_name": "Granite-3.2-8B-Instruct-Preview",
+    "meta": {
+      "exists": true,
+      "file_path": "/srv/ai/models/granite-3.2-8b/granite-3.2-8b-instruct-preview.Q4_K_M.gguf",
+      "file_size_bytes": 4942860096,
+      "file_size_gib": 4.6,
+      "sha256_64mb": "a5552dd504d13ae562c12365a856a067ebf393dd70ac4a02883846898dac7749",
+      "general_name": "Granite 3.2 8b Instruct Preview",
+      "general_arch": "granite"
+    },
+    "status": "COMPLETED",
+    "passed_tasks": 7,
+    "total_tasks": 12,
+    "pass_rate_pct": 58.3,
+    "gen_tokens_per_sec": 85.16,
+    "prompt_tokens_per_sec": 882.46,
+    "cold_load_sec": 0.54,
+    "vram_active_mib": 31444,
+    "raw_timings_sample": {
+      "cache_n": 32,
+      "prompt_n": 168,
+      "prompt_ms": 230.783,
+      "prompt_per_token_ms": 1.3737083333333333,
+      "prompt_per_second": 727.9565652582729,
+      "predicted_n": 135,
+      "predicted_ms": 1530.658,
+      "predicted_per_token_ms": 11.422820895522387,
+      "predicted_per_second": 87.54404968320813
+    },
+    "tasks": [
+      {
+        "task_id": "T01_extract_model_family",
+        "title": "Extract Model Family",
+        "passed": true,
+        "message": "All 8 model families correctly extracted",
+        "elapsed": 1.77,
+        "tokens": 135,
+        "timings": {
+          "cache_n": 32,
+          "prompt_n": 168,
+          "prompt_ms": 230.783,
+          "prompt_per_token_ms": 1.3737083333333333,
+          "prompt_per_second": 727.9565652582729,
+          "predicted_n": 135,
+          "predicted_ms": 1530.658,
+          "predicted_per_token_ms": 11.422820895522387,
+          "predicted_per_second": 87.54404968320813
+        }
+      },
+      {
+        "task_id": "T02_verify_auth_token",
+        "title": "Constant-Time Byte Token Comparison",
+        "passed": false,
+        "message": "Exception during token verify: comparing strings with non-ASCII characters is not supported",
+        "elapsed": 0.86,
+        "tokens": 61,
+        "timings": {
+          "cache_n": 37,
+          "prompt_n": 93,
+          "prompt_ms": 140.197,
+          "prompt_per_token_ms": 1.507494623655914,
+          "prompt_per_second": 663.3522828591197,
+          "predicted_n": 61,
+          "predicted_ms": 679.561,
+          "predicted_per_token_ms": 11.326016666666668,
+          "predicted_per_second": 88.29229458429779
+        }
+      },
+      {
+        "task_id": "T03_scrub_secrets",
+        "title": "Recursive Secret & PII Scrubbing",
+        "passed": false,
+        "error": "SyntaxError: closing parenthesis '}' does not match opening parenthesis '(' on line 7 (<unknown>, line 9)",
+        "elapsed": 2.11,
+        "tokens": 174,
+        "timings": {
+          "cache_n": 37,
+          "prompt_n": 106,
+          "prompt_ms": 130.865,
+          "prompt_per_token_ms": 1.2345754716981132,
+          "prompt_per_second": 809.9950330493256,
+          "predicted_n": 174,
+          "predicted_ms": 1955.874,
+          "predicted_per_token_ms": 11.305630057803468,
+          "predicted_per_second": 88.45150556733205
+        },
+        "code_snippet": "```python\nimport re\nfrom typing import Any\n\ndef scrub_secrets(data: Any) -> Any:\n    if isinstance(data, dict):\n        return {\n            k: scrub_secrets(v) if isinstance(v, (dict, list)) else ('*"
+      },
+      {
+        "task_id": "T04_cycle_tracker",
+        "title": "DAG Loop & Cycle Iteration Tracker",
+        "passed": true,
+        "message": "CycleTracker correctly enforced edge iteration limits",
+        "elapsed": 1.61,
+        "tokens": 128,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 75,
+          "prompt_ms": 136.313,
+          "prompt_per_token_ms": 1.8175066666666666,
+          "prompt_per_second": 550.2043092001497,
+          "predicted_n": 128,
+          "predicted_ms": 1437.466,
+          "predicted_per_token_ms": 11.318629921259841,
+          "predicted_per_second": 88.34991575452915
+        }
+      },
+      {
+        "task_id": "T05_validate_file_path",
+        "title": "Safe File Path Boundary Validation",
+        "passed": false,
+        "message": "Exception in validate_file_path: [Errno 2] No such file or directory: '/srv/projects/my-project/src'",
+        "elapsed": 2.18,
+        "tokens": 178,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 129,
+          "prompt_ms": 142.838,
+          "prompt_per_token_ms": 1.1072713178294573,
+          "prompt_per_second": 903.1210182164411,
+          "predicted_n": 178,
+          "predicted_ms": 2006.67,
+          "predicted_per_token_ms": 11.337118644067797,
+          "predicted_per_second": 88.20583354512699
+        }
+      },
+      {
+        "task_id": "T06_is_destructive_command",
+        "title": "Shell Command Classifier",
+        "passed": true,
+        "message": "Shell command classification passed",
+        "elapsed": 1.98,
+        "tokens": 160,
+        "timings": {
+          "cache_n": 37,
+          "prompt_n": 126,
+          "prompt_ms": 133.082,
+          "prompt_per_token_ms": 1.0562063492063491,
+          "prompt_per_second": 946.7846891390271,
+          "predicted_n": 160,
+          "predicted_ms": 1805.449,
+          "predicted_per_token_ms": 11.355025157232705,
+          "predicted_per_second": 88.0667357538208
+        }
+      },
+      {
+        "task_id": "T07_is_outbound_allowed",
+        "title": "Outbound Destination Network Whitelist",
+        "passed": false,
+        "message": "Blocked loopback 127.0.0.1",
+        "elapsed": 1.79,
+        "tokens": 144,
+        "timings": {
+          "cache_n": 39,
+          "prompt_n": 92,
+          "prompt_ms": 138.779,
+          "prompt_per_token_ms": 1.5084673913043478,
+          "prompt_per_second": 662.9245058690436,
+          "predicted_n": 144,
+          "predicted_ms": 1620.579,
+          "predicted_per_token_ms": 11.332720279720279,
+          "predicted_per_second": 88.24006728459398
+        }
+      },
+      {
+        "task_id": "T08_sanitize_hermes_response",
+        "title": "Router Safety Fuse Response Sanitizer",
+        "passed": true,
+        "message": "Router safety fuse response sanitization passed",
+        "elapsed": 0.92,
+        "tokens": 67,
+        "timings": {
+          "cache_n": 37,
+          "prompt_n": 86,
+          "prompt_ms": 138.869,
+          "prompt_per_token_ms": 1.6147558139534883,
+          "prompt_per_second": 619.2886821392824,
+          "predicted_n": 67,
+          "predicted_ms": 745.539,
+          "predicted_per_token_ms": 11.296045454545455,
+          "predicted_per_second": 88.52655595481926
+        }
+      },
+      {
+        "task_id": "T09_resolve_role",
+        "title": "4-Level Dynamic Role Resolver",
+        "passed": false,
+        "message": "Exception in resolve_role: cannot unpack non-iterable NoneType object",
+        "elapsed": 2.08,
+        "tokens": 168,
+        "timings": {
+          "cache_n": 37,
+          "prompt_n": 184,
+          "prompt_ms": 147.789,
+          "prompt_per_token_ms": 0.8032010869565217,
+          "prompt_per_second": 1245.0182354573076,
+          "predicted_n": 168,
+          "predicted_ms": 1902.877,
+          "predicted_per_token_ms": 11.394473053892215,
+          "predicted_per_second": 87.76184692967543
+        }
+      },
+      {
+        "task_id": "T10_build_safe_env",
+        "title": "Isolated Subprocess Environment Constructor",
+        "passed": true,
+        "message": "Safe environment constructor passed",
+        "elapsed": 1.46,
+        "tokens": 114,
+        "timings": {
+          "cache_n": 37,
+          "prompt_n": 94,
+          "prompt_ms": 139.493,
+          "prompt_per_token_ms": 1.483968085106383,
+          "prompt_per_second": 673.8689396600547,
+          "predicted_n": 114,
+          "predicted_ms": 1278.427,
+          "predicted_per_token_ms": 11.313513274336282,
+          "predicted_per_second": 88.38987286720321
+        }
+      },
+      {
+        "task_id": "T11_determine_profile_health",
+        "title": "Unified Health Status Priority Resolver",
+        "passed": true,
+        "message": "Unified health status priority passed",
+        "elapsed": 1.75,
+        "tokens": 139,
+        "timings": {
+          "cache_n": 37,
+          "prompt_n": 139,
+          "prompt_ms": 145.45,
+          "prompt_per_token_ms": 1.0464028776978416,
+          "prompt_per_second": 955.6548642145068,
+          "predicted_n": 139,
+          "predicted_ms": 1570.664,
+          "predicted_per_token_ms": 11.381623188405797,
+          "predicted_per_second": 87.86093015438057
+        }
+      },
+      {
+        "task_id": "T12_long_context_lease_manager",
+        "title": "Long Context (32k+) Thread-Safe Lease Manager",
+        "passed": true,
+        "message": "Long-context LeaseManager correctly implemented concurrent slots and release",
+        "elapsed": 14.72,
+        "tokens": 347,
+        "timings": {
+          "cache_n": 32,
+          "prompt_n": 14583,
+          "prompt_ms": 7963.025,
+          "prompt_per_token_ms": 0.5460484811081396,
+          "prompt_per_second": 1831.3392209618833,
+          "predicted_n": 347,
+          "predicted_ms": 6630.589,
+          "predicted_per_token_ms": 19.163552023121387,
+          "predicted_per_second": 52.18239284624639
+        }
+      }
+    ]
+  },
+  {
+    "model_id": "/srv/ai/models/qwen2.5-coder-14b/qwen2.5-coder-14b-instruct-q4_k_m.gguf",
+    "display_name": "Qwen2.5-Coder-14B-Instruct",
+    "meta": {
+      "exists": true,
+      "file_path": "/srv/ai/models/qwen2.5-coder-14b/qwen2.5-coder-14b-instruct-q4_k_m.gguf",
+      "file_size_bytes": 8988110272,
+      "file_size_gib": 8.37,
+      "sha256_64mb": "32150997e8f9655c07aab0c618e4fb9e66810c95984421fa136803682ad51c9f",
+      "general_name": "Qwen2.5 Coder 14B Instruct AWQ",
+      "general_arch": "qwen2"
+    },
+    "status": "COMPLETED",
+    "passed_tasks": 9,
+    "total_tasks": 12,
+    "pass_rate_pct": 75.0,
+    "gen_tokens_per_sec": 55.89,
+    "prompt_tokens_per_sec": 500.68,
+    "cold_load_sec": 1.67,
+    "vram_active_mib": 17424,
+    "raw_timings_sample": {
+      "cache_n": 30,
+      "prompt_n": 156,
+      "prompt_ms": 316.606,
+      "prompt_per_token_ms": 2.029525641025641,
+      "prompt_per_second": 492.7259748709753,
+      "predicted_n": 137,
+      "predicted_ms": 2382.874,
+      "predicted_per_token_ms": 17.521132352941176,
+      "predicted_per_second": 57.073936767114006
+    },
+    "tasks": [
+      {
+        "task_id": "T01_extract_model_family",
+        "title": "Extract Model Family",
+        "passed": true,
+        "message": "All 8 model families correctly extracted",
+        "elapsed": 2.71,
+        "tokens": 137,
+        "timings": {
+          "cache_n": 30,
+          "prompt_n": 156,
+          "prompt_ms": 316.606,
+          "prompt_per_token_ms": 2.029525641025641,
+          "prompt_per_second": 492.7259748709753,
+          "predicted_n": 137,
+          "predicted_ms": 2382.874,
+          "predicted_per_token_ms": 17.521132352941176,
+          "predicted_per_second": 57.073936767114006
+        }
+      },
+      {
+        "task_id": "T02_verify_auth_token",
+        "title": "Constant-Time Byte Token Comparison",
+        "passed": true,
+        "message": "Constant-time byte comparison passed all cases",
+        "elapsed": 1.33,
+        "tokens": 61,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 84,
+          "prompt_ms": 235.288,
+          "prompt_per_token_ms": 2.801047619047619,
+          "prompt_per_second": 357.0092822413382,
+          "predicted_n": 61,
+          "predicted_ms": 1052.894,
+          "predicted_per_token_ms": 17.548233333333332,
+          "predicted_per_second": 56.98579344169499
+        }
+      },
+      {
+        "task_id": "T03_scrub_secrets",
+        "title": "Recursive Secret & PII Scrubbing",
+        "passed": false,
+        "message": "Exception during secret scrub: invalid group reference 1 at position 1",
+        "elapsed": 3.58,
+        "tokens": 191,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 103,
+          "prompt_ms": 226.966,
+          "prompt_per_token_ms": 2.2035533980582525,
+          "prompt_per_second": 453.8124653031731,
+          "predicted_n": 191,
+          "predicted_ms": 3325.377,
+          "predicted_per_token_ms": 17.501984210526317,
+          "predicted_per_second": 57.13637882261169
+        }
+      },
+      {
+        "task_id": "T04_cycle_tracker",
+        "title": "DAG Loop & Cycle Iteration Tracker",
+        "passed": true,
+        "message": "CycleTracker correctly enforced edge iteration limits",
+        "elapsed": 1.87,
+        "tokens": 92,
+        "timings": {
+          "cache_n": 33,
+          "prompt_n": 68,
+          "prompt_ms": 234.276,
+          "prompt_per_token_ms": 3.4452352941176474,
+          "prompt_per_second": 290.25593744130856,
+          "predicted_n": 92,
+          "predicted_ms": 1591.145,
+          "predicted_per_token_ms": 17.48510989010989,
+          "predicted_per_second": 57.191519314707335
+        }
+      },
+      {
+        "task_id": "T05_validate_file_path",
+        "title": "Safe File Path Boundary Validation",
+        "passed": true,
+        "message": "Path boundary validation passed all containment and forbidden checks",
+        "elapsed": 2.28,
+        "tokens": 116,
+        "timings": {
+          "cache_n": 33,
+          "prompt_n": 119,
+          "prompt_ms": 228.825,
+          "prompt_per_token_ms": 1.9228991596638654,
+          "prompt_per_second": 520.0480716704906,
+          "predicted_n": 116,
+          "predicted_ms": 2010.284,
+          "predicted_per_token_ms": 17.48073043478261,
+          "predicted_per_second": 57.2058475319905
+        }
+      },
+      {
+        "task_id": "T06_is_destructive_command",
+        "title": "Shell Command Classifier",
+        "passed": false,
+        "message": "Failed on 'rm -rf': got is_dest=True, cmd=rm, targets=[]",
+        "elapsed": 2.74,
+        "tokens": 143,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 114,
+          "prompt_ms": 228.15,
+          "prompt_per_token_ms": 2.001315789473684,
+          "prompt_per_second": 499.67126890203815,
+          "predicted_n": 143,
+          "predicted_ms": 2476.341,
+          "predicted_per_token_ms": 17.43902112676056,
+          "predicted_per_second": 57.342668073581144
+        }
+      },
+      {
+        "task_id": "T07_is_outbound_allowed",
+        "title": "Outbound Destination Network Whitelist",
+        "passed": true,
+        "message": "Network whitelist passed",
+        "elapsed": 2.5,
+        "tokens": 128,
+        "timings": {
+          "cache_n": 36,
+          "prompt_n": 86,
+          "prompt_ms": 235.036,
+          "prompt_per_token_ms": 2.7329767441860464,
+          "prompt_per_second": 365.90139382903044,
+          "predicted_n": 128,
+          "predicted_ms": 2215.768,
+          "predicted_per_token_ms": 17.446992125984252,
+          "predicted_per_second": 57.316469955338285
+        }
+      },
+      {
+        "task_id": "T08_sanitize_hermes_response",
+        "title": "Router Safety Fuse Response Sanitizer",
+        "passed": true,
+        "message": "Router safety fuse response sanitization passed",
+        "elapsed": 1.39,
+        "tokens": 65,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 81,
+          "prompt_ms": 234.041,
+          "prompt_per_token_ms": 2.889395061728395,
+          "prompt_per_second": 346.09320589127543,
+          "predicted_n": 65,
+          "predicted_ms": 1117.257,
+          "predicted_per_token_ms": 17.457140625,
+          "predicted_per_second": 57.28314971398702
+        }
+      },
+      {
+        "task_id": "T09_resolve_role",
+        "title": "4-Level Dynamic Role Resolver",
+        "passed": false,
+        "message": "Level 2 failed: got (manager, session_affinity), expected ('code-reviewer', 'model_match')",
+        "elapsed": 2.91,
+        "tokens": 152,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 169,
+          "prompt_ms": 249.329,
+          "prompt_per_token_ms": 1.475319526627219,
+          "prompt_per_second": 677.8192669123928,
+          "predicted_n": 152,
+          "predicted_ms": 2634.051,
+          "predicted_per_token_ms": 17.444046357615893,
+          "predicted_per_second": 57.3261489621879
+        }
+      },
+      {
+        "task_id": "T10_build_safe_env",
+        "title": "Isolated Subprocess Environment Constructor",
+        "passed": true,
+        "message": "Safe environment constructor passed",
+        "elapsed": 2.24,
+        "tokens": 113,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 82,
+          "prompt_ms": 233.929,
+          "prompt_per_token_ms": 2.8527926829268293,
+          "prompt_per_second": 350.5337089458767,
+          "predicted_n": 113,
+          "predicted_ms": 1950.663,
+          "predicted_per_token_ms": 17.41663392857143,
+          "predicted_per_second": 57.41637586810228
+        }
+      },
+      {
+        "task_id": "T11_determine_profile_health",
+        "title": "Unified Health Status Priority Resolver",
+        "passed": true,
+        "message": "Unified health status priority passed",
+        "elapsed": 2.28,
+        "tokens": 116,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 121,
+          "prompt_ms": 229.568,
+          "prompt_per_token_ms": 1.8972561983471075,
+          "prompt_per_second": 527.0769445218846,
+          "predicted_n": 116,
+          "predicted_ms": 2011.099,
+          "predicted_per_token_ms": 17.487817391304347,
+          "predicted_per_second": 57.18266480168306
+        }
+      },
+      {
+        "task_id": "T12_long_context_lease_manager",
+        "title": "Long Context (32k+) Thread-Safe Lease Manager",
+        "passed": true,
+        "message": "Long-context LeaseManager correctly implemented concurrent slots and release",
+        "elapsed": 19.86,
+        "tokens": 327,
+        "timings": {
+          "cache_n": 30,
+          "prompt_n": 13376,
+          "prompt_ms": 11866.219,
+          "prompt_per_token_ms": 0.8871276166267942,
+          "prompt_per_second": 1127.2335358044547,
+          "predicted_n": 327,
+          "predicted_ms": 7913.97,
+          "predicted_per_token_ms": 24.275981595092027,
+          "predicted_per_second": 41.19297899789865
+        }
+      }
+    ]
+  },
+  {
+    "model_id": "/srv/ai/models/granite-4.2-8b/granite-4.2-8b-Q4_K_M.gguf",
+    "display_name": "Granite-4.2-8B-Instruct",
+    "meta": {
+      "exists": true,
+      "file_path": "/srv/ai/models/granite-4.2-8b/granite-4.2-8b-Q4_K_M.gguf",
+      "file_size_bytes": 5539283360,
+      "file_size_gib": 5.16,
+      "sha256_64mb": "f155ab58fe3ff46c4daa7d65633347da343143771238ddf63ecba25b8e10a06d",
+      "general_name": "Granite 4.2 8b",
+      "general_arch": "granite"
+    },
+    "status": "COMPLETED",
+    "passed_tasks": 8,
+    "total_tasks": 12,
+    "pass_rate_pct": 66.7,
+    "gen_tokens_per_sec": 80.57,
+    "prompt_tokens_per_sec": 356.14,
+    "cold_load_sec": 1.31,
+    "vram_active_mib": 13904,
+    "raw_timings_sample": {
+      "cache_n": 30,
+      "prompt_n": 169,
+      "prompt_ms": 145.849,
+      "prompt_per_token_ms": 0.8630118343195265,
+      "prompt_per_second": 1158.7326618626114,
+      "predicted_n": 627,
+      "predicted_ms": 7596.867,
+      "predicted_per_token_ms": 12.135570287539936,
+      "predicted_per_second": 82.40239035381296
+    },
+    "tasks": [
+      {
+        "task_id": "T01_extract_model_family",
+        "title": "Extract Model Family",
+        "passed": true,
+        "message": "All 8 model families correctly extracted",
+        "elapsed": 7.75,
+        "tokens": 627,
+        "timings": {
+          "cache_n": 30,
+          "prompt_n": 169,
+          "prompt_ms": 145.849,
+          "prompt_per_token_ms": 0.8630118343195265,
+          "prompt_per_second": 1158.7326618626114,
+          "predicted_n": 627,
+          "predicted_ms": 7596.867,
+          "predicted_per_token_ms": 12.135570287539936,
+          "predicted_per_second": 82.40239035381296
+        }
+      },
+      {
+        "task_id": "T02_verify_auth_token",
+        "title": "Constant-Time Byte Token Comparison",
+        "passed": false,
+        "message": "Exception during token verify: comparing strings with non-ASCII characters is not supported",
+        "elapsed": 2.25,
+        "tokens": 179,
+        "timings": {
+          "cache_n": 129,
+          "prompt_n": 1,
+          "prompt_ms": 14.642,
+          "prompt_per_token_ms": 14.642,
+          "prompt_per_second": 68.29668078131404,
+          "predicted_n": 179,
+          "predicted_ms": 2144.431,
+          "predicted_per_token_ms": 12.047365168539326,
+          "predicted_per_second": 83.00570174559125
+        }
+      },
+      {
+        "task_id": "T03_scrub_secrets",
+        "title": "Recursive Secret & PII Scrubbing",
+        "passed": false,
+        "error": "SyntaxError: invalid syntax (<unknown>, line 1)",
+        "elapsed": 25.59,
+        "tokens": 2048,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 109,
+          "prompt_ms": 128.802,
+          "prompt_per_token_ms": 1.181669724770642,
+          "prompt_per_second": 846.2601512398876,
+          "predicted_n": 2048,
+          "predicted_ms": 25422.267,
+          "predicted_per_token_ms": 12.419280410356619,
+          "predicted_per_second": 80.51996307016994
+        },
+        "code_snippet": "```python\nimport re\nfrom typing import Any\n\ndef scrub_secret_pattern(s: str) -> str:\n    \"\"\"\n    Replace token-like patterns in a string with '***'.\n    Patterns:\n      - Bearer <token>  (where <token"
+      },
+      {
+        "task_id": "T04_cycle_tracker",
+        "title": "DAG Loop & Cycle Iteration Tracker",
+        "passed": true,
+        "message": "CycleTracker correctly enforced edge iteration limits",
+        "elapsed": 2.7,
+        "tokens": 209,
+        "timings": {
+          "cache_n": 110,
+          "prompt_n": 1,
+          "prompt_ms": 14.373,
+          "prompt_per_token_ms": 14.373,
+          "prompt_per_second": 69.57489737702637,
+          "predicted_n": 209,
+          "predicted_ms": 2506.986,
+          "predicted_per_token_ms": 12.052817307692306,
+          "predicted_per_second": 82.9681537910463
+        }
+      },
+      {
+        "task_id": "T05_validate_file_path",
+        "title": "Safe File Path Boundary Validation",
+        "passed": true,
+        "message": "Path boundary validation passed all containment and forbidden checks",
+        "elapsed": 7.29,
+        "tokens": 597,
+        "timings": {
+          "cache_n": 164,
+          "prompt_n": 1,
+          "prompt_ms": 14.866,
+          "prompt_per_token_ms": 14.866,
+          "prompt_per_second": 67.26759047490918,
+          "predicted_n": 597,
+          "predicted_ms": 7217.96,
+          "predicted_per_token_ms": 12.110671140939598,
+          "predicted_per_second": 82.57180699255746
+        }
+      },
+      {
+        "task_id": "T06_is_destructive_command",
+        "title": "Shell Command Classifier",
+        "passed": false,
+        "message": "Failed on 'rm -rf': got is_dest=True, cmd=rm, targets=[]",
+        "elapsed": 5.62,
+        "tokens": 458,
+        "timings": {
+          "cache_n": 162,
+          "prompt_n": 1,
+          "prompt_ms": 14.901,
+          "prompt_per_token_ms": 14.901,
+          "prompt_per_second": 67.10958996040534,
+          "predicted_n": 458,
+          "predicted_ms": 5515.256,
+          "predicted_per_token_ms": 12.06839387308534,
+          "predicted_per_second": 82.86106755515972
+        }
+      },
+      {
+        "task_id": "T07_is_outbound_allowed",
+        "title": "Outbound Destination Network Whitelist",
+        "passed": false,
+        "message": "Blocked loopback 127.0.0.1",
+        "elapsed": 4.67,
+        "tokens": 372,
+        "timings": {
+          "cache_n": 37,
+          "prompt_n": 95,
+          "prompt_ms": 135.841,
+          "prompt_per_token_ms": 1.4299052631578948,
+          "prompt_per_second": 699.3470307197385,
+          "predicted_n": 372,
+          "predicted_ms": 4469.084,
+          "predicted_per_token_ms": 12.046048517520216,
+          "predicted_per_second": 83.01477439224684
+        }
+      },
+      {
+        "task_id": "T08_sanitize_hermes_response",
+        "title": "Router Safety Fuse Response Sanitizer",
+        "passed": true,
+        "message": "Router safety fuse response sanitization passed",
+        "elapsed": 3.22,
+        "tokens": 262,
+        "timings": {
+          "cache_n": 123,
+          "prompt_n": 1,
+          "prompt_ms": 14.489,
+          "prompt_per_token_ms": 14.489,
+          "prompt_per_second": 69.01787562978811,
+          "predicted_n": 262,
+          "predicted_ms": 3141.106,
+          "predicted_per_token_ms": 12.03488888888889,
+          "predicted_per_second": 83.09175175877542
+        }
+      },
+      {
+        "task_id": "T09_resolve_role",
+        "title": "4-Level Dynamic Role Resolver",
+        "passed": true,
+        "message": "4-level role resolution passed in strict hierarchy",
+        "elapsed": 2.42,
+        "tokens": 196,
+        "timings": {
+          "cache_n": 220,
+          "prompt_n": 1,
+          "prompt_ms": 14.711,
+          "prompt_per_token_ms": 14.711,
+          "prompt_per_second": 67.9763442322072,
+          "predicted_n": 196,
+          "predicted_ms": 2352.279,
+          "predicted_per_token_ms": 12.06296923076923,
+          "predicted_per_second": 82.89832966242524
+        }
+      },
+      {
+        "task_id": "T10_build_safe_env",
+        "title": "Isolated Subprocess Environment Constructor",
+        "passed": true,
+        "message": "Safe environment constructor passed",
+        "elapsed": 4.78,
+        "tokens": 391,
+        "timings": {
+          "cache_n": 130,
+          "prompt_n": 1,
+          "prompt_ms": 14.85,
+          "prompt_per_token_ms": 14.85,
+          "prompt_per_second": 67.34006734006734,
+          "predicted_n": 391,
+          "predicted_ms": 4704.061,
+          "predicted_per_token_ms": 12.06169487179487,
+          "predicted_per_second": 82.90708815213068
+        }
+      },
+      {
+        "task_id": "T11_determine_profile_health",
+        "title": "Unified Health Status Priority Resolver",
+        "passed": true,
+        "message": "Unified health status priority passed",
+        "elapsed": 1.79,
+        "tokens": 143,
+        "timings": {
+          "cache_n": 175,
+          "prompt_n": 1,
+          "prompt_ms": 14.945,
+          "prompt_per_token_ms": 14.945,
+          "prompt_per_second": 66.91201070592172,
+          "predicted_n": 143,
+          "predicted_ms": 1709.454,
+          "predicted_per_token_ms": 12.038408450704225,
+          "predicted_per_second": 83.06745896643022
+        }
+      },
+      {
+        "task_id": "T12_long_context_lease_manager",
+        "title": "Long Context (32k+) Thread-Safe Lease Manager",
+        "passed": true,
+        "message": "Long-context LeaseManager correctly implemented concurrent slots and release",
+        "elapsed": 12.22,
+        "tokens": 671,
+        "timings": {
+          "cache_n": 9636,
+          "prompt_n": 188,
+          "prompt_ms": 183.261,
+          "prompt_per_token_ms": 0.9747925531914894,
+          "prompt_per_second": 1025.859293575829,
+          "predicted_n": 671,
+          "predicted_ms": 11655.976,
+          "predicted_per_token_ms": 17.396979104477612,
+          "predicted_per_second": 57.481243955890086
+        }
+      }
+    ]
+  },
+  {
+    "model_id": "/srv/ai/models/deepseek-coder-v2-lite/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf",
+    "display_name": "DeepSeek-Coder-V2-Lite-Instruct",
+    "meta": {
+      "exists": true,
+      "file_path": "/srv/ai/models/deepseek-coder-v2-lite/DeepSeek-Coder-V2-Lite-Instruct-Q4_K_M.gguf",
+      "file_size_bytes": 10364416768,
+      "file_size_gib": 9.65,
+      "sha256_64mb": "a8b69f826051091c7b864d89fd48f2c70ecfea3ee31adcb0b57bc4c440d7f322",
+      "general_name": "DeepSeek-Coder-V2-Lite-Instruct",
+      "general_arch": "deepseek2"
+    },
+    "status": "COMPLETED",
+    "passed_tasks": 9,
+    "total_tasks": 12,
+    "pass_rate_pct": 75.0,
+    "gen_tokens_per_sec": 61.45,
+    "prompt_tokens_per_sec": 564.43,
+    "cold_load_sec": 0.51,
+    "vram_active_mib": 20248,
+    "raw_timings_sample": {
+      "cache_n": 26,
+      "prompt_n": 167,
+      "prompt_ms": 375.52,
+      "prompt_per_token_ms": 2.248622754491018,
+      "prompt_per_second": 444.71665956540267,
+      "predicted_n": 161,
+      "predicted_ms": 2937.02,
+      "predicted_per_token_ms": 18.356375,
+      "predicted_per_second": 54.476986877855786
+    },
+    "tasks": [
+      {
+        "task_id": "T01_extract_model_family",
+        "title": "Extract Model Family",
+        "passed": true,
+        "message": "All 8 model families correctly extracted",
+        "elapsed": 3.32,
+        "tokens": 161,
+        "timings": {
+          "cache_n": 26,
+          "prompt_n": 167,
+          "prompt_ms": 375.52,
+          "prompt_per_token_ms": 2.248622754491018,
+          "prompt_per_second": 444.71665956540267,
+          "predicted_n": 161,
+          "predicted_ms": 2937.02,
+          "predicted_per_token_ms": 18.356375,
+          "predicted_per_second": 54.476986877855786
+        }
+      },
+      {
+        "task_id": "T02_verify_auth_token",
+        "title": "Constant-Time Byte Token Comparison",
+        "passed": true,
+        "message": "Constant-time byte comparison passed all cases",
+        "elapsed": 1.2,
+        "tokens": 68,
+        "timings": {
+          "cache_n": 31,
+          "prompt_n": 90,
+          "prompt_ms": 167.586,
+          "prompt_per_token_ms": 1.8620666666666668,
+          "prompt_per_second": 537.0377000465433,
+          "predicted_n": 68,
+          "predicted_ms": 974.337,
+          "predicted_per_token_ms": 14.54234328358209,
+          "predicted_per_second": 68.76470871987824
+        }
+      },
+      {
+        "task_id": "T03_scrub_secrets",
+        "title": "Recursive Secret & PII Scrubbing",
+        "passed": false,
+        "message": "Failed to mask 'api_key': sk-***",
+        "elapsed": 7.26,
+        "tokens": 378,
+        "timings": {
+          "cache_n": 31,
+          "prompt_n": 105,
+          "prompt_ms": 181.174,
+          "prompt_per_token_ms": 1.7254666666666667,
+          "prompt_per_second": 579.5533575457847,
+          "predicted_n": 378,
+          "predicted_ms": 7047.698,
+          "predicted_per_token_ms": 18.694159151193634,
+          "predicted_per_second": 53.49264398105594
+        }
+      },
+      {
+        "task_id": "T04_cycle_tracker",
+        "title": "DAG Loop & Cycle Iteration Tracker",
+        "passed": true,
+        "message": "CycleTracker correctly enforced edge iteration limits",
+        "elapsed": 1.98,
+        "tokens": 122,
+        "timings": {
+          "cache_n": 29,
+          "prompt_n": 75,
+          "prompt_ms": 158.262,
+          "prompt_per_token_ms": 2.11016,
+          "prompt_per_second": 473.89771391742806,
+          "predicted_n": 122,
+          "predicted_ms": 1736.767,
+          "predicted_per_token_ms": 14.353446280991736,
+          "predicted_per_second": 69.66967935249806
+        }
+      },
+      {
+        "task_id": "T05_validate_file_path",
+        "title": "Safe File Path Boundary Validation",
+        "passed": true,
+        "message": "Path boundary validation passed all containment and forbidden checks",
+        "elapsed": 3.38,
+        "tokens": 184,
+        "timings": {
+          "cache_n": 29,
+          "prompt_n": 132,
+          "prompt_ms": 208.529,
+          "prompt_per_token_ms": 1.5797651515151514,
+          "prompt_per_second": 633.005481252008,
+          "predicted_n": 184,
+          "predicted_ms": 3129.497,
+          "predicted_per_token_ms": 17.10107650273224,
+          "predicted_per_second": 58.47585091150431
+        }
+      },
+      {
+        "task_id": "T06_is_destructive_command",
+        "title": "Shell Command Classifier",
+        "passed": false,
+        "message": "Failed on 'rm -rf': got is_dest=True, cmd=rm, targets=[]",
+        "elapsed": 4.88,
+        "tokens": 257,
+        "timings": {
+          "cache_n": 31,
+          "prompt_n": 128,
+          "prompt_ms": 207.226,
+          "prompt_per_token_ms": 1.618953125,
+          "prompt_per_second": 617.6831092623513,
+          "predicted_n": 257,
+          "predicted_ms": 4617.577,
+          "predicted_per_token_ms": 18.03741015625,
+          "predicted_per_second": 55.44033158515819
+        }
+      },
+      {
+        "task_id": "T07_is_outbound_allowed",
+        "title": "Outbound Destination Network Whitelist",
+        "passed": true,
+        "message": "Network whitelist passed",
+        "elapsed": 2.69,
+        "tokens": 160,
+        "timings": {
+          "cache_n": 33,
+          "prompt_n": 93,
+          "prompt_ms": 172.22,
+          "prompt_per_token_ms": 1.8518279569892473,
+          "prompt_per_second": 540.006967831843,
+          "predicted_n": 160,
+          "predicted_ms": 2456.445,
+          "predicted_per_token_ms": 15.44933962264151,
+          "predicted_per_second": 64.72768574097934
+        }
+      },
+      {
+        "task_id": "T08_sanitize_hermes_response",
+        "title": "Router Safety Fuse Response Sanitizer",
+        "passed": true,
+        "message": "Router safety fuse response sanitization passed",
+        "elapsed": 1.5,
+        "tokens": 91,
+        "timings": {
+          "cache_n": 31,
+          "prompt_n": 87,
+          "prompt_ms": 159.97,
+          "prompt_per_token_ms": 1.8387356321839081,
+          "prompt_per_second": 543.8519722447959,
+          "predicted_n": 91,
+          "predicted_ms": 1294.211,
+          "predicted_per_token_ms": 14.380122222222223,
+          "predicted_per_second": 69.54043815112064
+        }
+      },
+      {
+        "task_id": "T09_resolve_role",
+        "title": "4-Level Dynamic Role Resolver",
+        "passed": true,
+        "message": "4-level role resolution passed in strict hierarchy",
+        "elapsed": 3.94,
+        "tokens": 195,
+        "timings": {
+          "cache_n": 31,
+          "prompt_n": 184,
+          "prompt_ms": 274.14,
+          "prompt_per_token_ms": 1.489891304347826,
+          "prompt_per_second": 671.1899029692858,
+          "predicted_n": 195,
+          "predicted_ms": 3624.497,
+          "predicted_per_token_ms": 18.682974226804124,
+          "predicted_per_second": 53.524668388468804
+        }
+      },
+      {
+        "task_id": "T10_build_safe_env",
+        "title": "Isolated Subprocess Environment Constructor",
+        "passed": true,
+        "message": "Safe environment constructor passed",
+        "elapsed": 1.99,
+        "tokens": 122,
+        "timings": {
+          "cache_n": 31,
+          "prompt_n": 93,
+          "prompt_ms": 169.431,
+          "prompt_per_token_ms": 1.8218387096774196,
+          "prompt_per_second": 548.8960107654443,
+          "predicted_n": 122,
+          "predicted_ms": 1753.045,
+          "predicted_per_token_ms": 14.487975206611571,
+          "predicted_per_second": 69.0227575447293
+        }
+      },
+      {
+        "task_id": "T11_determine_profile_health",
+        "title": "Unified Health Status Priority Resolver",
+        "passed": true,
+        "message": "Unified health status priority passed",
+        "elapsed": 2.84,
+        "tokens": 152,
+        "timings": {
+          "cache_n": 31,
+          "prompt_n": 141,
+          "prompt_ms": 227.824,
+          "prompt_per_token_ms": 1.6157730496453901,
+          "prompt_per_second": 618.8987990729686,
+          "predicted_n": 152,
+          "predicted_ms": 2567.931,
+          "predicted_per_token_ms": 17.006165562913907,
+          "predicted_per_second": 58.80220301869481
+        }
+      },
+      {
+        "task_id": "T12_long_context_lease_manager",
+        "title": "Long Context (32k+) Thread-Safe Lease Manager",
+        "passed": false,
+        "error": "TimeoutError: timed out",
+        "elapsed": 180.1,
+        "tokens": 0,
+        "timings": {}
+      }
+    ]
+  },
+  {
+    "model_id": "/srv/ai/models/phi-4-14b/phi-4-Q4_K_M.gguf",
+    "display_name": "Phi-4-14B-Instruct",
+    "meta": {
+      "exists": true,
+      "file_path": "/srv/ai/models/phi-4-14b/phi-4-Q4_K_M.gguf",
+      "file_size_bytes": 8890306112,
+      "file_size_gib": 8.28,
+      "sha256_64mb": "4a453f6d9ff68349d8797e48f8f91f745b65a6775c55d6bd2d39c828439ab911",
+      "general_name": "Phi 4",
+      "general_arch": "llama"
+    },
+    "status": "COMPLETED",
+    "passed_tasks": 10,
+    "total_tasks": 12,
+    "pass_rate_pct": 83.3,
+    "gen_tokens_per_sec": 58.47,
+    "prompt_tokens_per_sec": 530.08,
+    "cold_load_sec": 0.27,
+    "vram_active_mib": 17640,
+    "raw_timings_sample": {
+      "cache_n": 29,
+      "prompt_n": 155,
+      "prompt_ms": 287.702,
+      "prompt_per_token_ms": 1.8561419354838709,
+      "prompt_per_second": 538.7519030107542,
+      "predicted_n": 129,
+      "predicted_ms": 2147.925,
+      "predicted_per_token_ms": 16.7806640625,
+      "predicted_per_second": 59.59239731368646
+    },
+    "tasks": [
+      {
+        "task_id": "T01_extract_model_family",
+        "title": "Extract Model Family",
+        "passed": true,
+        "message": "All 8 model families correctly extracted",
+        "elapsed": 2.44,
+        "tokens": 129,
+        "timings": {
+          "cache_n": 29,
+          "prompt_n": 155,
+          "prompt_ms": 287.702,
+          "prompt_per_token_ms": 1.8561419354838709,
+          "prompt_per_second": 538.7519030107542,
+          "predicted_n": 129,
+          "predicted_ms": 2147.925,
+          "predicted_per_token_ms": 16.7806640625,
+          "predicted_per_second": 59.59239731368646
+        }
+      },
+      {
+        "task_id": "T02_verify_auth_token",
+        "title": "Constant-Time Byte Token Comparison",
+        "passed": true,
+        "message": "Constant-time byte comparison passed all cases",
+        "elapsed": 1.54,
+        "tokens": 77,
+        "timings": {
+          "cache_n": 34,
+          "prompt_n": 83,
+          "prompt_ms": 229.458,
+          "prompt_per_token_ms": 2.7645542168674697,
+          "prompt_per_second": 361.7219709053509,
+          "predicted_n": 77,
+          "predicted_ms": 1269.266,
+          "predicted_per_token_ms": 16.700868421052633,
+          "predicted_per_second": 59.87712583493137
+        }
+      },
+      {
+        "task_id": "T03_scrub_secrets",
+        "title": "Recursive Secret & PII Scrubbing",
+        "passed": true,
+        "message": "Secret scrubbing passed recursive and string checks",
+        "elapsed": 4.0,
+        "tokens": 225,
+        "timings": {
+          "cache_n": 34,
+          "prompt_n": 102,
+          "prompt_ms": 221.908,
+          "prompt_per_token_ms": 2.1755686274509802,
+          "prompt_per_second": 459.6499450222615,
+          "predicted_n": 225,
+          "predicted_ms": 3744.445,
+          "predicted_per_token_ms": 16.716272321428573,
+          "predicted_per_second": 59.82194958131312
+        }
+      },
+      {
+        "task_id": "T04_cycle_tracker",
+        "title": "DAG Loop & Cycle Iteration Tracker",
+        "passed": true,
+        "message": "CycleTracker correctly enforced edge iteration limits",
+        "elapsed": 1.79,
+        "tokens": 92,
+        "timings": {
+          "cache_n": 32,
+          "prompt_n": 67,
+          "prompt_ms": 225.733,
+          "prompt_per_token_ms": 3.369149253731343,
+          "prompt_per_second": 296.8108340384436,
+          "predicted_n": 92,
+          "predicted_ms": 1517.025,
+          "predicted_per_token_ms": 16.670604395604396,
+          "predicted_per_second": 59.98582752426625
+        }
+      },
+      {
+        "task_id": "T05_validate_file_path",
+        "title": "Safe File Path Boundary Validation",
+        "passed": false,
+        "message": "Rejected valid path inside allowed root",
+        "elapsed": 2.41,
+        "tokens": 130,
+        "timings": {
+          "cache_n": 32,
+          "prompt_n": 118,
+          "prompt_ms": 223.207,
+          "prompt_per_token_ms": 1.8915847457627117,
+          "prompt_per_second": 528.6572553728154,
+          "predicted_n": 130,
+          "predicted_ms": 2156.462,
+          "predicted_per_token_ms": 16.71675968992248,
+          "predicted_per_second": 59.82020550327342
+        }
+      },
+      {
+        "task_id": "T06_is_destructive_command",
+        "title": "Shell Command Classifier",
+        "passed": false,
+        "message": "Failed on 'rm -rf': got is_dest=True, cmd=rm, targets=[]",
+        "elapsed": 2.87,
+        "tokens": 157,
+        "timings": {
+          "cache_n": 34,
+          "prompt_n": 113,
+          "prompt_ms": 222.589,
+          "prompt_per_token_ms": 1.9698141592920353,
+          "prompt_per_second": 507.66210369784665,
+          "predicted_n": 157,
+          "predicted_ms": 2609.849,
+          "predicted_per_token_ms": 16.729801282051284,
+          "predicted_per_second": 59.77357310710313
+        }
+      },
+      {
+        "task_id": "T07_is_outbound_allowed",
+        "title": "Outbound Destination Network Whitelist",
+        "passed": true,
+        "message": "Network whitelist passed",
+        "elapsed": 2.83,
+        "tokens": 154,
+        "timings": {
+          "cache_n": 35,
+          "prompt_n": 83,
+          "prompt_ms": 229.485,
+          "prompt_per_token_ms": 2.764879518072289,
+          "prompt_per_second": 361.67941259777325,
+          "predicted_n": 154,
+          "predicted_ms": 2558.411,
+          "predicted_per_token_ms": 16.721640522875816,
+          "predicted_per_second": 59.80274475055025
+        }
+      },
+      {
+        "task_id": "T08_sanitize_hermes_response",
+        "title": "Router Safety Fuse Response Sanitizer",
+        "passed": true,
+        "message": "Router safety fuse response sanitization passed",
+        "elapsed": 1.75,
+        "tokens": 90,
+        "timings": {
+          "cache_n": 34,
+          "prompt_n": 80,
+          "prompt_ms": 228.278,
+          "prompt_per_token_ms": 2.853475,
+          "prompt_per_second": 350.44989004634704,
+          "predicted_n": 90,
+          "predicted_ms": 1483.574,
+          "predicted_per_token_ms": 16.669370786516854,
+          "predicted_per_second": 59.99026674773216
+        }
+      },
+      {
+        "task_id": "T09_resolve_role",
+        "title": "4-Level Dynamic Role Resolver",
+        "passed": true,
+        "message": "4-level role resolution passed in strict hierarchy",
+        "elapsed": 3.03,
+        "tokens": 165,
+        "timings": {
+          "cache_n": 34,
+          "prompt_n": 168,
+          "prompt_ms": 237.619,
+          "prompt_per_token_ms": 1.4143988095238096,
+          "prompt_per_second": 707.0141697423186,
+          "predicted_n": 165,
+          "predicted_ms": 2757.234,
+          "predicted_per_token_ms": 16.81240243902439,
+          "predicted_per_second": 59.47989905825911
+        }
+      },
+      {
+        "task_id": "T10_build_safe_env",
+        "title": "Isolated Subprocess Environment Constructor",
+        "passed": true,
+        "message": "Safe environment constructor passed",
+        "elapsed": 2.3,
+        "tokens": 122,
+        "timings": {
+          "cache_n": 34,
+          "prompt_n": 81,
+          "prompt_ms": 227.347,
+          "prompt_per_token_ms": 2.806753086419753,
+          "prompt_per_second": 356.28356653045785,
+          "predicted_n": 122,
+          "predicted_ms": 2021.119,
+          "predicted_per_token_ms": 16.703462809917355,
+          "predicted_per_second": 59.8678256945781
+        }
+      },
+      {
+        "task_id": "T11_determine_profile_health",
+        "title": "Unified Health Status Priority Resolver",
+        "passed": true,
+        "message": "Unified health status priority passed",
+        "elapsed": 2.18,
+        "tokens": 116,
+        "timings": {
+          "cache_n": 34,
+          "prompt_n": 120,
+          "prompt_ms": 223.355,
+          "prompt_per_token_ms": 1.8612916666666666,
+          "prompt_per_second": 537.2613104698797,
+          "predicted_n": 116,
+          "predicted_ms": 1922.907,
+          "predicted_per_token_ms": 16.72093043478261,
+          "predicted_per_second": 59.80528439492913
+        }
+      },
+      {
+        "task_id": "T12_long_context_lease_manager",
+        "title": "Long Context (32k+) Thread-Safe Lease Manager",
+        "passed": true,
+        "message": "Long-context LeaseManager correctly implemented concurrent slots and release",
+        "elapsed": 14.38,
+        "tokens": 337,
+        "timings": {
+          "cache_n": 29,
+          "prompt_n": 8974,
+          "prompt_ms": 6622.53,
+          "prompt_per_token_ms": 0.7379685758858926,
+          "prompt_per_second": 1355.0712492053642,
+          "predicted_n": 337,
+          "predicted_ms": 7661.92,
+          "predicted_per_token_ms": 22.803333333333335,
+          "predicted_per_second": 43.853237830726506
+        }
+      }
+    ]
+  }
+]
