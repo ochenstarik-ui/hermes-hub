@@ -1904,3 +1904,14 @@ body[data-theme="medium"] .nav-icon { stroke:var(--canvas-ink); }
 body[data-theme="medium"] .brand-title { color:var(--canvas-ink); }
 body[data-theme="medium"] .nav-item.active .nav-icon { stroke:var(--text-accent); }
 .header-icon svg { width:22px; height:22px; fill:none; stroke:currentColor; stroke-width:1.5; }
+.header-update-badge { color:var(--chrome-ink); background:transparent; }
+@media(min-width:1051px) {
+  .top-header { min-height:84px; padding-top:8px; padding-bottom:8px; }
+  .header-left { display:flex; flex-wrap:wrap; gap:6px; min-width:200px; }
+  .header-title { width:100%; }
+  .header-readiness-badge,.header-update-badge { margin:0; font-size:9px; padding:4px 6px; }
+}
+.readiness-banner.not-ready { border-left-color:var(--status-error); }
+.status-dot.not-ready { background:var(--status-error); }
+.status-dot.ready { background:var(--status-healthy); }
+.resource-value { font-size:clamp(18px,1.7vw,26px); }

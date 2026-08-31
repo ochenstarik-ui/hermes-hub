@@ -85,7 +85,7 @@ function renderHostResources(container, host) {
     ['Память', measured(host.memory_percent,'%'), Number.isFinite(host.memory_used_mb) ? `${Math.round(host.memory_used_mb)} / ${Math.round(host.memory_total_mb)} МБ` : 'Н/Д: RAM не измерена'],
     ['GPU', 'Н/Д', 'API не передаёт GPU'],
     ['Диск', measured(host.disk_percent,'%'), Number.isFinite(host.disk_used_gb) ? `${host.disk_used_gb} / ${host.disk_total_gb} ГБ` : 'Н/Д: диск не измерен'],
-    ['Сеть', measured(host.net_speed_mbps,' Мбит/с'), 'Н/Д до второго замера счётчиков'],
+    ['Сеть', measured(host.net_speed_mbps,' Мбит/с'), Number.isFinite(host.net_speed_mbps) ? 'Скорость между замерами счётчиков' : 'Н/Д: требуется второй замер'],
   ];
   container.innerHTML = items.map(([label,value,reason]) => `<div class="resource-card"><div class="resource-label">${label}</div><div class="resource-value">${value}</div><div class="resource-sub">${value === 'Н/Д' ? `Н/Д: ${label} не получен от API` : reason}</div></div>`).join('');
 }

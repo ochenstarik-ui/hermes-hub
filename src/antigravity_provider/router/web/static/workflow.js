@@ -84,9 +84,9 @@ function initWorkflowOverview() {
       canvas.style.cursor = 'grabbing';
     }
   });
-  canvas?.addEventListener('mousemove', workflowPointerMove);
-  canvas?.addEventListener('mouseup', workflowPointerUp);
-  canvas?.addEventListener('mouseleave', workflowPointerCancel);
+  window.addEventListener('mousemove', workflowPointerMove);
+  window.addEventListener('mouseup', workflowPointerUp);
+  window.addEventListener('blur', workflowPointerCancel);
   window.addEventListener('resize', () => {
     drawWorkflowEdges();
   });
@@ -120,7 +120,7 @@ function renderWorkflowOverview(snapshot) {
   renderWorkflowInspector(snapshot, workflow);
   renderWorkflowEvents(workflow.events || []);
   renderWorkflowStatistics(workflow);
-  if (!workflowUi.fitted && workflow.agents?.length) { workflowUi.fitted = true; requestAnimationFrame(fitWorkflowGraph); }
+  if (!workflowUi.fitted && workflow.agents?.length) { workflowUi.fitted = true; requestAnimationFrame(focusWorkflowStart); }
   requestAnimationFrame(drawWorkflowEdges);
 }
 
@@ -236,6 +236,7 @@ function setWorkflowMode(mode) {
     return;
   }
   workflowUi.mode = mode;
+  document.body.dataset.workflowMode = mode;
   document.querySelectorAll('.workflow-mode-btn').forEach((button) => button.classList.toggle('active', button.dataset.mode === mode));
   renderWorkflowOverview(currentSnapshot);
 }
@@ -268,7 +269,7 @@ function workflowPointerMove(event) {
     const dx = (event.clientX - drag.startX) / workflowUi.scale;
     const dy = (event.clientY - drag.startY) / workflowUi.scale;
     if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
-    workflowUi.draftPositions[drag.id] = { x: Math.max(0, drag.original.x + dx), y: Math.max(0, drag.original.y + dy) };
+    workflowUi.draftPositions[drag.id] = { x: drag.original.x + dx, y: drag.original.y + dy };
     const node = document.querySelector(`.workflow-node[data-agent-id="${CSS.escape(drag.id)}"]`);
     if (node) {
       node.style.left = `${workflowUi.draftPositions[drag.id].x}px`;
@@ -340,18 +341,17 @@ function drawWorkflowEdges() {
     const y1 = source.offsetTop + source.offsetHeight / 2;
     const x2 = target.offsetLeft;
     const y2 = target.offsetTop + target.offsetHeight / 2;
-    const bend = Math.max(45, Math.abs(x2 - x1) * 0.42);
-    const path = `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
     const klass = String(edge.condition || '').toLowerCase();
     const label = edge.label || edge.condition;
     const labelWidth = Math.max(70, String(label).length * 6 + 16);
     const labelX = (x1 + x2) / 2;
-    let labelY = (y1 + y2) / 2 - 12;
+    let labelY = Math.min(source.offsetTop, target.offsetTop) - 30;
     const boxes = [...document.querySelectorAll('.workflow-node')].map(node => ({left:node.offsetLeft,top:node.offsetTop,width:node.offsetWidth,height:node.offsetHeight}));
-    const overlaps = box => labelX + labelWidth/2 > box.left - 6 && labelX - labelWidth/2 < box.left + box.width + 6 && labelY + 10 > box.top - 6 && labelY - 12 < box.top + box.height + 6;
-    while ([...boxes,...occupiedLabels].some(overlaps)) labelY += 24;
-    occupiedLabels.push({left:labelX-labelWidth/2,top:labelY-12,width:labelWidth,height:22});
-    labels.push(`<g><rect class="workflow-label-bg" x="${labelX-labelWidth/2}" y="${labelY-12}" width="${labelWidth}" height="22" rx="4"></rect><text class="workflow-edge-label" x="${labelX}" y="${labelY+3}">${wfEscape(label)}</text></g>`);
+    const overlaps = box => labelX + labelWidth/2 > box.left - 6 && labelX - labelWidth/2 < box.left + box.width + 6 && labelY + 12 > box.top - 6 && labelY - 12 < box.top + box.height + 6;
+    while ([...boxes,...occupiedLabels].some(overlaps)) labelY -= 30;
+    occupiedLabels.push({left:labelX-labelWidth/2,top:labelY-12,width:labelWidth,height:24});
+    const path = `M ${x1} ${y1} C ${x1+28} ${y1}, ${x1+28} ${labelY}, ${x1} ${labelY} L ${x2} ${labelY} C ${x2-28} ${labelY}, ${x2-28} ${y2}, ${x2} ${y2}`;
+    labels.push(`<g><rect class="workflow-label-bg" x="${labelX-labelWidth/2}" y="${labelY-12}" width="${labelWidth}" height="24" rx="4"></rect><text class="workflow-edge-label" x="${labelX}" y="${labelY+3}">${wfEscape(label)}</text></g>`);
     parts.push(`<path class="${wfEscape(klass)}" d="${path}"></path><path class="workflow-edge-hit" data-edge-id="${wfEscape(edge.id)}" d="${path}"></path>`);
   });
   layer.innerHTML = parts.join('');
@@ -377,7 +377,7 @@ function setWorkflowScale(value, focusX, focusY) {
   const canvas = document.getElementById('workflow-canvas');
   if (!canvas) return;
   const oldScale = workflowUi.scale;
-  const newScale = Math.max(0.3, Math.min(2.5, Math.round(value * 100) / 100));
+  const newScale = Math.max(0.1, Math.min(2.5, Math.round(value * 100) / 100));
   if (focusX === undefined || focusY === undefined) {
     focusX = canvas.clientWidth / 2;
     focusY = canvas.clientHeight / 2;
@@ -385,6 +385,16 @@ function setWorkflowScale(value, focusX, focusY) {
   workflowUi.panX = focusX - (focusX - workflowUi.panX) * (newScale / oldScale);
   workflowUi.panY = focusY - (focusY - workflowUi.panY) * (newScale / oldScale);
   workflowUi.scale = newScale;
+  updateCanvasTransform();
+}
+
+function focusWorkflowStart() {
+  const canvas = document.getElementById('workflow-canvas');
+  const node = document.querySelector('.workflow-node.selected') || document.querySelector('.workflow-node');
+  if (!canvas || !node) return;
+  workflowUi.scale = .85;
+  workflowUi.panX = 80 - node.offsetLeft * workflowUi.scale;
+  workflowUi.panY = 110 - node.offsetTop * workflowUi.scale;
   updateCanvasTransform();
 }
 
@@ -403,9 +413,16 @@ function fitWorkflowGraph() {
   agents.forEach((agent) => {
     const pos = workflowUi.draftPositions[agent.id] || agent.position || { x: 80, y: 80 };
     minX = Math.min(minX, pos.x);
-    maxX = Math.max(maxX, pos.x + 250);
+    const node = document.querySelector(`.workflow-node[data-agent-id="${CSS.escape(agent.id)}"]`);
+    maxX = Math.max(maxX, pos.x + (node?.offsetWidth || 250));
     minY = Math.min(minY, pos.y);
-    maxY = Math.max(maxY, pos.y + 124);
+    maxY = Math.max(maxY, pos.y + (node?.offsetHeight || 124));
+  });
+  document.querySelectorAll('.workflow-label-bg').forEach(label => {
+    const x = Number(label.getAttribute('x')), y = Number(label.getAttribute('y'));
+    minX = Math.min(minX, x); minY = Math.min(minY, y);
+    maxX = Math.max(maxX, x + Number(label.getAttribute('width')));
+    maxY = Math.max(maxY, y + Number(label.getAttribute('height')));
   });
   const width = maxX - minX || 200;
   const height = maxY - minY || 120;
@@ -501,6 +518,7 @@ function renderAgentModelTab(content, snapshot, agent) {
   const providerSelect = document.getElementById('agent-provider');
   const accountSelect = document.getElementById('agent-account');
   const modelSelect = document.getElementById('agent-model');
+  let initialRendering = true;
   const refreshAccounts = () => {
     const matches = profiles.filter((profile) => profile.provider === providerSelect.value);
     accountSelect.innerHTML = matches.length ? matches.map((profile) => `<option value="${wfEscape(profile.profile_id)}" ${profile.profile_id === cfg.account ? 'selected' : ''}>${wfEscape(profile.account_identity || profile.display_name || profile.profile_id)}</option>`).join('') : '<option value="">Н/Д: нет подключённых аккаунтов</option>';
@@ -508,12 +526,13 @@ function renderAgentModelTab(content, snapshot, agent) {
   };
   const refreshModels = () => {
     const profile = profiles.find((item) => item.profile_id === accountSelect.value);
-    const selected = profile?.profile_id === cfg.account && providerSelect.value === cfg.provider ? cfg.model : '';
+    const selected = initialRendering || (profile?.profile_id === cfg.account && providerSelect.value === cfg.provider) ? cfg.model : '';
     modelSelect.innerHTML = modelOptions(snapshot, profile || { provider: providerSelect.value }, selected);
   };
   providerSelect.onchange = refreshAccounts;
   accountSelect.onchange = refreshModels;
   refreshAccounts();
+  initialRendering = false;
   document.getElementById('agent-model-save').onclick = () => executeAction('update_agent', {
     agent_id: agent.id, provider: providerSelect.value, profile_id: accountSelect.value, model: modelSelect.value,
     temperature: nullableNumber('agent-temperature'), max_tokens: nullableNumber('agent-max-tokens'), timeout: nullableNumber('agent-timeout'),

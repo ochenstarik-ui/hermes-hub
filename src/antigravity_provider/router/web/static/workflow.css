@@ -148,3 +148,43 @@ dt { color:var(--text-muted); } dd { text-align:right; color:var(--text-secondar
 @media(max-width:1250px) { .workflow-kpis { grid-template-columns:repeat(3,minmax(0,1fr)); }.workflow-main-layout { grid-template-columns:minmax(0,1fr) 300px; } }
 @media(max-width:950px) { .workflow-main-layout { grid-template-columns:1fr; }.workflow-inspector { max-height:none; }.workflow-bottom-grid { grid-template-columns:1fr; } }
 @media(max-width:650px) { .workflow-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); }.workflow-toolbar { flex-wrap:wrap; }.workflow-toolbar-actions { flex-wrap:wrap; }.workflow-canvas { min-height:400px; } }
+
+/* Match the reference: one KPI row; inspector spans graph and lower cards. */
+body[data-view="overview"] .header-page-actions { display:none; }
+body:not([data-view="overview"]) .top-header>.workflow-mode { display:none; }
+.workflow-toolbar { display:none; }
+body[data-workflow-mode="edit"] .workflow-toolbar { display:flex; justify-content:flex-end; }
+.workflow-kpis { grid-template-columns:repeat(6,minmax(0,1fr)); }
+.workflow-kpi { min-height:86px; padding:11px 10px; }
+.workflow-kpi strong { font-size:18px; }
+.workflow-main-layout { grid-template-columns:minmax(0,1fr) 30%; grid-template-rows:auto auto; min-height:0; gap:10px; }
+.workflow-board-card { grid-column:1; grid-row:1; }
+.workflow-inspector { grid-column:2; grid-row:1 / span 2; max-height:calc(100vh - 204px); }
+.workflow-bottom-grid { grid-column:1; grid-row:2; margin:0; min-width:0; align-items:stretch; }
+.workflow-bottom-grid>section { min-width:0; min-height:170px; }
+.workflow-canvas { min-height:300px; height:clamp(300px,calc(100vh - 460px),520px); flex:auto; }
+.workflow-board-header { min-height:44px; padding:8px 10px; }
+.workflow-board-header>div:first-child { flex-basis:100%; }
+.workflow-board-header strong { text-transform:none; }
+.workflow-legend { gap:8px; padding:6px 10px; font-size:9px; }
+.workflow-run-panel textarea { min-height:46px; }
+.workflow-run-panel .btn { padding:6px; font-size:10px; }
+.workflow-events header { flex-wrap:wrap; gap:6px; }
+.workflow-statistics dl { grid-template-columns:1fr; gap:4px; }
+.workflow-statistics dd { text-align:left; margin-bottom:6px; }
+.workflow-statistics p { font-size:10px; }
+.workflow-events-list { max-height:150px; }
+@media(min-width:1450px) { .workflow-board-header>div:first-child { flex-basis:220px; } }
+@media(max-width:1050px) { .workflow-kpis { grid-template-columns:repeat(3,minmax(0,1fr)); } .workflow-bottom-grid { grid-template-columns:1fr; } }
+@media(max-width:950px) { .workflow-main-layout { grid-template-columns:1fr; } .workflow-inspector { grid-column:1; grid-row:2; max-height:580px; } .workflow-bottom-grid { grid-row:3; grid-template-columns:repeat(3,minmax(0,1fr)); } }
+@media(max-width:650px) { .workflow-kpis { grid-template-columns:repeat(2,minmax(0,1fr)); } .workflow-bottom-grid { grid-template-columns:1fr; } }
+@media(min-width:1051px) {
+  body[data-view="overview"] .top-header { min-height:74px; padding-top:8px; padding-bottom:8px; }
+  body[data-view="overview"] .header-left { display:grid; grid-template-columns:max-content max-content; gap:6px 10px; }
+  body[data-view="overview"] .header-title { grid-column:1 / -1; }
+  body[data-view="overview"] .header-readiness-badge,body[data-view="overview"] .header-update-badge { margin:0; font-size:9px; padding:4px 6px; }
+}
+.workflow-canvas { height:clamp(300px,calc(100vh - 570px),430px); }
+.workflow-inspector .inspector-section { padding:10px; margin:8px 0; }
+.workflow-inspector .inspector-section p { line-height:1.4; margin:6px 0; }
+.workflow-inspector dl { gap:6px 10px; margin:8px 0; }

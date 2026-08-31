@@ -1268,7 +1268,7 @@ function renderAnalyticsView() {
             <td>${item.total_calls ?? 0}</td>
             <td style="color:var(--status-healthy);">${item.successful_calls ?? 0}</td>
             <td style="color:${(item.failed_calls ?? 0) > 0 ? 'var(--status-error)' : 'inherit'};">${item.failed_calls ?? 0}</td>
-            <td>${item.latency_p50_ms ? `${item.latency_p50_ms} мс` : '—'}</td>
+            <td>${Number.isFinite(item.latency_p50_ms) ? `${item.latency_p50_ms} мс` : '—'}</td>
             <td>${item.total_tokens != null ? new Intl.NumberFormat('ru-RU').format(item.total_tokens) : 'Н/Д'}</td>
           </tr>
         `;
@@ -1307,7 +1307,7 @@ function renderAnalyticsView() {
             <td>${item.total_calls ?? 0}</td>
             <td style="color:var(--status-healthy);">${item.successful_calls ?? 0}</td>
             <td style="color:${(item.failed_calls ?? 0) > 0 ? 'var(--status-error)' : 'inherit'};">${item.failed_calls ?? 0}</td>
-            <td>${item.latency_p50_ms ? `${item.latency_p50_ms} мс` : '—'}</td>
+            <td>${Number.isFinite(item.latency_p50_ms) ? `${item.latency_p50_ms} мс` : '—'}</td>
           </tr>
         `;
       });
