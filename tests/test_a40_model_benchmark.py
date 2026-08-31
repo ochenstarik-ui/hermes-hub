@@ -10,6 +10,10 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from benchmarks.benchmark_suite import BENCHMARK_TASKS, _compile_and_get
+# gguf — зависимость только стенда замеров. На машине без неё модуль
+# ронял СБОР всех тестов, а не один этот файл.
+pytest.importorskip("gguf", reason="gguf ставится дополнением benchmarks")
+
 from benchmarks.run_benchmark import get_gguf_metadata
 
 
