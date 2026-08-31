@@ -38,6 +38,20 @@ class NvidiaAdapter(BaseProviderAdapter):
         if key:
             return str(key).strip()
 
+        # Ключ, введённый в мастере, сохраняется через ProfileAuthManager, а не в
+        # auth_config из router_profiles.yaml. Адаптер читал только второе место и
+        # уходил без заголовка Authorization: провайдер отвечал 401 «Header of type
+        # authorization was missing», хотя список моделей тем же ключом получался.
+        try:
+            from antigravity_provider.router.profile_manager import ProfileAuthManager
+
+            stored = ProfileAuthManager.load_profile_auth(profile.provider, profile.profile_id) or {}
+            key = stored.get("api_key") or stored.get("token")
+            if key:
+                return str(key).strip()
+        except Exception:
+            pass
+
         suffix = profile.profile_id.upper().replace("-", "_")
         for candidate in (f"NVIDIA_API_KEY_{suffix}", "NVIDIA_API_KEY", "NV_API_KEY"):
             val = os.environ.get(candidate, "").strip()

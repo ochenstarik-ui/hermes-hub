@@ -576,9 +576,11 @@ function updateGlobalHeader() {
   const readiness = currentSnapshot.readiness || {};
   renderAccountSummary(currentSnapshot);
   const allProfiles = Object.values(currentSnapshot.all_profiles || {});
-  const connectedAccounts = readiness.accounts_connected_count ?? allProfiles.filter(
-    (p) => isConnectedProfile(p)
-  ).length;
+  // Одно число — одно определение. Готовность считает строго AUTHENTICATED,
+  // а страница аккаунтов — всё, что не NOT_CONFIGURED. Из-за двух определений
+  // значок в меню показывал 9, а карточка на той же странице — 3.
+  // Берём то же правило, что и страница аккаунтов: расходиться они не должны.
+  const connectedAccounts = allProfiles.filter((p) => isConnectedProfile(p)).length;
 
   if (elements.navAccountsCount) elements.navAccountsCount.textContent = connectedAccounts;
 
