@@ -88,6 +88,7 @@ function initNavigation() {
 
 function switchView(viewName) {
   activeView = viewName;
+  document.body.dataset.view = viewName;
   document.querySelectorAll('.nav-item').forEach((btn) => {
     btn.classList.toggle('active', btn.dataset.view === viewName);
   });
@@ -98,9 +99,9 @@ function switchView(viewName) {
   const titles = {
     overview: 'Обзор системы',
     accounts: 'Аккаунты и квоты',
-    routing: 'Главный экран управления маршрутизацией',
+    routing: 'Маршрутизация',
     analytics: 'Аналитика и телеметрия',
-    health: 'Состояние и диагностика',
+    health: 'Состояние системы',
     logs: 'Журнал событий',
     settings: 'Настройки Hermes Hub',
   };
@@ -533,6 +534,7 @@ function updateGlobalHeader() {
   if (!currentSnapshot) return;
 
   const readiness = currentSnapshot.readiness || {};
+  renderAccountSummary(currentSnapshot);
   const allProfiles = Object.values(currentSnapshot.all_profiles || {});
   const connectedAccounts = readiness.accounts_connected_count ?? allProfiles.filter(
     (p) => isConnectedProfile(p)
@@ -725,7 +727,7 @@ function renderAccountCard(profile) {
   const roles = (profile.assigned_roles || []).join(', ') || 'Роль: Н/Д';
   const identity = profile.email || profile.account_identity || profile.display_name || profile.profile_id;
   const healthState = profile.health_state || 'unknown';
-  const healthLabel = profile.health_label_ru || (profile.enabled ? 'Работает' : 'Отключён');
+  const healthLabel = profile.health_label_ru || 'Н/Д: состояние не проверялось';
   const plan = profile.plan_code && profile.plan_code !== 'UNKNOWN' ? profile.plan_code : '';
 
   const quotaSnap = profile.quota_snapshot || (currentSnapshot.quotas || {})[profile.profile_id];
@@ -770,7 +772,7 @@ function renderAccountCard(profile) {
     <div class="account-card ${isMain ? 'main-account' : ''}" data-profile-id="${escapeHtml(profile.profile_id)}">
       <div class="account-card-header">
         <div class="account-provider-tag">
-          <span>${escapeHtml(profile.provider_display_name || profile.provider)}</span>
+          <img src="/static/${getProviderIcon(profile.provider)}" alt=""><span>${escapeHtml(profile.provider_display_name || profile.provider)}</span>
         </div>
         <div class="account-badges">
           ${plan ? `<span class="badge badge-plan">${escapeHtml(plan)}</span>` : ''}
@@ -999,171 +1001,7 @@ function getProviderIcon(provider) {
   return map[provider] || 'llama.png';
 }
 
-function renderRoutingView() {
-  const leftCol = document.getElementById('routing-roles-container');
-  const rightCol = document.getElementById('routing-available-container');
-  if (!leftCol || !rightCol || !currentSnapshot) return;
-
-  const routing = currentSnapshot.routing || {};
-  const agents = currentSnapshot.agents || [];
-  // Снапшот отдаётся как dataclasses.asdict(HubSnapshot): профили лежат в
-  // all_profiles. Ключа profiles в ответе нет — правая колонка была всегда
-  // пуста, счётчик оставался литеральным «0 аккаунтов» из разметки, а строки
-  // цепочек получали пустой профиль и рисовались иконкой-заглушкой.
-  // Показываем только подключённые аккаунты — правило A26.
-  // Для строк цепочек берём полный список: цепочка может ссылаться на
-  // аккаунт, который сейчас не подключён, и его надо показать как есть,
-  // а не подменять пустым профилем.
-  const profiles = currentSnapshot.all_profiles || {};
-  // В колонку «доступные» идут только подключённые — правило A26.
-  const availableProfiles = Object.entries(profiles).filter(([, p]) => isConnectedProfile(p));
-
-  // Render Left Column (Roles)
-  let rolesHtml = '';
-  for (const [roleId, pipeline] of Object.entries(routing)) {
-    const chain = pipeline.preferred_chain || [];
-    const agentInfo = agents.find((a) => a.role_id === roleId);
-    
-    let isImportant = ['manager', 'developer-1', 'developer-2'].includes(roleId);
-    let badgeHtml = isImportant ? `<span class="role-badge"><i class="fa-solid fa-star"></i> Важная роль</span>` : '';
-    let roleDesc = CANONICAL_ROLE_DESCRIPTIONS[roleId] || '';
-
-    rolesHtml += `
-      <div class="role-section" data-role="${escapeHtml(roleId)}">
-        <div class="role-header">
-          <div>
-            <h4><i class="fa-solid fa-network-wired" style="color:var(--accent);"></i> ${escapeHtml(pipeline.role_name_ru || roleId)} ${badgeHtml}</h4>
-            <div style="font-size:11px; color:var(--text-muted); margin-top:2px;">${escapeHtml(roleDesc)}</div>
-          </div>
-          <div style="display:flex; align-items:center; gap:12px;">
-            <span style="font-size:12px; color:var(--text-secondary);">${chain.length} аккаунта</span>
-            <button class="btn btn-secondary btn-sm" onclick="openAddNodeToChainModal('${escapeHtml(roleId)}')">
-              + Добавить аккаунт
-            </button>
-            <i class="fa-solid fa-ellipsis-vertical" style="color:var(--text-muted); cursor:pointer;"></i>
-          </div>
-        </div>
-        <div class="grid-header">
-          <div><!-- drag handle --></div>
-          <div>Приоритет</div>
-          <div>Аккаунт</div>
-          <div>Модель</div>
-          <div>Провайдер</div>
-          <div>Квоты</div>
-          <div>Сброс</div>
-          <div>Статус</div>
-          <div><!-- remove --></div>
-        </div>
-        <div class="role-chain-list" id="chain-${escapeHtml(roleId)}" style="min-height: 10px;">
-    `;
-
-    chain.forEach((pid, index) => {
-      const prof = profiles[pid] || {};
-      const prov = prof.provider || 'unknown';
-      const icon = getProviderIcon(prov);
-      
-      const quotaSnap = prof.quota_snapshot || (currentSnapshot.quotas || {})[pid] || {};
-      const buckets = quotaSnap.buckets || [];
-      let quotaBarsHtml = '';
-      let resetHtml = '—';
-      if (buckets.length > 0) {
-        quotaBarsHtml = buckets.slice(0, 2).map((b) => {
-          const pct = typeof b.remaining_percent === 'number' ? Math.max(0, Math.min(100, b.remaining_percent)) : 0;
-          const color = pct < 20 ? 'var(--status-error)' : pct < 50 ? 'var(--status-warning)' : 'var(--status-healthy)';
-          return `<div class="cell-bar-track" style="margin-top:2px;" title="${escapeHtml(b.label || 'Квота')}: ${pct}%"><div class="cell-bar-fill" style="width:${pct}%; background:${color};"></div></div>`;
-        }).join('');
-        if (buckets[0].reset_time_formatted) {
-          resetHtml = escapeHtml(buckets[0].reset_time_formatted);
-        } else if (buckets[0].reset_after_formatted) {
-          resetHtml = escapeHtml(buckets[0].reset_after_formatted);
-        }
-      } else {
-        const reason = quotaSnap.unavailable_reason || (prof.enabled === false ? 'Отключён' : 'Провайдер не отдаёт лимиты');
-        quotaBarsHtml = `<div style="font-size:10px; color:var(--text-muted);" title="${escapeHtml(reason)}">Н/Д</div>`;
-      }
-      const healthClass = prof.health_state || (prof.enabled ? 'healthy' : 'disabled');
-      const healthLabel = prof.health_label_ru || (prof.enabled ? 'Активен' : 'Отключён');
-
-      rolesHtml += `
-        <div class="account-row draggable-item" draggable="true" data-pid="${escapeHtml(pid)}" data-role="${escapeHtml(roleId)}">
-          <div class="drag-handle"><i class="fa-solid fa-grip-vertical"></i></div>
-          <div style="font-weight:600; color:var(--text-primary); text-align:center;">${index + 1}</div>
-          <div style="display:flex; align-items:center; gap:8px;">
-            <img src="/static/${icon}" class="provider-logo-sm" onerror="this.src='/static/llama.png'">
-            <div>
-              <div style="font-weight:600;">${escapeHtml(pid)}</div>
-              <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(prof.account_id || '')}</div>
-            </div>
-          </div>
-          <div>
-            <select class="form-control" style="padding:2px 4px; font-size:11px;" disabled>
-              <option>${escapeHtml(prof.default_model || 'Default')}</option>
-            </select>
-          </div>
-          <div style="display:flex; align-items:center; gap:4px;">
-            <img src="/static/${icon}" class="provider-logo-sm" onerror="this.src='/static/llama.png'">
-            ${escapeHtml(prov)}
-          </div>
-          <div>
-            ${quotaBarsHtml}
-          </div>
-          <div style="font-size:10px; color:var(--text-muted);">
-            ${resetHtml}
-          </div>
-          <div>
-            <span class="status-dot ${escapeHtml(healthClass)}"></span>
-            <span style="font-size:11px; margin-left:4px;">${escapeHtml(healthLabel)}</span>
-          </div>
-          <div style="text-align:center; cursor:pointer; color:var(--status-warning);" onclick="removeProfileFromChain('${escapeHtml(roleId)}', '${escapeHtml(pid)}')">
-            <i class="fa-solid fa-xmark"></i>
-          </div>
-        </div>
-      `;
-    });
-
-    rolesHtml += `
-        </div>
-        <div class="drop-zone" data-role="${escapeHtml(roleId)}">
-          <i class="fa-solid fa-arrows-up-down"></i> Перетащите аккаунт сюда для добавления в конец списка
-        </div>
-      </div>
-    `;
-  }
-  leftCol.innerHTML = rolesHtml;
-
-  // Render Right Column (Available Accounts)
-  let availHtml = '';
-  const searchEl = document.getElementById('routing-account-search');
-  const q = searchEl ? searchEl.value.toLowerCase() : '';
-  
-  let count = 0;
-  for (const [pid, prof] of availableProfiles) {
-    if (q && !pid.toLowerCase().includes(q) && !(prof.provider||'').toLowerCase().includes(q)) continue;
-    count++;
-    const icon = getProviderIcon(prof.provider);
-    availHtml += `
-      <div class="available-account-card draggable-item" draggable="true" data-pid="${escapeHtml(pid)}" data-source="available">
-        <img src="/static/${icon}" style="width:24px; height:24px; border-radius:4px;" onerror="this.src='/static/llama.png'">
-        <div style="flex:1;">
-          <div style="font-weight:600; font-size:12px;">${escapeHtml(pid)}</div>
-          <div style="font-size:10px; color:var(--text-muted);">${escapeHtml(prof.provider || '')}</div>
-        </div>
-        <div style="width:40px;">
-           <!-- Здесь стояла полоса с зашитым width:80% — одинаковая у всех
-                аккаунтов и ни на чём не основанная. Показываем измеренное
-                состояние здоровья, а не выдуманный процент. -->
-           <span class="status-dot ${healthDotClass(prof.health_state)}" title="${escapeHtml(prof.health_label_ru || 'Н/Д: состояние не проверялось')}"></span>
-        </div>
-        <button class="btn btn-secondary btn-sm" style="padding:2px 6px;" onclick="quickAddProfile('${escapeHtml(pid)}')"><i class="fa-solid fa-plus"></i></button>
-      </div>
-    `;
-  }
-  rightCol.innerHTML = availHtml;
-  const countEl = document.getElementById('available-accounts-count');
-  if (countEl) countEl.innerText = `${count} аккаунтов`;
-
-  setupDragAndDrop();
-}
+function renderRoutingView() { renderAccountRouting(); }
 
 function quickAddProfile(pid) {
     const routing = currentSnapshot.routing || {};
@@ -1242,7 +1080,7 @@ function handleDropMove(pid, sourceRole, targetRole, insertIndex) {
   const routing = currentSnapshot.routing;
   if (!routing || !routing[targetRole]) return;
   
-  const targetChain = [...(routing[targetRole].preferred_chain || [])];
+  const targetChain = (routing[targetRole].nodes || []).map(node => node.profile_id);
   
   if (sourceRole && sourceRole === targetRole) {
     const oldIndex = targetChain.indexOf(pid);
@@ -1272,24 +1110,14 @@ function handleDropMove(pid, sourceRole, targetRole, insertIndex) {
 }
 
 async function updateRoleChain(roleId, newChain) {
-  try {
-    const resp = await fetch(`/api/v1/router/roles/${encodeURIComponent(roleId)}/chain`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(newChain)
-    });
-    if (!resp.ok) throw new Error(await resp.text());
-    showToast(`Цепочка для ${roleId} обновлена`, 'success');
-    await fetchSnapshot();
-  } catch (e) {
-    showToast(`Ошибка сохранения: ${e.message}`, 'error');
-  }
+  const result = await executeAction('save_chain', { role_id: roleId, chain: newChain });
+  if (result.ok) await fetchSnapshot();
 }
 
 async function removeProfileFromChain(roleId, pid) {
     const routing = currentSnapshot.routing;
     if (!routing || !routing[roleId]) return;
-    const chain = [...(routing[roleId].preferred_chain || [])];
+    const chain = (routing[roleId].nodes || []).map(node => node.profile_id);
     const idx = chain.indexOf(pid);
     if (idx > -1) {
         chain.splice(idx, 1);
@@ -1304,7 +1132,7 @@ function openAddNodeToChainModal(roleId) {
 
   const currentChain = (pipeline.nodes || []).map((n) => n.profile_id);
   const allProfiles = currentSnapshot.all_profiles || {};
-  const available = Object.values(allProfiles).filter((p) => !currentChain.includes(p.profile_id));
+  const available = Object.values(allProfiles).filter((p) => isConnectedProfile(p) && !currentChain.includes(p.profile_id));
 
   elements.modalTitle.textContent = `Добавить профиль в цепочку: ${pipeline.role_name_ru || roleId}`;
   if (available.length === 0) {
@@ -1382,8 +1210,8 @@ function renderAnalyticsView() {
   if (global.total_calls !== undefined) {
     if (totalCallsEl) totalCallsEl.textContent = new Intl.NumberFormat('ru-RU').format(global.total_calls);
     if (callsBreakdownEl) callsBreakdownEl.textContent = `Успешно: ${global.successful_calls ?? 0} · Сбоев: ${global.failed_calls ?? 0}`;
-    const errRate = global.total_calls > 0 ? (((global.failed_calls ?? 0) / global.total_calls) * 100).toFixed(1) : '0.0';
-    if (errorRateEl) errorRateEl.textContent = `${errRate}%`;
+    const errRate = global.total_calls > 0 && global.failed_calls != null ? ((global.failed_calls / global.total_calls) * 100).toFixed(1) : null;
+    if (errorRateEl) errorRateEl.textContent = errRate === null ? 'Н/Д' : `${errRate}%`;
     if (errorRateSubEl) errorRateSubEl.textContent = `${global.failed_calls ?? 0} сбоев из ${global.total_calls} вызовов`;
   } else {
     if (totalCallsEl) totalCallsEl.textContent = '—';
@@ -1392,7 +1220,7 @@ function renderAnalyticsView() {
     if (errorRateSubEl) errorRateSubEl.textContent = 'Нет зарегистрированных сбоев';
   }
 
-  if (global.latency_p50_ms !== undefined) {
+  if (Number.isFinite(global.latency_p50_ms)) {
     if (latencyP50El) latencyP50El.textContent = `${global.latency_p50_ms} мс`;
     if (latencySubEl) latencySubEl.textContent = `p95: ${global.latency_p95_ms ?? '—'} мс · max: ${global.latency_max_ms ?? '—'} мс`;
   } else {
@@ -1402,15 +1230,17 @@ function renderAnalyticsView() {
 
   if (global.total_tokens !== undefined && global.total_tokens !== null) {
     if (tokensTotalEl) tokensTotalEl.textContent = new Intl.NumberFormat('ru-RU').format(global.total_tokens);
-    if (tokensSubEl) tokensSubEl.textContent = `Вход: ${new Intl.NumberFormat('ru-RU').format(global.prompt_tokens ?? 0)} · Выход: ${new Intl.NumberFormat('ru-RU').format(global.completion_tokens ?? 0)}`;
+    if (tokensSubEl) tokensSubEl.textContent = `Вход: ${new Intl.NumberFormat('ru-RU').format(global.total_prompt_tokens ?? 'Н/Д')} · Выход: ${new Intl.NumberFormat('ru-RU').format(global.total_completion_tokens ?? 'Н/Д')}`;
   } else {
     if (tokensTotalEl) tokensTotalEl.textContent = 'Н/Д';
     if (tokensSubEl) tokensSubEl.textContent = 'Н/Д: провайдеры не отдают usage';
   }
 
+  renderAnalyticsCharts(telemetry);
+
   // Providers telemetry table
   const providersContainer = document.getElementById('analytics-providers-table');
-  const providersData = telemetry.providers || {};
+  const providersData = telemetry.by_provider || {};
   if (providersContainer) {
     const provKeys = Object.keys(providersData);
     if (provKeys.length === 0) {
@@ -1439,7 +1269,7 @@ function renderAnalyticsView() {
             <td style="color:var(--status-healthy);">${item.successful_calls ?? 0}</td>
             <td style="color:${(item.failed_calls ?? 0) > 0 ? 'var(--status-error)' : 'inherit'};">${item.failed_calls ?? 0}</td>
             <td>${item.latency_p50_ms ? `${item.latency_p50_ms} мс` : '—'}</td>
-            <td>${item.total_tokens ? new Intl.NumberFormat('ru-RU').format(item.total_tokens) : 'Н/Д'}</td>
+            <td>${item.total_tokens != null ? new Intl.NumberFormat('ru-RU').format(item.total_tokens) : 'Н/Д'}</td>
           </tr>
         `;
       });
@@ -1450,7 +1280,7 @@ function renderAnalyticsView() {
 
   // Roles telemetry table
   const rolesContainer = document.getElementById('analytics-roles-table');
-  const rolesData = telemetry.roles || {};
+  const rolesData = telemetry.by_role || {};
   if (rolesContainer) {
     const roleKeys = Object.keys(rolesData);
     if (roleKeys.length === 0) {
@@ -1493,7 +1323,7 @@ function renderHealthView() {
   const readiness = currentSnapshot.readiness || {};
   const banner = document.getElementById('health-readiness-banner');
   if (banner) {
-    const stateClass = readiness.state === 'READY' ? 'ready' : (readiness.state === 'DEGRADED' ? 'warning' : 'not-ready');
+    const stateClass = readiness.state === 'HEALTHY' ? 'ready' : (readiness.state === 'LIMITED' ? 'warning' : 'not-ready');
     banner.className = `readiness-banner ${stateClass}`;
     banner.innerHTML = `
       <div class="readiness-banner-header">
@@ -1502,7 +1332,7 @@ function renderHealthView() {
       </div>
       <p class="readiness-banner-desc">${escapeHtml(readiness.summary_ru || 'Проверка состояния маршрутизатора')}</p>
       <div class="readiness-banner-metrics">
-        <span>Готовых ролей: <strong>${readiness.roles_ready_count ?? 0} из ${readiness.total_roles ?? 13}</strong></span>
+        <span>Готовых ролей: <strong>${readiness.roles_ready_count ?? 0} из ${readiness.total_roles ?? 'Н/Д'}</strong></span>
         <span>Подключенных аккаунтов: <strong>${(currentSnapshot.all_profiles ? Object.values(currentSnapshot.all_profiles).filter(isConnectedProfile).length : 0)}</strong></span>
       </div>
     `;
@@ -1510,31 +1340,10 @@ function renderHealthView() {
 
   const resContainer = document.getElementById('health-host-resources');
   if (resContainer) {
-    const host = currentSnapshot.host_resources || {};
-    resContainer.innerHTML = `
-      <div class="resource-card">
-        <div class="resource-label">CPU</div>
-        <div class="resource-value">${host.cpu_percent !== undefined ? `${host.cpu_percent}%` : 'Н/Д'}</div>
-        <div class="resource-sub">${host.cpu_count ? `${host.cpu_count} ядер` : 'Системный CPU'}</div>
-      </div>
-      <div class="resource-card">
-        <div class="resource-label">Память (RAM)</div>
-        <div class="resource-value">${host.memory_percent !== undefined ? `${host.memory_percent}%` : 'Н/Д'}</div>
-        <div class="resource-sub">${host.memory_used_gb ? `${host.memory_used_gb} ГБ / ${host.memory_total_gb} ГБ` : 'Оперативная память'}</div>
-      </div>
-      <div class="resource-card">
-        <div class="resource-label">Диск</div>
-        <div class="resource-value">${host.disk_percent !== undefined ? `${host.disk_percent}%` : 'Н/Д'}</div>
-        <div class="resource-sub">${host.disk_free_gb ? `Свободно ${host.disk_free_gb} ГБ` : 'Хранилище'}</div>
-      </div>
-      <div class="resource-card">
-        <div class="resource-label">Время работы (Uptime)</div>
-        <div class="resource-value">${host.uptime_formatted || host.uptime || 'В сети'}</div>
-        <div class="resource-sub">Процесс Hermes Hub</div>
-      </div>
-    `;
+    renderHostResources(resContainer, currentSnapshot.metrics?.host || {});
   }
 
+  renderHealthPanels(currentSnapshot);
   const warningsContainer = document.getElementById('health-warnings-list');
   if (warningsContainer) {
     const warnings = readiness.warnings || [];
@@ -1554,21 +1363,9 @@ function renderHealthView() {
 let cachedLogs = [];
 
 async function fetchLogs() {
-  const container = document.getElementById('logs-container');
-  if (container) {
-    container.innerHTML = '<div style="padding:16px; text-align:center; color:var(--text-muted);">⏳ Загрузка журнала событий...</div>';
-  }
-  try {
-    const res = await fetch('/api/events');
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
-    cachedLogs = Array.isArray(data) ? data : (data.events || []);
-    renderLogsList(cachedLogs);
-  } catch (err) {
-    if (container) {
-      container.innerHTML = `<div style="padding:16px; color:var(--status-error); text-align:center;">❌ Ошибка загрузки журнала: ${escapeHtml(err.message)}</div>`;
-    }
-  }
+  if (!currentSnapshot) return;
+  cachedLogs = [...(currentSnapshot.workflow?.events || [])].reverse();
+  renderLogsList(cachedLogs);
 }
 
 function renderLogsView() {
@@ -1589,16 +1386,17 @@ function renderLogsList(events) {
 
   const filtered = listToRender.filter((ev) => {
     if (levelFilter !== 'all' && (ev.level || '').toLowerCase() !== levelFilter) return false;
-    if (catFilter !== 'all' && (ev.category || '').toLowerCase() !== catFilter) return false;
+    if (catFilter !== 'all' && (ev.type || '').toLowerCase() !== catFilter) return false;
     if (q) {
-      const matchText = `${ev.message || ''} ${ev.details || ''} ${ev.category || ''} ${ev.profile_id || ''}`.toLowerCase();
+      const matchText = `${ev.message || ''} ${ev.details || ''} ${ev.type || ''} ${ev.account || ''}`.toLowerCase();
       if (!matchText.includes(q)) return false;
     }
     return true;
   });
 
   if (filtered.length === 0) {
-    container.innerHTML = '<div style="padding:24px; text-align:center; color:var(--text-muted); font-size:12px;">События не найдены</div>';
+    renderLogDetail(null);
+    container.innerHTML = '<div style="padding:24px; text-align:center; color:var(--text-muted); font-size:12px;">События не найдены в текущем снапшоте</div>';
     return;
   }
 
@@ -1613,14 +1411,14 @@ function renderLogsList(events) {
         </tr>
       </thead>
       <tbody>
-        ${filtered.map((ev) => {
+        ${filtered.map((ev, index) => {
           const lvl = (ev.level || 'info').toLowerCase();
           const lvlClass = lvl === 'error' ? 'error' : (lvl === 'warning' || lvl === 'warn' ? 'warning' : (lvl === 'success' ? 'healthy' : 'info'));
           return `
-            <tr>
+            <tr tabindex="0" data-event-index="${index}" aria-label="Открыть событие">
               <td style="font-size:11px; color:var(--text-muted); font-family:var(--font-mono);">${escapeHtml(ev.timestamp || '—')}</td>
               <td><span class="badge ${lvlClass}" style="font-size:10px; text-transform:uppercase;">${escapeHtml(ev.level || 'INFO')}</span></td>
-              <td style="font-size:11px; color:var(--text-secondary);">${escapeHtml(ev.category || 'system')}</td>
+              <td style="font-size:11px; color:var(--text-secondary);">${escapeHtml(ev.type || 'Н/Д')}</td>
               <td style="font-size:12px;">
                 <div>${escapeHtml(ev.message || '')}</div>
                 ${ev.details ? `<div style="font-size:10px; color:var(--text-muted); font-family:var(--font-mono); margin-top:2px;">${escapeHtml(typeof ev.details === 'object' ? JSON.stringify(ev.details) : ev.details)}</div>` : ''}
@@ -1631,21 +1429,27 @@ function renderLogsList(events) {
       </tbody>
     </table>
   `;
+  container.querySelectorAll('[data-event-index]').forEach(row => {
+    const open = () => renderLogDetail(filtered[Number(row.dataset.eventIndex)]);
+    row.addEventListener('click', open);
+    row.addEventListener('keydown', event => { if (event.key === 'Enter') open(); });
+  });
+  renderLogDetail(filtered[0]);
 }
 
 // ── SETTINGS MANAGEMENT ──
 function renderSettingsView() {
   if (!currentSnapshot) return;
-  const paths = currentSnapshot.system_paths || {};
-  const s = currentSnapshot.settings || {};
+  const paths = {}; // HubSnapshot does not expose filesystem paths.
+  const s = currentSettings;
 
   const elHome = document.getElementById('path-hermes-home');
   const elConfig = document.getElementById('path-config-dir');
   const elLog = document.getElementById('path-log-file');
 
-  if (elHome) elHome.textContent = paths.hermes_home || '—';
-  if (elConfig) elConfig.textContent = paths.config_dir || '—';
-  if (elLog) elLog.textContent = paths.log_file || '—';
+  if (elHome) elHome.textContent = paths.hermes_home || 'Н/Д: API не передаёт путь';
+  if (elConfig) elConfig.textContent = paths.config_dir || 'Н/Д: API не передаёт путь';
+  if (elLog) elLog.textContent = paths.log_file || 'Н/Д: API не передаёт путь';
 
   const quotaThresholdSel = document.getElementById('setting-quota-threshold-percent');
   const quotaActionSel = document.getElementById('setting-quota-threshold-action');
@@ -1672,12 +1476,12 @@ async function saveHubServerSettings() {
   const emailMaskingSel = document.getElementById('setting-email-masking-mode');
   const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
 
-  const newSettings = {
-    quota_threshold_percent: quotaThresholdSel ? parseFloat(quotaThresholdSel.value) || 10.0 : 10.0,
-    quota_threshold_action: quotaActionSel ? quotaActionSel.value : 'notify',
-    email_masking_mode: emailMaskingSel ? emailMaskingSel.value : 'none',
-    monitoring_interval_seconds: monitorIntervalInput ? parseInt(monitorIntervalInput.value, 10) || 30 : 30,
-  };
+  const newSettings = {};
+  if (quotaThresholdSel?.value) newSettings.quota_threshold_percent = Number(quotaThresholdSel.value);
+  if (quotaActionSel?.value) newSettings.quota_threshold_action = quotaActionSel.value;
+  if (emailMaskingSel?.value) newSettings.email_masking_mode = emailMaskingSel.value;
+  if (monitorIntervalInput?.value) newSettings.monitoring_interval_seconds = Number(monitorIntervalInput.value);
+  if (!Object.keys(newSettings).length) { showToast('Нет выбранных изменений', 'info'); return; }
 
   showToast('Сохранение настроек сервера...', 'info');
   const res = await executeAction('save_settings', newSettings);

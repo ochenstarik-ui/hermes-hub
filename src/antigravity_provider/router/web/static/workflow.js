@@ -16,6 +16,8 @@ const workflowUi = {
   draftPositions: {},
   connectingFrom: null,
   drag: null,
+  fitted: false,
+  inspectorClosed: false,
 };
 
 function wfEscape(value) {
@@ -60,6 +62,11 @@ function initWorkflowOverview() {
   document.getElementById('workflow-zoom-in')?.addEventListener('click', () => setWorkflowScale(workflowUi.scale + 0.1));
   document.getElementById('workflow-zoom-out')?.addEventListener('click', () => setWorkflowScale(workflowUi.scale - 0.1));
   document.getElementById('workflow-fit')?.addEventListener('click', fitWorkflowGraph);
+  document.getElementById('canvas-select').onclick = () => setWorkflowMode('live');
+  document.getElementById('canvas-add').onclick = openAgentCreateDialog;
+  document.getElementById('canvas-fit').onclick = fitWorkflowGraph;
+  document.getElementById('canvas-arrange').onclick = arrangeWorkflowNodes;
+  document.getElementById('canvas-connect').onclick = () => { setWorkflowMode('edit'); showToast('Потяните из правого порта агента в левый порт получателя', 'info'); };
   const canvas = document.getElementById('workflow-canvas');
   canvas?.addEventListener('wheel', (e) => {
     e.preventDefault();
@@ -70,7 +77,7 @@ function initWorkflowOverview() {
     setWorkflowScale(workflowUi.scale * zoomFactor, mouseX, mouseY);
   }, { passive: false });
   canvas?.addEventListener('mousedown', (e) => {
-    if (e.target.closest('.workflow-node') || e.target.closest('.workflow-port') || e.target.closest('.workflow-minimap') || e.target.closest('.workflow-dialog')) return;
+    if (e.target.closest('.workflow-node') || e.target.closest('.workflow-port') || e.target.closest('.workflow-minimap') || e.target.closest('.workflow-dialog') || e.target.closest('.canvas-tools')) return;
     if (e.button === 0 || e.button === 1) {
       workflowUi.isPanning = true;
       workflowUi.panStart = { x: e.clientX - workflowUi.panX, y: e.clientY - workflowUi.panY };
@@ -108,9 +115,12 @@ function renderWorkflowOverview(snapshot) {
   }
   renderWorkflowKpis(snapshot);
   renderWorkflowHeader(workflow);
+  if (!workflowUi.selectedAgentId && !workflowUi.inspectorClosed) workflowUi.selectedAgentId = workflow.definition?.start_agent_id || workflow.agents?.[0]?.id;
   renderWorkflowNodes(workflow);
   renderWorkflowInspector(snapshot, workflow);
   renderWorkflowEvents(workflow.events || []);
+  renderWorkflowStatistics(workflow);
+  if (!workflowUi.fitted && workflow.agents?.length) { workflowUi.fitted = true; requestAnimationFrame(fitWorkflowGraph); }
   requestAnimationFrame(drawWorkflowEdges);
 }
 
@@ -199,12 +209,10 @@ function renderWorkflowNodes(workflow) {
   layer.innerHTML = agents.map((agent) => {
     const pos = workflowUi.draftPositions[agent.id] || agent.position || { x: 80, y: 80 };
     const cfg = agent.execution_config || {};
-    const assignment = cfg.unavailable_reason
-      ? `Н/Д: ${cfg.unavailable_reason}`
-      : [cfg.provider, cfg.model, cfg.account].filter(Boolean).join(' · ');
+    const assignment = `${cfg.model || 'Модель: Н/Д'} • ${cfg.account || 'Аккаунт: Н/Д'}`;
     return `<article class="workflow-node ${wfEscape(agent.runtime_state)} ${workflowUi.selectedAgentId === agent.id ? 'selected' : ''}" data-agent-id="${wfEscape(agent.id)}" style="left:${Number(pos.x) || 0}px;top:${Number(pos.y) || 0}px">
       <button class="workflow-port in" aria-label="Вход"></button><button class="workflow-port out" aria-label="Создать связь"></button>
-      <h3>${wfEscape(agent.name)}</h3><p>${wfEscape(agent.role)}</p><p>${wfEscape(agent.agent_file)}</p><p title="${wfEscape(assignment)}">${wfEscape(assignment)}</p>
+      <span class="agent-node-icon" aria-hidden="true">⌘</span><h3>${wfEscape(agent.name)}</h3><p title="${wfEscape(agent.agent_file)}">${wfEscape(agent.agent_file?.split('/').pop() || 'Agent File: Н/Д')}</p><p class="node-assignment" title="${wfEscape(cfg.unavailable_reason || assignment)}">${wfEscape(assignment)}</p>
       <div class="workflow-node-status"><i></i><span>${wfEscape(runtimeStateLabel(agent.runtime_state))}</span></div>
     </article>`;
   }).join('');
@@ -234,6 +242,7 @@ function setWorkflowMode(mode) {
 
 function selectWorkflowAgent(agentId) {
   if (workflowUi.drag?.moved) return;
+  workflowUi.inspectorClosed = false;
   workflowUi.selectedAgentId = agentId;
   renderWorkflowOverview(currentSnapshot);
 }
@@ -321,6 +330,8 @@ function drawWorkflowEdges() {
   const layer = document.getElementById('workflow-edge-layer');
   if (!svg || !layer) return;
   const parts = [];
+  const labels = [];
+  const occupiedLabels = [];
   workflowUi.draftEdges.forEach((edge) => {
     const source = document.querySelector(`.workflow-node[data-agent-id="${CSS.escape(edge.source)}"]`);
     const target = document.querySelector(`.workflow-node[data-agent-id="${CSS.escape(edge.target)}"]`);
@@ -332,11 +343,19 @@ function drawWorkflowEdges() {
     const bend = Math.max(45, Math.abs(x2 - x1) * 0.42);
     const path = `M ${x1} ${y1} C ${x1 + bend} ${y1}, ${x2 - bend} ${y2}, ${x2} ${y2}`;
     const klass = String(edge.condition || '').toLowerCase();
+    const label = edge.label || edge.condition;
+    const labelWidth = Math.max(70, String(label).length * 6 + 16);
     const labelX = (x1 + x2) / 2;
-    const labelY = (y1 + y2) / 2 - 5;
-    parts.push(`<path class="${wfEscape(klass)}" d="${path}"></path><path class="workflow-edge-hit" data-edge-id="${wfEscape(edge.id)}" d="${path}"></path><text class="workflow-edge-label" x="${labelX}" y="${labelY}">${wfEscape(edge.label || edge.condition)}</text>`);
+    let labelY = (y1 + y2) / 2 - 12;
+    const boxes = [...document.querySelectorAll('.workflow-node')].map(node => ({left:node.offsetLeft,top:node.offsetTop,width:node.offsetWidth,height:node.offsetHeight}));
+    const overlaps = box => labelX + labelWidth/2 > box.left - 6 && labelX - labelWidth/2 < box.left + box.width + 6 && labelY + 10 > box.top - 6 && labelY - 12 < box.top + box.height + 6;
+    while ([...boxes,...occupiedLabels].some(overlaps)) labelY += 24;
+    occupiedLabels.push({left:labelX-labelWidth/2,top:labelY-12,width:labelWidth,height:22});
+    labels.push(`<g><rect class="workflow-label-bg" x="${labelX-labelWidth/2}" y="${labelY-12}" width="${labelWidth}" height="22" rx="4"></rect><text class="workflow-edge-label" x="${labelX}" y="${labelY+3}">${wfEscape(label)}</text></g>`);
+    parts.push(`<path class="${wfEscape(klass)}" d="${path}"></path><path class="workflow-edge-hit" data-edge-id="${wfEscape(edge.id)}" d="${path}"></path>`);
   });
   layer.innerHTML = parts.join('');
+  document.getElementById('workflow-label-layer').innerHTML = labels.join('');
   layer.querySelectorAll('.workflow-edge-hit').forEach((path) => path.addEventListener('click', () => {
     const edge = workflowUi.draftEdges.find((item) => item.id === path.dataset.edgeId);
     if (workflowUi.mode === 'edit' && edge) openEdgeDialog(edge, false);
@@ -384,16 +403,16 @@ function fitWorkflowGraph() {
   agents.forEach((agent) => {
     const pos = workflowUi.draftPositions[agent.id] || agent.position || { x: 80, y: 80 };
     minX = Math.min(minX, pos.x);
-    maxX = Math.max(maxX, pos.x + 210);
+    maxX = Math.max(maxX, pos.x + 250);
     minY = Math.min(minY, pos.y);
-    maxY = Math.max(maxY, pos.y + 110);
+    maxY = Math.max(maxY, pos.y + 124);
   });
   const width = maxX - minX || 200;
   const height = maxY - minY || 120;
   const pad = 60;
   const cW = canvas.clientWidth || 800;
   const cH = canvas.clientHeight || 500;
-  const fitScale = Math.max(0.4, Math.min(1.4, Math.min((cW - pad * 2) / width, (cH - pad * 2) / height)));
+  const fitScale = Math.max(0.1, Math.min(1.4, Math.min((cW - pad * 2) / width, (cH - pad * 2) / height)));
 
   const viewport = document.getElementById('workflow-viewport');
   if (viewport) viewport.style.transition = 'transform 0.25s ease-out';
@@ -436,14 +455,16 @@ async function saveWorkflowDraft() {
 
 function renderWorkflowInspector(snapshot, workflow) {
   const box = document.getElementById('workflow-inspector');
+  if (box.contains(document.activeElement) && document.activeElement.matches('input,select,textarea')) return;
   const agent = (workflow.agents || []).find((item) => item.id === workflowUi.selectedAgentId);
   if (!agent) {
     box.innerHTML = '<div class="workflow-inspector-empty"><strong>INSPECTOR</strong><span>Выберите агента на графе</span></div>';
     return;
   }
   const cfg = agent.execution_config || {};
-  const tabs = [['main', 'Основное'], ['model', 'Модель'], ['instructions', 'Инструкции'], ['tools', 'Инструменты'], ['memory', 'Память'], ['history', 'История']];
-  box.innerHTML = `<h2>INSPECTOR: ${wfEscape(agent.name)}</h2><div class="inspector-tabs">${tabs.map(([id, label]) => `<button data-tab="${id}" class="${workflowUi.selectedTab === id ? 'active' : ''}">${label}</button>`).join('')}</div><div id="inspector-tab-content"></div>`;
+  const tabs = [['main', 'Основное'], ['model', 'Модель'], ['instructions', 'Инструкции'], ['tools', 'Инструменты'], ['memory', 'Память'], ['execution', 'Выполнение'], ['history', 'История']];
+  box.innerHTML = `<div class="inspector-heading"><h2>Инспектор: ${wfEscape(agent.name)}</h2><button id="inspector-close" aria-label="Закрыть инспектор">×</button></div><div class="inspector-tabs">${tabs.map(([id, label]) => `<button data-tab="${id}" class="${workflowUi.selectedTab === id ? 'active' : ''}">${label}</button>`).join('')}</div><div id="inspector-tab-content"></div>`;
+  document.getElementById('inspector-close').onclick = () => { workflowUi.selectedAgentId = null; workflowUi.inspectorClosed = true; renderWorkflowOverview(snapshot); };
   box.querySelectorAll('.inspector-tabs button').forEach((button) => button.addEventListener('click', () => {
     workflowUi.selectedTab = button.dataset.tab;
     renderWorkflowInspector(snapshot, workflow);
@@ -453,6 +474,9 @@ function renderWorkflowInspector(snapshot, workflow) {
     content.innerHTML = `<label class="inspector-field">Название<input id="agent-edit-name" value="${wfEscape(agent.name)}"></label><label class="inspector-field">Роль<div class="inspector-value">${wfEscape(agent.role)}</div></label><label class="inspector-field">Описание<textarea id="agent-edit-description">${wfEscape(agent.description)}</textarea></label><label class="inspector-field">Runtime status<div class="inspector-value">${wfEscape(runtimeStateLabel(agent.runtime_state))}</div></label><label class="inspector-field">Текущая задача<div class="inspector-value">${wfEscape(workflow.run?.current_agent_id === agent.id ? workflow.run.current_task : 'Н/Д: агент сейчас не выполняется')}</div></label><div class="inspector-actions"><button class="btn btn-primary btn-sm" id="agent-save-main">Сохранить</button><button class="btn btn-secondary btn-sm" id="agent-delete">Удалить</button></div>`;
     document.getElementById('agent-save-main').onclick = () => executeAction('update_agent', { agent_id: agent.id, name: document.getElementById('agent-edit-name').value, description: document.getElementById('agent-edit-description').value });
     document.getElementById('agent-delete').onclick = () => deleteWorkflowAgent(agent);
+    appendAgentInspectorSummary(content, agent, workflow);
+  } else if (workflowUi.selectedTab === 'execution') {
+    content.innerHTML = `<h3>Политика выполнения</h3><pre class="inspector-value">${wfEscape(JSON.stringify(agent.execution_policy || {},null,2))}</pre><p class="inspector-value">Таймаут: ${wfEscape(cfg.timeout ?? 'Н/Д: не задан')} с</p><p class="inspector-value">${wfEscape(workflowRunLabel(workflow.run?.status))}</p>`;
   } else if (workflowUi.selectedTab === 'model') {
     renderAgentModelTab(content, snapshot, agent);
   } else if (workflowUi.selectedTab === 'instructions') {
@@ -484,18 +508,8 @@ function renderAgentModelTab(content, snapshot, agent) {
   };
   const refreshModels = () => {
     const profile = profiles.find((item) => item.profile_id === accountSelect.value);
-    // Список моделей даёт провайдер. preferred_models — это настроенный владельцем
-    // список предпочтений профиля, а model_states строится перебором того же
-    // preferred_models (unified_health.py), поэтому обе прежние ветки показывали
-    // один и тот же куцый набор, и владелец видел «модели уже распределены».
-    const summary = (snapshot.providers || []).find((item) => item.provider_id === (profile?.provider || providerSelect.value));
-    const discovered = summary?.discovered_models || [];
-    const models = discovered.length ? [...discovered] : [...(profile?.preferred_models || [])];
-    // Настроенная у агента модель обязана присутствовать в списке. Иначе ни один
-    // option не получал selected, браузер показывал первый вариант, и нажатие
-    // «Изменить конфигурацию» молча записывало агенту не ту модель.
-    if (cfg.model && !models.includes(cfg.model)) models.unshift(cfg.model);
-    modelSelect.innerHTML = models.length ? models.map((model) => `<option value="${wfEscape(model)}" ${model === cfg.model ? 'selected' : ''}>${wfEscape(model)}</option>`).join('') : '<option value="">Н/Д: список моделей ещё не получен от провайдера</option>';
+    const selected = profile?.profile_id === cfg.account && providerSelect.value === cfg.provider ? cfg.model : '';
+    modelSelect.innerHTML = modelOptions(snapshot, profile || { provider: providerSelect.value }, selected);
   };
   providerSelect.onchange = refreshAccounts;
   accountSelect.onchange = refreshModels;
@@ -602,4 +616,47 @@ function formatWorkflowTime(value) {
   if (!value) return 'Н/Д';
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleTimeString('ru-RU');
+}
+
+function appendAgentInspectorSummary(content, agent, workflow) {
+  const editor = document.createElement('details');
+  const summary = document.createElement('summary');
+  summary.textContent = 'Изменить имя и описание';
+  editor.append(summary);
+  while (content.firstChild) editor.append(content.firstChild);
+  const cfg = agent.execution_config || {};
+  const value = (item, reason) => wfEscape(item ?? `Н/Д: ${reason}`);
+  const events = (workflow.events || []).filter(event => event.agent_id === agent.id);
+  const latest = events.at(-1);
+  content.innerHTML = `<section class="inspector-section"><h3>${wfEscape(agent.name)}</h3><p>${wfEscape(agent.role)} · ${wfEscape(runtimeStateLabel(agent.runtime_state))}</p><p>${wfEscape(agent.description || 'Описание не задано')}</p><dl><dt>Текущая задача</dt><dd>${value(workflow.run?.current_agent_id === agent.id ? workflow.run.current_task : null, 'агент сейчас не выполняется')}</dd><dt>Итерация</dt><dd>${value(workflow.run?.current_agent_id === agent.id ? workflow.run.iteration : null,'нет текущего шага')}</dd><dt>Последнее событие</dt><dd>${latest ? wfEscape(formatWorkflowTime(latest.timestamp)) : 'Н/Д: событий нет'}</dd><dt>Время выполнения</dt><dd>${value(latest?.duration_seconds,'не измерено')}</dd></dl></section>
+    <section class="inspector-section"><h3>Конфигурация исполнения</h3><dl><dt>Провайдер</dt><dd>${value(cfg.provider || null,'не назначен')}</dd><dt>Аккаунт</dt><dd>${value(cfg.account || null,'не назначен')}</dd><dt>Модель</dt><dd>${value(cfg.model || null,'не назначена')}</dd><dt>Температура</dt><dd>${value(cfg.temperature,'не задана')}</dd><dt>Макс. токенов</dt><dd>${value(cfg.max_tokens,'не задано')}</dd><dt>Таймаут</dt><dd>${value(cfg.timeout,'не задан')} с</dd></dl><button class="btn btn-secondary btn-sm" id="inspector-model-open">Изменить конфигурацию</button></section>
+    <section class="inspector-section"><h3>Agent File</h3><code>${wfEscape(agent.agent_file || 'Н/Д: не задан')}</code><p>${agent.agent_file_exists ? 'Файл доступен' : 'Н/Д: файл отсутствует'}</p><button class="btn btn-secondary btn-sm" id="inspector-file-open">Открыть</button></section>
+    <section class="inspector-section"><h3>Инструменты</h3><div class="tool-chips">${agent.tools?.length ? agent.tools.map(tool => `<span>${wfEscape(tool)}</span>`).join('') : 'Н/Д: инструменты не назначены'}</div></section>
+    <section class="inspector-section"><h3>Быстрые действия</h3><button class="btn btn-secondary btn-sm" id="inspector-task-open">Перейти к запуску workflow</button></section>`;
+  content.append(editor);
+  document.getElementById('inspector-model-open').onclick = () => { workflowUi.selectedTab = 'model'; renderWorkflowInspector(currentSnapshot, workflow); };
+  document.getElementById('inspector-file-open').onclick = () => openAgentFileEditor(agent);
+  document.getElementById('inspector-task-open').onclick = () => document.getElementById('workflow-task').focus();
+}
+
+function renderWorkflowStatistics(workflow) {
+  const events = workflow.events || [];
+  const node = document.getElementById('workflow-statistics-content');
+  const run = workflow.run || {};
+  node.innerHTML = `<dl><dt>Текущий запуск</dt><dd>${wfEscape(workflowRunLabel(run.status))}</dd><dt>Событий в снапшоте</dt><dd>${events.length}</dd><dt>Событий с ошибкой</dt><dd>${events.filter(event => event.level === 'error').length}</dd></dl><p>Н/Д: API не передаёт агрегаты завершённых workflow. Кольцевая диаграмма не построена.</p>`;
+  document.getElementById('workflow-active-task').textContent = run.status === 'running' ? run.current_task || 'Н/Д: текст текущей задачи не передан' : 'Нет выполняющихся workflow';
+}
+
+function arrangeWorkflowNodes() {
+  if (workflowUi.mode !== 'edit') setWorkflowMode('edit');
+  if (workflowUi.mode !== 'edit') return;
+  const agents = currentSnapshot?.workflow?.agents || [];
+  const start = currentSnapshot?.workflow?.definition?.start_agent_id;
+  const ordered = [...agents].sort((a,b) => (a.id === start ? -1 : b.id === start ? 1 : 0));
+  ordered.forEach((agent,index) => {
+    workflowUi.draftPositions[agent.id] = index === 0 ? {x:430,y:60} : {x:70+((index-1)%3)*360,y:250+Math.floor((index-1)/3)*240};
+  });
+  markWorkflowDirty();
+  renderWorkflowOverview(currentSnapshot);
+  fitWorkflowGraph();
 }

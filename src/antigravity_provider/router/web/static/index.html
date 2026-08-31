@@ -9,52 +9,53 @@
   <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="static/workflow.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+  <link rel="icon" href="static/hermes-logo.png">
 </head>
 <body>
   <div id="app" class="app-layout">
-    <!-- Sidebar Navigation (9 Full Views) -->
+    <!-- Seven workspaces share the same navigation. -->
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-logo">⚡</div>
+        <img class="brand-logo" src="static/hermes-logo.png" alt="Логотип Hermes Hub">
         <div class="brand-text">
           <span class="brand-title">HERMES HUB</span>
-          <span class="brand-subtitle">Multi-Account Router</span>
+          <span class="brand-subtitle">Крона · Бизнес-экосистема</span>
         </div>
       </div>
 
       <nav class="nav-menu">
         <button class="nav-item active" data-view="overview">
-          <span class="nav-icon">📊</span>
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 10 12 3l9 7v11h-6v-7H9v7H3Z"/></svg>
           <span class="nav-label">Обзор</span>
         </button>
         <button class="nav-item" data-view="accounts">
-          <span class="nav-icon">👥</span>
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-3a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v3 M9 10a4 4 0 1 0 0-8 4 4 0 0 0 0 8 M17 3a4 4 0 0 1 0 8 M22 21v-3a4 4 0 0 0-3-4"/></svg>
           <span class="nav-label">Аккаунты</span>
-          <span class="nav-badge" id="nav-accounts-count">0</span>
+          <span class="nav-badge" id="nav-accounts-count">—</span>
         </button>
         <button class="nav-item" data-view="routing">
-          <span class="nav-icon">🔀</span>
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4v16 M5 8h14 M5 16h14 M16 5l3 3-3 3 M16 13l3 3-3 3"/></svg>
           <span class="nav-label">Маршрутизация</span>
         </button>
         <button class="nav-item" data-view="analytics">
-          <span class="nav-icon">📈</span>
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 3v18h18 M7 16v-5 M12 16V7 M17 16v-8"/></svg>
           <span class="nav-label">Аналитика</span>
         </button>
         <button class="nav-item" data-view="health">
-          <span class="nav-icon">🩺</span>
-          <span class="nav-label">Состояние</span>
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2 3 6v6c0 5 9 10 9 10s9-5 9-10V6Z M8 12l3 3 5-6"/></svg>
+          <span class="nav-label">Состояние системы</span>
         </button>
         <button class="nav-item" data-view="logs">
-          <span class="nav-icon">📜</span>
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2h9l4 4v16H5V2Z M8 10h8 M8 14h8 M8 18h5"/></svg>
           <span class="nav-label">Журнал событий</span>
         </button>
         <button class="nav-item" data-view="settings">
-          <span class="nav-icon">⚙️</span>
+          <svg class="nav-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8"/></svg>
           <span class="nav-label">Настройки</span>
         </button>
       </nav>
 
+      <div class="brand-panel"><img src="static/hermes-logo.png" alt=""><p>Рабочее пространство<br>вашей агентной системы</p><span>Hermes Hub · Крона</span></div>
       <div class="sidebar-footer">
         <div class="source-indicator" id="source-indicator">
           <span class="status-dot healthy"></span>
@@ -80,7 +81,7 @@
             <span id="header-update-text">Доступно обновление</span>
           </button>
         </div>
-        <div class="header-actions">
+        <div class="header-actions"><button class="header-search" id="hub-search-open" aria-label="Поиск по хабу"><span>⌕ Поиск</span><kbd>Ctrl K</kbd></button><button class="header-icon" id="hub-notifications" aria-label="Уведомления" title="Последние события"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 8a6 6 0 0 1 12 0v6l2 3H4l2-3Z M9 20h6"/></svg></button><button class="header-icon" id="hub-settings" aria-label="Открыть настройки" title="Настройки"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 3h6l1 3 3 1 2 5-2 5-3 1-1 3H9l-1-3-3-1-2-5 2-5 3-1Z M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8"/></svg></button><div class="hub-user" title="Н/Д: API не передаёт профиль пользователя"><span>H</span><div>Локальный хаб<small>Профиль пользователя: Н/Д</small></div></div></div><div class="header-page-actions">
           <button class="btn btn-secondary" id="btn-refresh-all" title="Обновить квоты всех профилей">
             <span class="btn-icon">↻</span>
             <span>Обновить всё</span>
@@ -110,10 +111,10 @@
 
           <div class="workflow-kpis" aria-label="Оперативные показатели">
             <article class="workflow-kpi"><span>Активные задачи</span><strong id="workflow-kpi-active">Загрузка…</strong><small id="workflow-kpi-active-reason">Получение снапшота</small></article>
-            <article class="workflow-kpi"><span>Агенты онлайн</span><strong id="workflow-kpi-online">Загрузка…</strong><small id="workflow-kpi-online-reason">Получение снапшота</small></article>
-            <article class="workflow-kpi"><span>Среднее время ответа</span><strong id="workflow-kpi-latency">Загрузка…</strong><small id="workflow-kpi-latency-reason">Получение телеметрии</small></article>
+            <article class="workflow-kpi"><span>Готовность ролей</span><strong id="workflow-kpi-online">Загрузка…</strong><small id="workflow-kpi-online-reason">Получение снапшота</small></article>
+            <article class="workflow-kpi"><span>Ответ модели · p50</span><strong id="workflow-kpi-latency">Загрузка…</strong><small id="workflow-kpi-latency-reason">Получение телеметрии</small></article>
             <article class="workflow-kpi"><span>Использование токенов</span><strong id="workflow-kpi-tokens">Загрузка…</strong><small id="workflow-kpi-tokens-reason">Получение телеметрии</small></article>
-            <article class="workflow-kpi"><span>Успешность задач</span><strong id="workflow-kpi-success">Загрузка…</strong><small id="workflow-kpi-success-reason">Получение телеметрии</small></article>
+            <article class="workflow-kpi"><span>Успешность вызовов</span><strong id="workflow-kpi-success">Загрузка…</strong><small id="workflow-kpi-success-reason">Получение телеметрии</small></article>
             <article class="workflow-kpi"><span>Статус системы</span><strong id="workflow-kpi-status">Загрузка…</strong><small id="workflow-kpi-status-reason">Проверка готовности</small></article>
           </div>
 
@@ -125,9 +126,9 @@
                 <div class="workflow-zoom"><button id="workflow-zoom-out" title="Уменьшить">−</button><span id="workflow-zoom-value">100%</span><button id="workflow-zoom-in" title="Увеличить">+</button><button id="workflow-fit" title="Вписать граф">⛶</button></div>
               </header>
               <div class="workflow-canvas" id="workflow-canvas" tabindex="0" aria-label="Редактор графа workflow">
-                <div id="workflow-viewport" class="workflow-viewport">
+                <div class="canvas-tools" role="toolbar" aria-label="Инструменты холста"><button id="canvas-select" title="Выбор агента" aria-label="Выбор агента">↖</button><button id="canvas-add" title="Добавить агента" aria-label="Добавить агента на холст">+</button><button id="canvas-connect" title="Соединить агентов в EDIT" aria-label="Создать связь агентов">⇄</button><button id="canvas-fit" title="Вписать граф" aria-label="Вписать весь граф">⛶</button><button id="canvas-arrange" title="Разнести узлы (черновик)" aria-label="Разнести узлы">▦</button></div><div id="workflow-viewport" class="workflow-viewport">
                   <svg id="workflow-edges" class="workflow-edges" aria-hidden="true"><defs><marker id="wf-arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8 z"></path></marker></defs><g id="workflow-edge-layer"></g></svg>
-                  <div id="workflow-node-layer" class="workflow-node-layer"></div>
+                  <div id="workflow-node-layer" class="workflow-node-layer"></div><svg class="workflow-labels" aria-hidden="true"><g id="workflow-label-layer"></g></svg>
                 </div>
                 <div id="workflow-empty" class="workflow-empty hidden"><strong>В workflow пока нет агентов</strong><span>Добавьте агента, затем переключитесь в EDIT и соедините узлы.</span></div>
                 <div class="workflow-minimap" id="workflow-minimap" aria-label="Мини-карта"></div>
@@ -145,7 +146,7 @@
 
           <div class="workflow-bottom-grid">
             <section class="workflow-events"><header><strong>Последние события</strong><button id="workflow-events-all">Журнал событий →</button></header><div id="workflow-events-list" class="workflow-events-list"><p>Загрузка событий…</p></div></section>
-            <section class="workflow-run-panel"><header><strong>Управление LIVE</strong></header><textarea id="workflow-task" placeholder="Опишите реальную задачу для workflow"></textarea><div><button class="btn btn-primary" id="btn-workflow-start">Запустить workflow</button><button class="btn btn-secondary" id="btn-workflow-stop">Остановить</button></div><p id="workflow-run-error" class="workflow-run-error"></p></section>
+            <section class="workflow-statistics"><header><strong>Статистика workflow</strong></header><div id="workflow-statistics-content">Н/Д: снапшот ещё не получен</div></section><section class="workflow-run-panel"><header><strong>Активные задачи · LIVE</strong></header><div id="workflow-active-task" class="inspector-value"></div><textarea aria-label="Задача workflow" id="workflow-task" placeholder="Опишите реальную задачу для workflow"></textarea><div><button class="btn btn-primary" id="btn-workflow-start">Запустить workflow</button><button class="btn btn-secondary" id="btn-workflow-stop">Остановить</button></div><p id="workflow-run-error" class="workflow-run-error"></p></section>
           </div>
         </section>
 
@@ -181,12 +182,12 @@
                 <span>📥 Экспорт лимитов (JSON / CSV)</span>
               </button>
               <div class="toolbar-stats" id="accounts-stats-summary">
-                Показано: <strong>0</strong> из <strong>0</strong> аккаунтов
+                Список аккаунтов ещё не получен
               </div>
             </div>
           </div>
 
-          <div id="accounts-container" class="accounts-groups-container">
+          <div class="account-summary" id="account-summary"></div><div id="accounts-container" class="accounts-groups-container">
             <!-- Rendered by app.js -->
           </div>
         </section>
@@ -214,7 +215,7 @@
                 <div style="padding: 16px; border-bottom: 1px solid var(--border-subtle);">
                   <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
                     <h3 style="font-family: var(--font-title); font-size: 14px; text-transform: uppercase;">Доступные аккаунты</h3>
-                    <span id="available-accounts-count" class="text-muted" style="font-size: 12px;">0 аккаунтов</span>
+                    <span id="available-accounts-count" class="text-muted" style="font-size: 12px;">Список ещё не получен</span>
                   </div>
                   <div class="input-group">
                     <input type="text" id="routing-account-search" placeholder="Поиск по аккаунтам, ролям или моделям..." style="width: 100%;">
@@ -263,7 +264,7 @@
             </div>
           </div>
 
-          <div class="section-card">
+<div class="analytics-workspace"><section class="section-card"><h2 class="section-card-title">Использование токенов</h2><div id="analytics-token-chart" class="metric-chart">Н/Д: снапшот ещё не получен</div></section><section class="section-card"><h2 class="section-card-title">Запросы по ролям</h2><div id="analytics-role-chart" class="metric-chart">Н/Д: снапшот ещё не получен</div></section><aside class="section-card"><h2 class="section-card-title">Окно измерений</h2><p class="inspector-value">Последние 24 часа</p><p class="inspector-value">Источник: telemetry из /api/snapshot. Произвольный период API не предоставляет.</p><button class="btn btn-secondary" id="analytics-refresh">Обновить</button></aside></div><div class="analytics-tables"><div class="section-card">
             <div class="section-card-header">
               <div class="section-card-title">Телеметрия по провайдерам ИИ</div>
               <div class="section-card-subtitle">Распределение запросов, отказов и задержек в окне измерений</div>
@@ -282,7 +283,7 @@
               <!-- Rendered by app.js -->
             </div>
           </div>
-        </section>
+        </div></section>
 
         <!-- 7. HEALTH VIEW (P0-2) -->
         <section id="view-health" class="view-pane">
@@ -323,6 +324,7 @@
               <!-- Rendered by app.js -->
             </div>
           </div>
+          <div id="health-workspace" class="health-workspace"></div>
         </section>
 
         <!-- 8. LOGS / EVENTS VIEW (P0-3) -->
@@ -342,11 +344,7 @@
               </select>
               <select id="logs-filter-category" class="select-filter">
                 <option value="all">Все категории</option>
-                <option value="system">Система (system)</option>
-                <option value="account">Аккаунты (account)</option>
-                <option value="quota">Квоты (quota)</option>
-                <option value="routing">Маршрутизация (routing)</option>
-                <option value="auth">Авторизация (auth)</option>
+                <option value="workflow_started">Запуск workflow</option><option value="agent_started">Запуск агента</option><option value="agent_completed">Завершение агента</option><option value="workflow_failed">Ошибка workflow</option>
               </select>
               <button class="btn btn-secondary btn-sm" id="btn-refresh-logs">↻ Обновить журнал</button>
             </div>
@@ -355,11 +353,11 @@
           <div class="section-card" style="margin-top:12px;">
             <div class="section-card-header">
               <div class="section-card-title">Журнал событий Hermes Hub</div>
-              <div class="section-card-subtitle">События маршрутизатора, обновления квот, авторизации и тестов</div>
+              <div class="section-card-subtitle">События workflow из текущего снапшота · до 60 последних записей</div>
             </div>
-            <div class="logs-container" id="logs-container">
-              <!-- Rendered by app.js from /api/events -->
-            </div>
+            <div class="logs-layout"><div class="logs-container" id="logs-container">
+              <!-- Workflow events from HubSnapshot -->
+            </div><aside id="log-detail" class="log-detail"><h2>Детали события</h2><p>Выберите событие в таблице.</p></aside></div>
           </div>
         </section>
 
@@ -477,7 +475,7 @@
                 <div class="setting-desc" id="update-installed-info">Hermes Hub v0.1.1</div>
               </div>
               <div class="setting-control" style="display:flex; align-items:center; gap:8px;">
-                <span id="update-status-badge" class="badge healthy">Актуально</span>
+                <span id="update-status-badge" class="badge">Не проверено</span>
               </div>
             </div>
             <div class="setting-row">
@@ -603,6 +601,7 @@
 
   <!-- Application Logic -->
   <script src="app.js"></script>
+  <script src="static/workspace.js"></script>
   <script src="static/workflow.js"></script>
   <script>
     const urlParams = new URLSearchParams(window.location.search);

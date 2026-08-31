@@ -1,0 +1,28 @@
+======================================================================
+ Hermes Hub — Release Gate Verification Suite (Target: v0.1.1)
+======================================================================
+
+Running 1. Version Consistency ([UNIT VERIFIED])...
+  [UNIT VERIFIED] Version 0.1.1 is consistent across all manifests
+
+Running 2. P0 Release Blockers (16/16) ([UNIT VERIFIED])...
+  [UNIT VERIFIED] 16/16 P0 release blockers & regression checks verified
+
+Running 3. Auto-Updater & Rollback ([INTEGRATION VERIFIED])...
+  [INTEGRATION VERIFIED] Auto-updater, SHA-256 verification, and rollback verified
+
+Running 4. Full Offline Pytest Suite ([INTEGRATION VERIFIED])...
+  [INTEGRATION VERIFIED] All unit and integration tests passed offline
+
+Running 5. Zero Hardcoded Developer Paths ([STATIC VERIFIED])...
+  [STATIC VERIFIED] Zero hardcoded developer paths in src/
+
+Running 6. Zero Credentials & AST Secret Scan ([SECURITY VERIFIED])...
+  [SECURITY VERIFIED] Zero secret files, live tokens, or obfuscated secret assignments in src/
+
+Running 7. Public Production Update Feed ([LIVE STATUS])...
+  [LIVE STATUS] [MANIFEST_LIVE=True, PACKAGE_LIVE=True, PACKAGE_HASH_VERIFIED=True] Manifest live (vbuild-2026.08.31) and release asset verified at https://github.com/ochenstarik-ui/hermes-hub/releases/download/build-2026.08.31/checksums.txt
+
+======================================================================
+ [RELEASE GATE: PASSED] All criteria verified. Ready for Candidate v0.1.1
+======================================================================
