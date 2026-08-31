@@ -3127,7 +3127,15 @@ async function proceedToWizardStep3(providerId) {
   if (tokenInput || baseInput) {
     const feedback = document.getElementById('modal-feedback-area');
     if (feedback) feedback.textContent = 'Проверка подключения и запрос моделей…';
-    const result = await executeAction('validate_connection', {provider: providerId, token: window._wiz_token || '', base_url: window._wiz_base_url || ''});
+    // Ключ читаем из поля прямо сейчас, а не из глобальной переменной:
+    // она переживает предыдущие попытки подключения и может оказаться пустой
+    // или чужой. Провайдер тогда отвечает «Missing Authentication header» при
+    // заполненном поле, и владелец не понимает, в чём дело.
+    const liveToken = (tokenInput && tokenInput.value.trim()) || window._wiz_token || '';
+    const liveBase = (baseInput && baseInput.value.trim()) || window._wiz_base_url || '';
+    window._wiz_token = liveToken;
+    window._wiz_base_url = liveBase;
+    const result = await executeAction('validate_connection', {provider: providerId, token: liveToken, base_url: liveBase});
     if (!result?.ok) {
       if (feedback) feedback.textContent = result?.message || 'Нет ответа от сервера';
       return;
