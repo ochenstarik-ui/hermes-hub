@@ -787,6 +787,7 @@ function renderAccountCard(profile) {
         </div>
       </div>
 
+      <div class="account-models">${(profile.preferred_models || []).map(modelBrandLabel).join('')}</div>
       ${quotaGridHtml}
     </div>
   `;
@@ -991,14 +992,32 @@ function renderOverviewView() {
 
 function getProviderIcon(provider) {
   const map = {
-    'openai-codex': 'codex.png',
-    'google-antigravity': 'антигравити.png',
-    'opencode-go': 'opencode.png',
-    'anthropic-claude': 'claude.png',
-    'deepseek': 'deepseek.png',
-    'grok': 'grok.jfif'
+    'openai-codex':'openai.png', openai:'openai.png', codex:'openai.png',
+    antigravity:'antigravity.png', 'google-antigravity':'antigravity.png',
+    'opencode-go':'opencode.png', opencode:'opencode.png',
+    claude:'claude-color.svg', 'anthropic-claude':'claude-color.svg', anthropic:'claude-color.svg',
+    grok:'grok.svg', xai:'grok.svg', ollama:'ollama.svg',
+    nvidia:'nvidia-color.svg', openrouter:'openrouter.svg',
+    deepseek:'deepseek-color.svg', vllm:'vllm-color.svg', lmstudio:'lmstudio.svg',
+    local:'unknown.svg', 'llama.cpp':'unknown.svg',
   };
-  return map[provider] || 'llama.png';
+  return 'brands/'+(map[String(provider || '').toLowerCase()] || 'unknown.svg');
+}
+
+function getModelIcon(model) {
+  const name=String(model || '').toLowerCase().split('/').at(-1);
+  const family=[
+    [/^gemini(?:[-.:]|$)/,'gemini-color.svg'],
+    [/^claude(?:[-.:]|$)/,'claude-color.svg'],[/^(?:gpt|chatgpt|codex|o[134])(?:[-.:0-9]|$)/,'openai.png'],
+    [/^grok(?:[-.:]|$)/,'grok.svg'],[/^deepseek(?:[-.:]|$)/,'deepseek-color.svg'],
+    [/^qwen(?:[-.:0-9]|$)/,'qwen-color.svg'],[/^(?:llama|meta-llama)(?:[-.:0-9]|$)/,'meta-color.svg'],
+    [/^(?:mistral|mixtral|codestral|devstral|magistral)(?:[-.:0-9]|$)/,'mistral-color.svg'],
+  ].find(([pattern])=>pattern.test(name));
+  return 'brands/'+(family?.[1] || 'unknown.svg');
+}
+
+function modelBrandLabel(model) {
+  return `<span class="model-brand"><img class="brand-logo" src="/static/${getModelIcon(model)}" alt=""><span>${escapeHtml(model || 'Модель: Н/Д')}</span></span>`;
 }
 
 function renderRoutingView() { renderAccountRouting(); }

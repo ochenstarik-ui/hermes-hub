@@ -1915,3 +1915,12 @@ body[data-theme="medium"] .nav-item.active .nav-icon { stroke:var(--text-accent)
 .status-dot.not-ready { background:var(--status-error); }
 .status-dot.ready { background:var(--status-healthy); }
 .resource-value { font-size:clamp(18px,1.7vw,26px); }
+/* Brand marks are local assets, separate for a provider and the model it hosts. */
+.brand-logo,.account-provider-tag img,.available-account-card>img { width:24px; height:24px; object-fit:contain; padding:3px; border-radius:4px; background:#fff; flex:none; }
+.model-brand { display:inline-flex; align-items:center; gap:6px; min-width:0; }
+.model-brand>span { overflow-wrap:anywhere; }
+.account-models { display:flex; gap:8px; flex-wrap:wrap; margin:10px 0; font-size:11px; }
+.account-models:empty { display:none; }
+.route-model-with-logo { display:flex; align-items:center; gap:6px; min-width:0; }
+.route-model-with-logo select { min-width:0; }
+.agent-node-icon .brand-logo { width:27px; height:27px; }

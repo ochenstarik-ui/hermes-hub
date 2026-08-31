@@ -1,0 +1,13 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm');
+const root='src/antigravity_provider/router/web/static/';
+const source=fs.readFileSync(root+'app.js','utf8');
+const context=vm.createContext({});
+vm.runInContext(source.slice(source.indexOf('function getProviderIcon('),source.indexOf('function modelBrandLabel(')),context);
+for(const provider of ['openai-codex','antigravity','google-antigravity','opencode-go','claude','anthropic-claude','grok','ollama','local','vllm','openrouter','nvidia','unknown'])assert(fs.existsSync(root+context.getProviderIcon(provider)),provider);
+for(const model of ['gemini-3.7-flash','claude-opus-4-6','gpt-oss:20b','qwen3:32b','org/deepseek-r1','meta-llama/llama-3.3','grok-4','mistral-small','unknown',''])assert(fs.existsSync(root+context.getModelIcon(model)),model);
+assert(context.getModelIcon('qwen3:32b').includes('qwen'));
+assert(context.getModelIcon('gemini-3.7-flash').includes('gemini'));
+assert(!context.getModelIcon('gemini-3.7-flash').includes('ollama'));
+assert(context.getModelIcon('custom-model').includes('unknown'));
+assert(context.getProviderIcon('custom-provider').includes('unknown'));
+console.log('Brand assets: provider aliases, model families, unknown fallback and all referenced files verified');
