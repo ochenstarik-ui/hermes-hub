@@ -240,3 +240,10 @@ def test_bulk_protects_symlink_into_ag(services, tmp_path):
     assert preview['data']['targets'] == []
     assert ActionExecutor.execute('clear_accounts', {'confirmed': True, 'targets': []})['ok']
     assert target.read_text() == 'protected fixture'
+
+
+@pytest.mark.parametrize('provider', ['openrouter', 'nvidia', 'claude'])
+def test_empty_key_never_allocates_slot(services, provider):
+    result = ActionExecutor.execute('add_account', {'provider': provider, 'token': ''})
+    assert not result['ok'] and result['message']
+    assert not load_router_config().profiles

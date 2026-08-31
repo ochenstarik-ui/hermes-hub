@@ -739,6 +739,9 @@ class ActionExecutor:
                 valid, reason = AutoAssigner.validate_slot(prov_norm, slot)
                 if not valid:
                     return {'ok': False, 'message': reason}
+            existing_status = ProfileAuthManager.get_profile_status(prov_norm, slot) if slot else {}
+            if not token and prov_norm not in ('local', 'vllm', 'ollama') and not existing_status.get('authenticated'):
+                return {'ok': False, 'message': 'Не указан API-ключ или не завершена авторизация'}
             validation = None
             if token or prov_norm in ('local', 'vllm', 'ollama'):
                 from .connection_preflight import validate_connection

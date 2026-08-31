@@ -864,9 +864,9 @@ function renderAccountCheck(profile) {
     ${checking ? `<p>${escapeHtml(profile.display_name || profile.profile_id)}: идёт опрос провайдера, это может занять до минуты на этап.</p>` : ''}
     <p>${escapeHtml(check.message || "Подключение ещё не проверялось")}</p>
     <p>${escapeHtml(modelStatus)}</p>
-    <div class="account-models">${models.map(modelBrandLabel).join('')}</div>
+    <details ${models.length <= 16 ? 'open' : ''}><summary>Каталог моделей (${models.length})</summary><div class="account-models">${models.map(modelBrandLabel).join('')}</div></details>
     ${profile.provider === 'ollama' ? `<p>Выше — модели указанного сервера Ollama.</p><p>Облачный каталог Ollama: ${meta.cloud?.error ? 'Н/Д — ' + escapeHtml(meta.cloud.error) : meta.cloud?.models ? escapeHtml(meta.cloud.models.join(', ')) : 'Н/Д — ещё не получен'}</p><p>Доступ аккаунта к облачным моделям: Н/Д до успешного вызова. Для прямого вызова нужен API-ключ Ollama; для локального клиента — вход через ollama signin.</p>` : ''}
-    <button class="btn btn-ghost btn-sm" ${checking ? 'disabled' : ''} onclick="event.stopPropagation(); handleAccountProbe('${escapeHtml(profile.profile_id)}')">${checking ? 'Проверяется…' : 'Проверить подключение и модели'}</button>
+    <button class="btn btn-ghost btn-sm" ${checking ? 'disabled' : ''} onclick="event.stopPropagation(); handleAccountProbe('${escapeHtml(profile.profile_id)}')">${checking ? 'Проверяется…' : 'Проверить подключение'}</button>
   </div>`;
 }
 
