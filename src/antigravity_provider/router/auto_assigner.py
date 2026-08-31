@@ -49,6 +49,12 @@ DEFAULT_SLOT_ROLES = {
     "opengo-3": ("Резервный роутер (OpenCode)", "orchestrator", "fallback_2"),
     "local-1": ("Локальный сервер 1", "coder", "primary"),
     "local-2": ("Локальный сервер 2", "fast", "primary"),
+    "openrouter-1": ("Кодер (OpenRouter 1)", "coder", "primary"),
+    "openrouter-2": ("Исследователь (OpenRouter 2)", "researcher", "fallback"),
+    "nvidia-1": ("Кодер (NVIDIA NIM 1)", "coder", "primary"),
+    "nvidia-2": ("Быстрый агент (NVIDIA NIM 2)", "fast", "fallback"),
+    "nvidia-nim-1": ("Кодер (NVIDIA NIM 1)", "coder", "primary"),
+    "nvidia-nim-2": ("Быстрый агент (NVIDIA NIM 2)", "fast", "fallback"),
     "ag-spare-1": ("Резерв 1", "spare", "spare"),
     "ag-spare-2": ("Резерв 2", "spare", "spare"),
     "ag-cold-1": ("Холодный резерв 1", "spare", "cold"),
@@ -206,7 +212,7 @@ class AutoAssigner:
             "llama.cpp": ["reviewer", "coding", "reasoning", "fast", "research"],
             "ollama": ["reviewer", "coding", "reasoning", "fast", "research"],
             "vllm": ["reviewer", "coding", "reasoning", "fast", "research"],
-            "openrouter": ["coding", "reasoning", "research", "fast"],
+            "openrouter": ["coding", "reasoning", "research", "fast", "reviewer"],
             "nvidia": ["coding", "reasoning", "fast"],
             "nvidia-nim": ["coding", "reasoning", "fast"],
         }
@@ -543,6 +549,9 @@ class AutoAssigner:
                 "llama.cpp": "Local LLM (llama.cpp)",
                 "ollama": "Ollama",
                 "vllm": "vLLM",
+                "openrouter": "OpenRouter",
+                "nvidia": "NVIDIA NIM",
+                "nvidia-nim": "NVIDIA NIM",
             }
             provider_label = prov_labels.get(pcfg.provider.lower(), pcfg.provider)
 

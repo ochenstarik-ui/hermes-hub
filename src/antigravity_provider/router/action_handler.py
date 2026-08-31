@@ -650,27 +650,75 @@ class ActionExecutor:
                 return {'ok': False, 'message': reason, 'data': {'status': status}}
             return {'ok': True, 'message': 'Ожидание подтверждения', 'data': {'status': status}}
 
-        # Подключение аккаунта: для локального сервера/Ollama это не навигация, а
-        # настоящее сохранение профиля с адресом.
+        # Подключение аккаунта: сохранение профиля и учетных данных (P0-1)
         if action == 'add_account':
+            prov_norm = (prov or data.get('provider') or '').strip().lower()
+            if not prov_norm:
+                return {'ok': False, 'message': 'Провайдер не указан'}
+
             target_role = data.get('target_role', 'coder-primary')
-            base_url = data.get('base_url', '')
-            token = data.get('token', '')
-            if prov in ('local', 'local-llm', 'llama.cpp', 'ollama', 'vllm') and base_url:
-                slot = data.get('profile_id') or AutoAssigner.find_free_slot(prov) or f'{prov}-1'
-                AutoAssigner.ensure_profile_definition(prov, slot)
-                auth_data = {
-                    "provider": prov,
-                    "profile_id": slot,
-                    "base_url": base_url,
-                    "api_key": token if token else None,
-                    "created_at": time.time(),
-                }
-                ProfileAuthManager.save_profile_auth(prov, slot, auth_data)
+            base_url = (data.get('base_url') or '').strip()
+            token = (data.get('token') or data.get('api_key') or '').strip()
+            slot = data.get('profile_id')
+
+            default_base_urls = {
+                'openrouter': 'https://openrouter.ai/api/v1',
+                'nvidia': 'https://integrate.api.nvidia.com/v1',
+                'nvidia-nim': 'https://integrate.api.nvidia.com/v1',
+                'ollama': 'http://127.0.0.1:11434',
+                'local': 'http://127.0.0.1:8081/v1',
+                'local-llm': 'http://127.0.0.1:8081/v1',
+                'llama.cpp': 'http://127.0.0.1:8081/v1',
+                'vllm': 'http://127.0.0.1:8081/v1',
+            }
+
+            if not base_url and prov_norm in default_base_urls:
+                base_url = default_base_urls[prov_norm]
+
+            # Validate required credentials per provider
+            if prov_norm in ('openrouter',):
+                if not token:
+                    return {'ok': False, 'message': 'Не указан API-ключ для OpenRouter'}
+            elif prov_norm in ('nvidia', 'nvidia-nim'):
+                if not token:
+                    return {'ok': False, 'message': 'Не указан API-ключ для NVIDIA NIM'}
+            elif prov_norm in ('claude', 'anthropic'):
+                if not token:
+                    return {'ok': False, 'message': 'Не указан API-ключ для Claude'}
+            elif prov_norm in ('opencode-go', 'opencode'):
+                if not token:
+                    return {'ok': False, 'message': 'Не указан API-ключ для OpenCode Go'}
+            elif prov_norm in ('local', 'local-llm', 'llama.cpp', 'ollama', 'vllm'):
+                if not base_url:
+                    return {'ok': False, 'message': f'Не указан URL сервера для {prov_norm}'}
+            elif prov_norm in ('openai-codex', 'codex', 'grok', 'xai'):
+                if not token:
+                    return {'ok': False, 'message': f'Не указан API-ключ для {prov_norm}'}
+            else:
+                return {'ok': False, 'message': f'Провайдер {prov_norm} не поддерживается для прямого добавления учетных данных'}
+
+            slot = slot or AutoAssigner.find_free_slot(prov_norm) or f'{prov_norm}-1'
+            ok, def_msg = AutoAssigner.ensure_profile_definition(prov_norm, slot)
+            if not ok:
+                return {'ok': False, 'message': def_msg}
+
+            auth_data: Dict[str, Any] = {
+                "provider": prov_norm,
+                "profile_id": slot,
+                "created_at": time.time(),
+            }
+            if base_url:
+                auth_data["base_url"] = base_url
+            if token:
+                auth_data["api_key"] = token
+
+            try:
+                ProfileAuthManager.save_profile_auth(prov_norm, slot, auth_data)
                 AutoAssigner.assign_profile_to_role(slot, target_role, is_primary=False)
                 _rescan_after_auth()
-                return {'ok': True, 'message': f'Сервер {prov} ({slot}) успешно подключен'}
-            return {'ok': True, 'message': 'Навигация'}
+                return {'ok': True, 'message': f'Аккаунт {prov_norm} ({slot}) успешно подключен'}
+            except Exception as e:
+                return {'ok': False, 'message': f'Ошибка при сохранении учетных данных {slot}: {e}'}
 
         # Чисто навигационные действия. edit_route и assign_role сюда НЕ входят:
         # A25 внёс их в этот список, но в A24 они выполняют настоящую работу —

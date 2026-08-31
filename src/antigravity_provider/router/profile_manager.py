@@ -316,8 +316,8 @@ class ProfileAuthManager:
             except Exception as e:
                 logger.warning("Failed to write .gemini/oauth_creds.json for profile=%s: %s", profile_id, e)
 
-        # For Local provider, synchronize custom_base_url in router_profiles.yaml
-        if provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
+        # For Local and OpenAI-compatible providers, synchronize custom_base_url in router_profiles.yaml
+        if provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm", "openrouter", "nvidia", "nvidia-nim"):
             base_url = auth_data.get("base_url")
             if base_url:
                 try:
@@ -441,6 +441,18 @@ class ProfileAuthManager:
             val = os.environ.get(env_var) or os.environ.get("LOCAL_LLM_BASE_URL")
             if val:
                 return {"provider": provider, "profile_id": profile_id, "base_url": val}
+
+        elif provider in ("openrouter",):
+            env_var = f"OPENROUTER_API_KEY_{profile_id.upper().replace('-', '_')}"
+            val = os.environ.get(env_var) or os.environ.get("OPENROUTER_API_KEY")
+            if val:
+                return {"provider": "openrouter", "profile_id": profile_id, "api_key": val}
+
+        elif provider in ("nvidia", "nvidia-nim"):
+            env_var = f"NVIDIA_API_KEY_{profile_id.upper().replace('-', '_')}"
+            val = os.environ.get(env_var) or os.environ.get("NVIDIA_API_KEY") or os.environ.get("NV_API_KEY")
+            if val:
+                return {"provider": provider, "profile_id": profile_id, "api_key": val}
 
         return None
 
@@ -842,6 +854,34 @@ class ProfileAuthManager:
                 "account_id_masked": masked_acc,
                 "status": "AUTHENTICATED" if is_auth else "NOT_CONFIGURED",
                 "error": None if is_auth else "URL сервера не настроен",
+            }
+
+        elif provider in ("openrouter",):
+            key = auth_data.get("api_key") or auth_data.get("token") or ""
+            is_auth = bool(key)
+            masked = f"sk-or-...{key[-4:]}" if len(key) > 8 else ("sk-or-***" if key else None)
+            return {
+                "authenticated": is_auth,
+                "provider": provider,
+                "profile_id": profile_id,
+                "auth_mode": "api_key",
+                "account_id_masked": masked or "Not configured",
+                "status": "AUTHENTICATED" if is_auth else "NOT_CONFIGURED",
+                "error": None if is_auth else "API-ключ не настроен",
+            }
+
+        elif provider in ("nvidia", "nvidia-nim"):
+            key = auth_data.get("api_key") or auth_data.get("token") or ""
+            is_auth = bool(key)
+            masked = f"nvapi-...{key[-4:]}" if len(key) > 8 else ("nvapi-***" if key else None)
+            return {
+                "authenticated": is_auth,
+                "provider": provider,
+                "profile_id": profile_id,
+                "auth_mode": "api_key",
+                "account_id_masked": masked or "Not configured",
+                "status": "AUTHENTICATED" if is_auth else "NOT_CONFIGURED",
+                "error": None if is_auth else "API-ключ не настроен",
             }
 
         return {

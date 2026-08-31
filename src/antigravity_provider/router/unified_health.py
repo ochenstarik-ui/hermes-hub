@@ -422,15 +422,16 @@ class UnifiedHealthService:
                         else:
                             f_status = STATUS_NOT_CONFIGURED
                             f_lbl = "Аккаунт не добавлен"
-                    elif f_cd > 0:
-                        f_status = STATUS_QUOTA_EXHAUSTED
-                        f_lbl = f"Квота исчерпана ({f_cd}s)"
-                    elif frec and frec.state == QUOTA_EXHAUSTED:
-                        f_status = STATUS_QUOTA_EXHAUSTED
-                        f_lbl = "Квота исчерпана"
                     elif frec and frec.state == RATE_LIMITED:
                         f_status = STATUS_RATE_LIMITED
-                        f_lbl = "Лимит запросов"
+                        f_lbl = f"Лимит запросов ({f_cd}s)" if f_cd > 0 else "Лимит запросов"
+                    elif frec and frec.state == QUOTA_EXHAUSTED:
+                        f_status = STATUS_QUOTA_EXHAUSTED
+                        f_lbl = f"Квота исчерпана ({f_cd}s)" if f_cd > 0 else "Квота исчерпана"
+                    elif f_cd > 0 or (frec and frec.state == COOLDOWN):
+                        f_status = STATUS_COOLDOWN
+                        reason_suffix = f": {frec.reason}" if (frec and frec.reason) else ""
+                        f_lbl = f"Откат ({f_cd}s){reason_suffix}" if f_cd > 0 else "Откат"
                     elif frec and frec.state == HT_UNHEALTHY:
                         f_status = STATUS_UNHEALTHY
                         f_lbl = "Ошибка"
@@ -464,19 +465,32 @@ class UnifiedHealthService:
                     else:
                         health_state = STATUS_NOT_CONFIGURED
                         health_lbl = "Аккаунт не добавлен"
-                # 3. Active Cooldown / Quota exhausted
-                elif max_cd > 0 or precord.overall_state == QUOTA_EXHAUSTED:
-                    health_state = STATUS_QUOTA_EXHAUSTED
-                    health_lbl = "Квота исчерпана"
-                # 4. Rate limited
-                elif precord.overall_state == RATE_LIMITED:
+                # 3. Rate limited (checked before error cooldown)
+                elif precord.overall_state == RATE_LIMITED or (model_states and any(m.status == STATUS_RATE_LIMITED for m in model_states.values())):
                     health_state = STATUS_RATE_LIMITED
-                    health_lbl = "Лимит запросов"
-                # 5. Unhealthy probe error
-                elif precord.overall_state == HT_UNHEALTHY:
+                    health_lbl = f"Лимит запросов ({max_cd}s)" if max_cd > 0 else "Лимит запросов"
+                # 4. Quota exhausted
+                elif precord.overall_state == QUOTA_EXHAUSTED or (model_states and all(m.status == STATUS_QUOTA_EXHAUSTED for m in model_states.values())):
+                    health_state = STATUS_QUOTA_EXHAUSTED
+                    health_lbl = f"Квота исчерпана ({max_cd}s)" if max_cd > 0 else "Квота исчерпана"
+                # 5. Temporary error cooldown / rollback (shows cooldown and reason, not quota)
+                elif max_cd > 0 or precord.overall_state == COOLDOWN or (model_states and any(m.status == STATUS_COOLDOWN for m in model_states.values())):
+                    health_state = STATUS_COOLDOWN
+                    cooldown_reason = precord.last_error
+                    if not cooldown_reason:
+                        for m in model_states.values():
+                            if m.reason:
+                                cooldown_reason = m.reason
+                                break
+                    if cooldown_reason:
+                        health_lbl = f"Откат ({max_cd}s): {cooldown_reason}"
+                    else:
+                        health_lbl = f"Откат ({max_cd}s)"
+                # 6. Unhealthy probe error
+                elif precord.overall_state == HT_UNHEALTHY or (model_states and any(m.status == STATUS_UNHEALTHY for m in model_states.values())):
                     health_state = STATUS_UNHEALTHY
                     health_lbl = "Ошибка"
-                # 6. Live healthy or untested
+                # 7. Live healthy or untested
                 else:
                     if precord.last_success is not None:
                         health_state = STATUS_HEALTHY
@@ -500,6 +514,14 @@ class UnifiedHealthService:
                     "anthropic": "Claude",
                     "grok": "Grok",
                     "xai": "Grok",
+                    "openrouter": "OpenRouter",
+                    "nvidia": "NVIDIA NIM",
+                    "nvidia-nim": "NVIDIA NIM",
+                    "ollama": "Ollama",
+                    "local": "Local LLM",
+                    "local-llm": "Local LLM",
+                    "llama.cpp": "Local LLM (llama.cpp)",
+                    "vllm": "vLLM",
                 }.get(prov.lower(), prov)
 
                 last_success_str = datetime.datetime.fromtimestamp(precord.last_success).strftime("%H:%M:%S") if precord.last_success else None

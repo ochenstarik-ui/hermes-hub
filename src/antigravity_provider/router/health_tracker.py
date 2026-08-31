@@ -479,8 +479,6 @@ class HealthTracker:
             record.last_used = now
             record.last_error = reason
             record.simulated = simulated
-            if not model_name or model_name == "default":
-                record.overall_state = QUOTA_EXHAUSTED
 
             family = extract_model_family(model_name)
             if family not in record.families:

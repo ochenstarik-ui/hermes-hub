@@ -16,7 +16,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 logger = logging.getLogger("hermes.router.model_discovery")
 
@@ -93,17 +93,26 @@ class ModelDiscoveryService:
                     "discovered_at": None,
                     "is_stale": True,
                     "has_cache": False,
+                    "error": entry.get("error") if entry else None,
                 }
 
-            discovered_at = entry.get("discovered_at", 0)
-            is_stale = (time.time() - discovered_at) > self._ttl_seconds
+            discovered_at = entry.get("discovered_at")
+            is_stale = (time.time() - float(discovered_at)) > self._ttl_seconds if discovered_at else True
+            models = entry.get("models")
             return {
                 "provider": provider,
-                "models": list(entry["models"]),
+                "models": list(models) if models else None,
                 "discovered_at": discovered_at,
                 "is_stale": is_stale,
-                "has_cache": True,
+                "has_cache": bool(models),
+                "error": entry.get("error"),
             }
+
+    def get_error(self, provider: str) -> Optional[str]:
+        """Return last discovery error message for provider if any."""
+        with self._cache_lock:
+            entry = self._cache.get(provider.lower())
+            return entry.get("error") if entry else None
 
     def get_cached(self, provider: str) -> Dict[str, Any]:
         """Convenience alias for get_models_with_metadata."""
@@ -144,9 +153,19 @@ class ModelDiscoveryService:
         on_complete: Optional[Callable[[Dict[str, Optional[List[str]]]], None]] = None,
         timeout: float = 15.0,
     ) -> None:
-        """Discover models for all 5 providers concurrently in background."""
+        """Discover models for all configured providers concurrently in background."""
         def _worker():
-            providers = ["antigravity", "openai-codex", "opencode-go", "claude", "grok", "local"]
+            providers = [
+                "antigravity",
+                "openai-codex",
+                "opencode-go",
+                "claude",
+                "grok",
+                "openrouter",
+                "nvidia",
+                "ollama",
+                "local",
+            ]
             results: Dict[str, Optional[List[str]]] = {}
             threads = []
 
@@ -172,13 +191,15 @@ class ModelDiscoveryService:
     def discover_models_sync(self, provider: str, timeout: float = 15.0) -> Optional[List[str]]:
         """Synchronously probe models with strict timeout without blocking indefinite hangs."""
         result_holder: List[Optional[List[str]]] = [None]
-        error_holder: List[Optional[Exception]] = [None]
+        error_holder: List[Optional[str]] = [None]
 
         def _do_probe():
             try:
-                result_holder[0] = self._probe_provider(provider)
+                models, err_msg = self._probe_provider(provider)
+                result_holder[0] = models
+                error_holder[0] = err_msg
             except Exception as exc:
-                error_holder[0] = exc
+                error_holder[0] = str(exc)
 
         worker = threading.Thread(target=_do_probe, daemon=True)
         worker.start()
@@ -186,51 +207,139 @@ class ModelDiscoveryService:
 
         if worker.is_alive():
             logger.warning("Model discovery for provider '%s' timed out (> %.1fs)", provider, timeout)
-            # Timeout: retain existing cache if any
+            timeout_msg = f"Превышено время ожидания ответа от сервера ({timeout:.1f}с)"
             with self._cache_lock:
-                entry = self._cache.get(provider.lower())
-                return list(entry["models"]) if entry and "models" in entry else None
-
-        if error_holder[0]:
-            logger.info("Model discovery probe for '%s' returned error: %s", provider, error_holder[0])
-            with self._cache_lock:
-                entry = self._cache.get(provider.lower())
-                return list(entry["models"]) if entry and "models" in entry else None
+                entry = self._cache.get(provider.lower(), {})
+                existing_models = entry.get("models")
+                self._cache[provider.lower()] = {
+                    "models": existing_models,
+                    "discovered_at": entry.get("discovered_at"),
+                    "error": timeout_msg,
+                }
+                self._save_cache_to_disk()
+                return list(existing_models) if existing_models else None
 
         models = result_holder[0]
+        err_text = error_holder[0]
+
         if models:
             with self._cache_lock:
                 self._cache[provider.lower()] = {
                     "models": models,
                     "discovered_at": time.time(),
+                    "error": None,
                 }
                 self._save_cache_to_disk()
             logger.info("Discovered %d models for provider '%s': %s", len(models), provider, models)
             return models
 
-        # If probe returned None or empty, retain existing cache if any
-        with self._cache_lock:
-            entry = self._cache.get(provider.lower())
-            return list(entry["models"]) if entry and "models" in entry else None
+        if err_text:
+            logger.info("Model discovery probe for '%s' returned error: %s", provider, err_text)
+            with self._cache_lock:
+                entry = self._cache.get(provider.lower(), {})
+                existing_models = entry.get("models")
+                self._cache[provider.lower()] = {
+                    "models": existing_models,
+                    "discovered_at": entry.get("discovered_at"),
+                    "error": err_text,
+                }
+                self._save_cache_to_disk()
+            return list(existing_models) if existing_models else None
 
-    def _probe_provider(self, provider: str) -> Optional[List[str]]:
-        """Perform provider-specific model discovery."""
+        with self._cache_lock:
+            entry = self._cache.get(provider.lower(), {})
+            existing_models = entry.get("models")
+            self._cache[provider.lower()] = {
+                "models": existing_models,
+                "discovered_at": entry.get("discovered_at"),
+                "error": entry.get("error") or "Модели не найдены",
+            }
+            self._save_cache_to_disk()
+            return list(existing_models) if existing_models else None
+
+    def _extract_http_error(self, http_err: urllib.error.HTTPError) -> str:
+        try:
+            raw_err = http_err.read().decode("utf-8", errors="replace")
+            err_json = json.loads(raw_err)
+            if isinstance(err_json, dict):
+                if "error" in err_json:
+                    err_obj = err_json["error"]
+                    if isinstance(err_obj, dict):
+                        msg = err_obj.get("message") or str(err_obj)
+                    else:
+                        msg = str(err_obj)
+                elif "message" in err_json:
+                    msg = str(err_json["message"])
+                elif "detail" in err_json:
+                    msg = str(err_json["detail"])
+                else:
+                    msg = raw_err
+            else:
+                msg = raw_err
+            return f"HTTP {http_err.code}: {msg}"
+        except Exception:
+            return f"HTTP {http_err.code}: {http_err.reason}"
+
+    def _get_provider_candidate_profiles(self, prov: str) -> List[Tuple[str, Optional[Any]]]:
+        from antigravity_provider.router.router_config import load_router_config
+        cfg = load_router_config()
+        p_lower = prov.lower()
+        matched = [
+            (pid, pcfg)
+            for pid, pcfg in cfg.profiles.items()
+            if pcfg.provider.lower() == p_lower
+            or (p_lower in ("nvidia", "nvidia-nim") and pcfg.provider.lower() in ("nvidia", "nvidia-nim"))
+            or (p_lower in ("openai-codex", "codex") and pcfg.provider.lower() in ("openai-codex", "codex"))
+            or (p_lower in ("opencode-go", "opencode") and pcfg.provider.lower() in ("opencode-go", "opencode"))
+            or (p_lower in ("claude", "anthropic") and pcfg.provider.lower() in ("claude", "anthropic"))
+            or (p_lower in ("grok", "xai") and pcfg.provider.lower() in ("grok", "xai"))
+            or (p_lower in ("local", "local-llm", "llama.cpp", "vllm") and pcfg.provider.lower() in ("local", "local-llm", "llama.cpp", "vllm"))
+        ]
+        if matched:
+            return matched
+
+        default_slots = {
+            "openai-codex": ["codex-orch", "codex-worker-1", "codex-worker-2"],
+            "codex": ["codex-orch", "codex-worker-1", "codex-worker-2"],
+            "opencode-go": ["opengo-1", "opengo-2", "opengo-3"],
+            "opencode": ["opengo-1", "opengo-2", "opengo-3"],
+            "grok": ["grok-orch", "grok-worker-1", "grok-worker-2"],
+            "xai": ["grok-orch", "grok-worker-1", "grok-worker-2"],
+            "claude": ["claude-orch", "claude-worker-1", "claude-worker-2"],
+            "anthropic": ["claude-orch", "claude-worker-1", "claude-worker-2"],
+            "openrouter": ["openrouter-1", "openrouter-2"],
+            "nvidia": ["nvidia-1", "nvidia-2"],
+            "nvidia-nim": ["nvidia-nim-1", "nvidia-nim-2"],
+            "ollama": ["ollama-1", "ollama-2"],
+            "local": ["local-1", "local-2"],
+            "local-llm": ["local-1", "local-2"],
+            "llama.cpp": ["local-1", "local-2"],
+            "vllm": ["local-1", "local-2"],
+        }
+        candidates = default_slots.get(p_lower, [f"{p_lower}-1", f"{p_lower}-2"])
+        return [(pid, cfg.get_profile(pid)) for pid in candidates]
+
+    def _probe_provider(self, provider: str) -> Tuple[Optional[List[str]], Optional[str]]:
+        """Perform provider-specific model discovery returning (models_list, error_msg)."""
         prov = provider.lower()
         from antigravity_provider.router.profile_manager import ProfileAuthManager
 
-        if prov == "antigravity":
+        if prov in ("antigravity", "google-antigravity"):
             from antigravity_provider.agy_subprocess import discover_models
-            main_p = ProfileAuthManager.get_main_profile("antigravity")
-            res = discover_models(profile_id=main_p)
-            if res:
-                return sorted(list(set(res.values())))
-            return None
+            main_p = ProfileAuthManager.get_main_profile("antigravity") or "ag-orch-fallback"
+            try:
+                res = discover_models(profile_id=main_p)
+                if res:
+                    return sorted(list(set(res.values()))), None
+                return None, "Модели Google Antigravity не обнаружены"
+            except Exception as exc:
+                return None, str(exc)
 
         elif prov in ("openai-codex", "codex"):
-            for pid in ["codex-orch", "codex-worker-1", "codex-worker-2"]:
-                auth = ProfileAuthManager.load_profile_auth("openai-codex", pid)
-                if not auth:
-                    continue
+            profiles = self._get_provider_candidate_profiles("openai-codex")
+            last_err = None
+            for pid, pcfg in profiles:
+                auth = ProfileAuthManager.load_profile_auth("openai-codex", pid) or {}
                 tokens = auth.get("token") or auth.get("tokens") or auth
                 access_token = (
                     tokens.get("access_token")
@@ -239,9 +348,13 @@ class ModelDiscoveryService:
                 )
                 if not access_token:
                     continue
+                base_url = (pcfg.custom_base_url if pcfg else None) or auth.get("base_url") or "https://api.openai.com/v1"
+                base_url = str(base_url).strip().rstrip("/")
+                if not base_url.startswith(("http://", "https://")):
+                    base_url = f"https://{base_url}"
                 try:
                     req = urllib.request.Request(
-                        "https://api.openai.com/v1/models",
+                        f"{base_url}/models",
                         headers={
                             "Authorization": f"Bearer {access_token}",
                             "Accept": "application/json",
@@ -257,22 +370,31 @@ class ModelDiscoveryService:
                                 m for m in models
                                 if any(x in m for x in ("gpt-4", "gpt-3.5", "o1", "o3", "codex", "chatgpt"))
                             ]
-                            return sorted(chat_models or models)
+                            if chat_models or models:
+                                return sorted(chat_models or models), None
+                except urllib.error.HTTPError as http_err:
+                    last_err = self._extract_http_error(http_err)
+                    logger.debug("Codex model query HTTP error on %s: %s", pid, last_err)
                 except Exception as exc:
+                    last_err = str(exc)
                     logger.debug("Codex model query failed on %s: %s", pid, exc)
-            return None
+            return None, last_err or "Отсутствуют учетные данные для OpenAI Codex"
 
         elif prov in ("opencode-go", "opencode"):
-            for pid in ["opengo-1", "opengo-2", "opengo-3"]:
-                auth = ProfileAuthManager.load_profile_auth("opencode-go", pid)
-                if not auth:
-                    continue
+            profiles = self._get_provider_candidate_profiles("opencode-go")
+            last_err = None
+            for pid, pcfg in profiles:
+                auth = ProfileAuthManager.load_profile_auth("opencode-go", pid) or {}
                 api_key = auth.get("api_key")
                 if not api_key:
                     continue
+                base_url = (pcfg.custom_base_url if pcfg else None) or auth.get("base_url") or "https://opencode.ai/zen/go/v1"
+                base_url = str(base_url).strip().rstrip("/")
+                if not base_url.startswith(("http://", "https://")):
+                    base_url = f"https://{base_url}"
                 try:
                     req = urllib.request.Request(
-                        "https://opencode.ai/zen/go/v1/models",
+                        f"{base_url}/models",
                         headers={
                             "Authorization": f"Bearer {api_key}",
                             "Accept": "application/json",
@@ -284,32 +406,36 @@ class ModelDiscoveryService:
                         items = data.get("data") or data.get("models") or []
                         if isinstance(items, list):
                             models = [str(m.get("id") or m) for m in items if m]
-                            return sorted(models)
+                            if models:
+                                return sorted(models), None
+                except urllib.error.HTTPError as http_err:
+                    last_err = self._extract_http_error(http_err)
+                    logger.debug("OpenCode model query HTTP error on %s: %s", pid, last_err)
                 except Exception as exc:
+                    last_err = str(exc)
                     logger.debug("OpenCode model query failed on %s: %s", pid, exc)
-            return None
+            return None, last_err or "Отсутствуют учетные данные для OpenCode Go"
 
-        elif prov == "grok":
-            # Провайдера здесь не было вовсе, поэтому кэш моделей Grok всегда
-            # оставался пустым, и выбор модели отвергал даже настоящие имена:
-            # «модель grok-4.5 не найдена в списке известных». При этом
-            # api.x.ai/v1/models принимает тот же OAuth-токен, что и вызовы, и
-            # отдаёт полный список.
-            for pid in ("grok-orch", "grok-worker-1", "grok-worker-2"):
-                auth = ProfileAuthManager.load_profile_auth("grok", pid)
-                if not auth:
-                    continue
+        elif prov in ("grok", "xai"):
+            profiles = self._get_provider_candidate_profiles("grok")
+            last_err = None
+            for pid, pcfg in profiles:
+                auth = ProfileAuthManager.load_profile_auth("grok", pid) or {}
                 tokens = auth.get("token") or auth.get("tokens") or {}
                 token = tokens.get("access_token") if isinstance(tokens, dict) else None
                 token = token or auth.get("access_token") or auth.get("api_key")
                 if not token:
                     continue
+                base_url = (pcfg.custom_base_url if pcfg else None) or auth.get("base_url") or "https://api.x.ai/v1"
+                base_url = str(base_url).strip().rstrip("/")
+                if not base_url.startswith(("http://", "https://")):
+                    base_url = f"https://{base_url}"
                 try:
-                    request = urllib.request.Request(
-                        "https://api.x.ai/v1/models",
-                        headers={"Authorization": f"Bearer {token}"},
+                    req = urllib.request.Request(
+                        f"{base_url}/models",
+                        headers={"Authorization": f"Bearer {token}", "Accept": "application/json", "User-Agent": "hermes-hub/1.0"},
                     )
-                    with urllib.request.urlopen(request, timeout=15) as response:
+                    with urllib.request.urlopen(req, timeout=15) as response:
                         payload = json.loads(response.read().decode("utf-8") or "{}")
                     models = [
                         str(item.get("id"))
@@ -317,25 +443,215 @@ class ModelDiscoveryService:
                         if isinstance(item, dict) and item.get("id")
                     ]
                     if models:
-                        return sorted(set(models))
+                        return sorted(set(models)), None
+                except urllib.error.HTTPError as http_err:
+                    last_err = self._extract_http_error(http_err)
+                    logger.debug("Grok model discovery HTTP error for %s: %s", pid, last_err)
                 except Exception as exc:
+                    last_err = str(exc)
                     logger.debug("Grok model discovery failed for %s: %s", pid, exc)
-            return None
+            return None, last_err or "Отсутствуют учетные данные для Grok"
 
-        elif prov in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
-            from antigravity_provider.router.router_config import load_router_config
-            cfg = load_router_config()
-            for pid in ["local-1", "local-2"]:
-                pcfg = cfg.get_profile(pid)
-                auth = ProfileAuthManager.load_profile_auth("local", pid) or {}
-                base_url = (
-                    (pcfg.custom_base_url if pcfg else None)
-                    or auth.get("base_url")
-                    or os.environ.get("LOCAL_LLM_BASE_URL")
-                    or "http://127.0.0.1:8081/v1"
-                )
-                if not base_url:
+        elif prov in ("claude", "anthropic"):
+            profiles = self._get_provider_candidate_profiles("claude")
+            last_err = None
+            for pid, pcfg in profiles:
+                auth = ProfileAuthManager.load_profile_auth("claude", pid) or {}
+                tokens = auth.get("token") or auth.get("tokens") or {}
+                token = tokens.get("access_token") if isinstance(tokens, dict) else None
+                token = token or auth.get("access_token") or auth.get("api_key") or os.environ.get("ANTHROPIC_API_KEY") or os.environ.get("CLAUDE_API_KEY")
+                if not token:
                     continue
+                base_url = (pcfg.custom_base_url if pcfg else None) or auth.get("base_url") or "https://api.anthropic.com/v1"
+                base_url = str(base_url).strip().rstrip("/")
+                if not base_url.startswith(("http://", "https://")):
+                    base_url = f"https://{base_url}"
+                headers = {
+                    "Accept": "application/json",
+                    "anthropic-version": "2023-06-01",
+                    "User-Agent": "hermes-hub/1.0",
+                }
+                if token.startswith("sk-ant-"):
+                    headers["x-api-key"] = token
+                else:
+                    headers["Authorization"] = f"Bearer {token}"
+                    headers["anthropic-beta"] = "oauth-2025-04-20"
+                try:
+                    req = urllib.request.Request(f"{base_url}/models", headers=headers)
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        payload = json.loads(resp.read().decode("utf-8") or "{}")
+                        items = payload.get("data") or payload.get("models") or []
+                        models = [str(item.get("id") or item) for item in items if item]
+                        if models:
+                            return sorted(set(models)), None
+                except urllib.error.HTTPError as http_err:
+                    last_err = self._extract_http_error(http_err)
+                except Exception as exc:
+                    last_err = str(exc)
+            return None, last_err or "Отсутствуют учетные данные для Claude"
+
+        elif prov in ("openrouter",):
+            profiles = self._get_provider_candidate_profiles("openrouter")
+            last_err = None
+            for pid, pcfg in profiles:
+                auth = ProfileAuthManager.load_profile_auth("openrouter", pid) or {}
+                api_key = auth.get("api_key") or auth.get("token") or os.environ.get("OPENROUTER_API_KEY")
+                if not api_key:
+                    continue
+                base_url = (pcfg.custom_base_url if pcfg else None) or auth.get("base_url") or os.environ.get("OPENROUTER_BASE_URL") or "https://openrouter.ai/api/v1"
+                base_url = str(base_url).strip().rstrip("/")
+                if not base_url.startswith(("http://", "https://")):
+                    base_url = f"https://{base_url}"
+
+                referer = (
+                    os.environ.get("OPENROUTER_HTTP_REFERER")
+                    or os.environ.get("HERMES_REFERER")
+                    or "https://github.com/ochenstarik-ui/hermes-hub"
+                )
+                title = (
+                    os.environ.get("OPENROUTER_APP_TITLE")
+                    or os.environ.get("OPENROUTER_TITLE")
+                    or "Hermes Hub"
+                )
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "HTTP-Referer": referer,
+                    "X-OpenRouter-Title": title,
+                    "X-Title": title,
+                    "Accept": "application/json",
+                    "User-Agent": "hermes-hub/1.0",
+                }
+                try:
+                    req = urllib.request.Request(f"{base_url}/models", headers=headers)
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        payload = json.loads(resp.read().decode("utf-8") or "{}")
+                        items = payload.get("data") or payload.get("models") or []
+                        models = []
+                        if isinstance(items, list):
+                            for item in items:
+                                mid = item.get("id") if isinstance(item, dict) else str(item)
+                                if mid:
+                                    models.append(str(mid))
+                        if models:
+                            return sorted(set(models)), None
+                except urllib.error.HTTPError as http_err:
+                    last_err = self._extract_http_error(http_err)
+                    logger.debug("OpenRouter model discovery HTTP error for %s: %s", pid, last_err)
+                except Exception as exc:
+                    last_err = str(exc)
+                    logger.debug("OpenRouter model discovery failed for %s: %s", pid, exc)
+            return None, last_err or "Отсутствуют учетные данные для OpenRouter"
+
+        elif prov in ("nvidia", "nvidia-nim"):
+            profiles = self._get_provider_candidate_profiles("nvidia")
+            last_err = None
+            for pid, pcfg in profiles:
+                auth = ProfileAuthManager.load_profile_auth("nvidia", pid) or ProfileAuthManager.load_profile_auth("nvidia-nim", pid) or {}
+                api_key = auth.get("api_key") or auth.get("token") or os.environ.get("NVIDIA_API_KEY") or os.environ.get("NV_API_KEY")
+                if not api_key:
+                    continue
+                base_url = (pcfg.custom_base_url if pcfg else None) or auth.get("base_url") or os.environ.get("NVIDIA_BASE_URL") or "https://integrate.api.nvidia.com/v1"
+                base_url = str(base_url).strip().rstrip("/")
+                if not base_url.startswith(("http://", "https://")):
+                    base_url = f"https://{base_url}"
+
+                headers = {
+                    "Authorization": f"Bearer {api_key}",
+                    "Accept": "application/json",
+                    "User-Agent": "hermes-hub/1.0",
+                }
+                try:
+                    req = urllib.request.Request(f"{base_url}/models", headers=headers)
+                    with urllib.request.urlopen(req, timeout=15) as resp:
+                        payload = json.loads(resp.read().decode("utf-8") or "{}")
+                        items = payload.get("data") or payload.get("models") or []
+                        models = []
+                        if isinstance(items, list):
+                            for item in items:
+                                mid = item.get("id") if isinstance(item, dict) else str(item)
+                                if mid:
+                                    models.append(str(mid))
+                        if models:
+                            return sorted(set(models)), None
+                except urllib.error.HTTPError as http_err:
+                    last_err = self._extract_http_error(http_err)
+                    logger.debug("NVIDIA model discovery HTTP error for %s: %s", pid, last_err)
+                except Exception as exc:
+                    last_err = str(exc)
+                    logger.debug("NVIDIA model discovery failed for %s: %s", pid, exc)
+            return None, last_err or "Отсутствуют учетные данные для NVIDIA NIM"
+
+        elif prov == "ollama":
+            profiles = self._get_provider_candidate_profiles("ollama")
+            last_err = None
+            for pid, pcfg in profiles:
+                auth = ProfileAuthManager.load_profile_auth("ollama", pid) or {}
+                raw_url = (pcfg.custom_base_url if pcfg else None) or auth.get("base_url") or os.environ.get("OLLAMA_BASE_URL") or os.environ.get("OLLAMA_HOST") or "http://127.0.0.1:11434"
+                raw_url = str(raw_url).strip().rstrip("/")
+                if not raw_url.startswith(("http://", "https://")):
+                    raw_url = f"http://{raw_url}"
+
+                native_host = raw_url[:-3] if raw_url.endswith("/v1") else raw_url
+                v1_url = raw_url if raw_url.endswith("/v1") else f"{raw_url}/v1"
+
+                token = auth.get("api_key") or auth.get("token") or os.environ.get("OLLAMA_API_KEY")
+                headers = {
+                    "Accept": "application/json",
+                    "User-Agent": "hermes-hub/1.0",
+                }
+                if token:
+                    headers["Authorization"] = f"Bearer {token}"
+
+                # 1. Try native Ollama endpoint /api/tags
+                try:
+                    req = urllib.request.Request(f"{native_host}/api/tags", headers=headers)
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
+                        items = data.get("models") or []
+                        models = []
+                        if isinstance(items, list):
+                            for m in items:
+                                name = m.get("name") or m.get("model") if isinstance(m, dict) else str(m)
+                                if name:
+                                    models.append(str(name))
+                        if models:
+                            return sorted(set(models)), None
+                except urllib.error.HTTPError as http_err:
+                    last_err = self._extract_http_error(http_err)
+                    logger.debug("Ollama /api/tags HTTP error on %s: %s", pid, last_err)
+                except Exception as exc:
+                    last_err = str(exc)
+                    logger.debug("Ollama /api/tags query failed on %s: %s", pid, exc)
+
+                # 2. Try OpenAI-compatible endpoint /v1/models
+                try:
+                    req = urllib.request.Request(f"{v1_url}/models", headers=headers)
+                    with urllib.request.urlopen(req, timeout=5) as resp:
+                        data = json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
+                        items = data.get("data") or data.get("models") or []
+                        models = []
+                        if isinstance(items, list):
+                            for m in items:
+                                mid = m.get("id") or m.get("name") if isinstance(m, dict) else str(m)
+                                if mid:
+                                    models.append(str(mid))
+                        if models:
+                            return sorted(set(models)), None
+                except urllib.error.HTTPError as http_err:
+                    last_err = self._extract_http_error(http_err)
+                    logger.debug("Ollama /v1/models HTTP error on %s: %s", pid, last_err)
+                except Exception as exc:
+                    last_err = str(exc)
+                    logger.debug("Ollama /v1/models query failed on %s: %s", pid, exc)
+
+            return None, last_err or "Не удалось подключиться к серверу Ollama"
+
+        elif prov in ("local", "local-llm", "llama.cpp", "vllm"):
+            profiles = self._get_provider_candidate_profiles("local")
+            last_err = None
+            for pid, pcfg in profiles:
+                auth = ProfileAuthManager.load_profile_auth("local", pid) or {}
+                base_url = (pcfg.custom_base_url if pcfg else None) or auth.get("base_url") or os.environ.get("LOCAL_LLM_BASE_URL") or "http://127.0.0.1:8081/v1"
                 base_url = str(base_url).strip().rstrip("/")
                 if not base_url.startswith(("http://", "https://")):
                     base_url = f"http://{base_url}"
@@ -348,10 +664,7 @@ class ModelDiscoveryService:
                 if api_key:
                     headers["Authorization"] = f"Bearer {api_key}"
                 try:
-                    req = urllib.request.Request(
-                        f"{base_url}/models",
-                        headers=headers,
-                    )
+                    req = urllib.request.Request(f"{base_url}/models", headers=headers)
                     with urllib.request.urlopen(req, timeout=5) as resp:
                         data = json.loads(resp.read().decode("utf-8", errors="replace") or "{}")
                         items = data.get("data") or data.get("models") or []
@@ -362,9 +675,13 @@ class ModelDiscoveryService:
                                 if m
                             ]
                             if models:
-                                return sorted(models)
+                                return sorted(set(models)), None
+                except urllib.error.HTTPError as http_err:
+                    last_err = self._extract_http_error(http_err)
+                    logger.debug("Local LLM model query HTTP error on %s (%s): %s", pid, base_url, last_err)
                 except Exception as exc:
+                    last_err = str(exc)
                     logger.debug("Local LLM model query failed on %s (%s): %s", pid, base_url, exc)
-            return None
+            return None, last_err or "Не удалось подключиться к локальному серверу LLM"
 
-        return None
+        return None, f"Неизвестный провайдер: {provider}"
