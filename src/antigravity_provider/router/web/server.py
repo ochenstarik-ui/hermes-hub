@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.encoders import jsonable_encoder
+from starlette.concurrency import run_in_threadpool
 
 from antigravity_provider.router.state_store import HubStateStore
 from antigravity_provider.router.action_handler import ActionExecutor
@@ -225,7 +226,7 @@ async def handle_action(request: Request, authorized: bool = Depends(get_auth_to
         threading.Thread(target=func, name=name, daemon=True).start()
         
     actor = request.headers.get("X-Hub-Actor") or (f"web:{request.client.host}" if request.client else "user:web")
-    result = ActionExecutor.execute(action, data.get("data", {}), async_runner=_async_runner, actor=actor)
+    result = await run_in_threadpool(ActionExecutor.execute, action, data.get("data", {}), async_runner=_async_runner, actor=actor)
     if result.get("unknown"):
         raise HTTPException(status_code=404, detail="Неизвестное действие")
         
@@ -412,6 +413,9 @@ _SNAPSHOT_REFRESH_SEC = 30
 
 def _background_refresh_loop() -> None:
     from antigravity_provider.router.quota_collector import AccountQuotaService
+    from antigravity_provider.router.account_probe_service import AccountProbeService
+    AccountProbeService.get().enabled = True
+    AccountProbeService.get().tick()
 
     try:
         AccountQuotaService.get().fetch_all_configured(force=True)
@@ -428,6 +432,7 @@ def _background_refresh_loop() -> None:
 
     while True:
         try:
+            AccountProbeService.get().tick()
             HubStateStore.get().refresh(force_scan=False)
         except Exception as exc:
             logger.warning("Snapshot refresh failed: %s", exc)

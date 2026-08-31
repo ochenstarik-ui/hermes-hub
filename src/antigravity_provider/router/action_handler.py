@@ -35,7 +35,10 @@ def do_set_orchestrator(profile_id: str) -> Tuple[bool, str]:
         )
     return ok, msg
 
-def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
+def do_test_profile(provider: str, profile_id: str, timeout: float = 10.0, discovered_models: Optional[List[str]] = None) -> Dict[str, Any]:
+    valid, reason = AutoAssigner.validate_slot(provider, profile_id)
+    if not valid:
+        return {"success": False, "error": reason}
     config = load_router_config()
     pcfg = config.get_profile(profile_id)
     if not pcfg:
@@ -52,7 +55,7 @@ def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
     if status.get('is_expired') or status.get('expired') or status.get('status') == 'EXPIRED':
         return {'success': False, 'error': 'Авторизация истекла, требуется повторный вход.'}
 
-    model = pcfg.preferred_models[0] if pcfg.preferred_models else 'default'
+    model = pcfg.preferred_models[0] if pcfg.preferred_models else (discovered_models or ['default'])[0]
     t0 = time.time()
     try:
         auth_data = ProfileAuthManager.load_profile_auth(pcfg.provider, profile_id)
@@ -78,7 +81,7 @@ def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
                 
         t = threading.Thread(target=_call_invoke, daemon=True)
         t.start()
-        t.join(timeout=10.0)
+        t.join(timeout=timeout)
         
         el = round(time.time() - t0, 2)
         
@@ -86,7 +89,7 @@ def do_test_profile(provider: str, profile_id: str) -> Dict[str, Any]:
             return {
                 'success': False,
                 'duration_sec': el,
-                'error': 'Превышено время ожидания ответа от провайдера (таймаут 10с)',
+                'error': f'Превышено время ожидания ответа от провайдера ({timeout:g}с). Повторите проверку.',
             }
             
         if error_container:
@@ -239,7 +242,7 @@ def do_set_model(profile_id: str, model: str, role_id: Optional[str] = None) -> 
     from antigravity_provider.router.model_discovery_service import ModelDiscoveryService
     from antigravity_provider.router.model_registry import ModelRegistry
 
-    discovered = ModelDiscoveryService.get().get_models(provider)
+    discovered = ModelDiscoveryService.get().get_models_with_metadata(provider, profile_id).get("models") or ModelDiscoveryService.get().get_models(provider)
     if discovered is None:
         try:
             discovered = ModelDiscoveryService.get().discover_models_sync(provider, timeout=5.0)
@@ -337,6 +340,8 @@ def _rescan_after_auth() -> None:
         from antigravity_provider.router.state_store import HubStateStore
 
         HubStateStore.get().refresh(force_scan=True)
+        from .account_probe_service import AccountProbeService
+        AccountProbeService.get().schedule_all()
     except Exception as exc:  # пересбор не должен ронять сам вход
         logger.warning("Не удалось пересобрать снапшот после входа: %s", exc)
 
@@ -533,8 +538,30 @@ def do_reset_router_config(actor: str = "user:web") -> Dict[str, Any]:
 class ActionExecutor:
     """Shared execution layer for Desktop and Web actions."""
     
+    _connect_lock = threading.Lock()
+    _pending_connections: Dict[str, str] = {}
+
     @classmethod
     def execute(cls, action: str, data: Dict[str, Any], async_runner: Optional[Callable] = None, actor: str = "user:web") -> Dict[str, Any]:
+        if action != "add_account":
+            return cls._execute(action, data, async_runner, actor)
+        import hashlib
+        from .account_probe_service import AccountProbeService
+        fingerprint = hashlib.sha256(json.dumps([
+            data.get("provider"), data.get("token") or data.get("api_key"), data.get("base_url")
+        ]).encode()).hexdigest()
+        with cls._connect_lock:
+            cls._pending_connections = {key: pid for key, pid in cls._pending_connections.items() if AccountProbeService.get().state(pid).get("state") == "checking"}
+            previous = cls._pending_connections.get(fingerprint)
+            if previous and AccountProbeService.get().state(previous).get("state") == "checking":
+                return {"ok": False, "message": f"Аккаунт {previous} уже сохранён и проверяется. Дождитесь результата."}
+            result = cls._execute(action, data, async_runner, actor)
+            if result.get("ok"):
+                cls._pending_connections[fingerprint] = result["data"]["profile_id"]
+            return result
+
+    @classmethod
+    def _execute(cls, action: str, data: Dict[str, Any], async_runner: Optional[Callable] = None, actor: str = "user:web") -> Dict[str, Any]:
         """
         Execute the specified action.
         If async_runner is provided, long actions will be dispatched to it.
@@ -602,6 +629,9 @@ class ActionExecutor:
             slot = data.get('profile_id') or AutoAssigner.find_free_slot(provider)
             if not slot:
                 return {'ok': False, 'message': f'Нет свободного слота для провайдера {provider}'}
+            valid, reason = AutoAssigner.validate_slot(provider, slot)
+            if not valid:
+                return {'ok': False, 'message': reason}
             try:
                 if provider == 'grok':
                     from antigravity_provider.router.grok_oauth import start_grok_oauth
@@ -697,7 +727,9 @@ class ActionExecutor:
             else:
                 return {'ok': False, 'message': f'Провайдер {prov_norm} не поддерживается для прямого добавления учетных данных'}
 
-            slot = slot or AutoAssigner.find_free_slot(prov_norm) or f'{prov_norm}-1'
+            slot = slot or AutoAssigner.find_free_slot(prov_norm)
+            if not slot:
+                return {'ok': False, 'message': 'Нет свободного слота'}
             ok, def_msg = AutoAssigner.ensure_profile_definition(prov_norm, slot)
             if not ok:
                 return {'ok': False, 'message': def_msg}
@@ -716,7 +748,10 @@ class ActionExecutor:
                 ProfileAuthManager.save_profile_auth(prov_norm, slot, auth_data)
                 AutoAssigner.assign_profile_to_role(slot, target_role, is_primary=False)
                 _rescan_after_auth()
-                return {'ok': True, 'message': f'Аккаунт {prov_norm} ({slot}) успешно подключен'}
+                from antigravity_provider.router.account_probe_service import AccountProbeService
+                AccountProbeService.get().schedule(prov_norm, slot, force=True)
+                check_note = 'проверка запускается в фоне' if AccountProbeService.get().enabled else 'проверка Н/Д: фоновая служба не запущена'
+                return {'ok': True, 'message': f'Аккаунт {prov_norm} ({slot}) сохранён; {check_note}', 'data': {'profile_id': slot}}
             except Exception as e:
                 return {'ok': False, 'message': f'Ошибка при сохранении учетных данных {slot}: {e}'}
 
@@ -740,6 +775,9 @@ class ActionExecutor:
             slot = data.get('profile_id') or AutoAssigner.find_free_slot(provider)
             if not slot:
                 return {'ok': False, 'message': f'Нет свободного слота для провайдера {provider}'}
+            valid, reason = AutoAssigner.validate_slot(provider, slot)
+            if not valid:
+                return {'ok': False, 'message': reason}
             try:
                 if provider == 'antigravity':
                     from antigravity_provider.router.profile_oauth import (
@@ -857,8 +895,7 @@ class ActionExecutor:
 
         elif action == 'test':
             if async_runner:
-                async_runner(lambda: do_test_profile(prov, pid), 'TestProfile')
-                return {'ok': True, 'message': 'запущено'}
+                return cls._execute('check_account', {'provider': prov, 'profile_id': pid}, async_runner, actor)
             else:
                 res = do_test_profile(prov, pid)
                 return {'ok': res.get('success', False), 'message': res.get('response') or res.get('error'), 'data': res}
@@ -931,6 +968,23 @@ class ActionExecutor:
         elif action == 'refresh_data':
             return {'ok': True, 'message': 'Обновление данных'}
             
+        elif action == 'check_account':
+            from antigravity_provider.router.account_probe_service import AccountProbeService
+            if not AccountProbeService.get().enabled:
+                return {"ok": False, "message": "Фоновая служба проверки не запущена. Перезапустите веб-сервер."}
+            valid, reason = AutoAssigner.validate_slot(prov, pid)
+            if not valid:
+                return {'ok': False, 'message': reason}
+            started = AccountProbeService.get().schedule(prov, pid, force=True)
+            return {'ok': True, 'message': 'Проверка запущена' if started else 'Проверка уже выполняется'}
+
+        elif action == 'check_all_accounts':
+            from antigravity_provider.router.account_probe_service import AccountProbeService
+            if not AccountProbeService.get().enabled:
+                return {"ok": False, "message": "Фоновая служба проверки не запущена. Перезапустите веб-сервер."}
+            count = AccountProbeService.get().schedule_all(force=True)
+            return {'ok': True, 'message': f'Запущена проверка {count} аккаунтов'}
+
         elif action == 'refresh_all':
             if async_runner:
                 async_runner(lambda: HermesRefreshScheduler.get().trigger_refresh_all(), 'RefreshAll')

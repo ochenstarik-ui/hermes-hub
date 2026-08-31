@@ -111,7 +111,7 @@ def test_p0_1_add_account_openrouter_default_base_url():
         },
     )
     assert res["ok"] is True
-    assert "успешно подключен" in res["message"]
+    assert "сохранён" in res["message"]
 
     # Verify profile created and auth saved
     auth = ProfileAuthManager.load_profile_auth("openrouter", "openrouter-1")
@@ -137,7 +137,7 @@ def test_p0_1_add_account_nvidia_default_base_url():
         },
     )
     assert res["ok"] is True
-    assert "успешно подключен" in res["message"]
+    assert "сохранён" in res["message"]
 
     auth = ProfileAuthManager.load_profile_auth("nvidia", "nvidia-1")
     assert auth is not None

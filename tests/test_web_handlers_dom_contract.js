@@ -305,6 +305,24 @@ async function runTests() {
   const refreshModelsAction = executedActions.find(a => a.action === 'refresh_models');
   assert(refreshModelsAction, 'handleRefreshProviderModels did not trigger refresh_models action');
 
+  console.log('10. A50: abandoned Antigravity -> NVIDIA/OpenRouter does not retain its slot');
+  for (const provider of ['nvidia', 'openrouter']) {
+    sandbox.openAddAccountWizard();
+    sandbox.showWizardStep2('antigravity');
+    getOrCreateElement('wiz-redirect-slot').value = 'ag-w1';
+    sandbox.proceedToWizardStep3('antigravity');
+    assert.strictEqual(sandbox.window._wiz_device_profile, 'ag-w1');
+    sandbox.showWizardStep1();
+    sandbox.showWizardStep2(provider);
+    getOrCreateElement('wiz-redirect-slot').value = '';
+    getOrCreateElement('wiz-token-input').value = 'intentionally-invalid';
+    sandbox.proceedToWizardStep3(provider);
+    await sandbox.finishAddAccount(provider);
+    const action = [...executedActions].reverse().find(a => a.action === 'add_account');
+    assert.strictEqual(action.data.provider, provider);
+    assert.strictEqual(action.data.profile_id, '');
+  }
+
   console.log('\nAll targeted Node.js DOM and contract test assertions PASSED successfully!');
   process.exit(0);
 }

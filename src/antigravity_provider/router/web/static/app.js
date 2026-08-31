@@ -637,9 +637,11 @@ function renderAccountsView() {
     'opencode-go': 'OpenCode Go',
     claude: 'Claude (Anthropic)',
     grok: 'Grok (xAI)',
-    local: 'Local LLM',
-    'local-llm': 'Local LLM',
-    'llama.cpp': 'Local LLM (llama.cpp)',
+    nvidia: 'NVIDIA NIM',
+    openrouter: 'OpenRouter',
+    local: 'llama.cpp',
+    'local-llm': 'llama.cpp',
+    'llama.cpp': 'llama.cpp',
     ollama: 'Ollama',
     vllm: 'vLLM',
   };
@@ -647,7 +649,7 @@ function renderAccountsView() {
   const profilesByProv = currentSnapshot.profiles_by_provider || {};
   let totalProfiles = 0;
   let visibleProfiles = 0;
-  let html = '';
+  let html = '<div style="grid-column:1/-1"><button class="btn btn-secondary" onclick="executeAction(\'check_all_accounts\', {})">Проверить все аккаунты</button></div>';
 
   for (const [providerId, profiles] of Object.entries(profilesByProv)) {
     if (providerFilter !== 'all' && providerFilter !== providerId) continue;
@@ -695,7 +697,7 @@ function renderAccountsView() {
       <div class="provider-group">
         <div class="provider-group-header">
           <div class="provider-group-title">
-            <span class="provider-dot" style="color: var(--prov-${providerId.replace('openai-', '').replace('-go', '')})">●</span>
+            <img class="brand-logo" src="/static/${getProviderIcon(providerId)}" width="24" height="24" alt="">
             <span>${providerNames[providerId] || providerId}</span>
           </div>
           <div class="provider-group-count">${filtered.length} аккаунт(ов)</div>
@@ -788,9 +790,31 @@ function renderAccountCard(profile) {
       </div>
 
       <div class="account-models">${(profile.preferred_models || []).map(modelBrandLabel).join('')}</div>
+      ${renderAccountCheck(profile)}
       ${quotaGridHtml}
     </div>
   `;
+}
+
+function renderAccountCheck(profile) {
+  const check = profile.connection_check || {};
+  const meta = profile.model_discovery || {};
+  const checking = check.state === 'checking';
+  const models = meta.models || [];
+  const timestamp = meta.discovered_at ? new Date(meta.discovered_at * 1000).toLocaleString('ru-RU') : '';
+  const modelStatus = meta.error ? `Сервер отказал: ${meta.error}` : timestamp ? `Получено ${models.length} моделей · ${timestamp}` : 'Список моделей ещё не получен';
+  return `<div class="account-check" aria-live="polite">
+    ${checking ? `<p>${escapeHtml(profile.display_name || profile.profile_id)}: идёт опрос провайдера, это может занять до минуты на этап.</p>` : ''}
+    <p>${escapeHtml(modelStatus)}</p>
+    <div class="account-models">${models.slice(0, 8).map(modelBrandLabel).join('')}</div>
+    ${profile.provider === 'ollama' ? `<p>Выше — модели указанного сервера Ollama.</p><p>Облачный каталог Ollama: ${meta.cloud?.error ? 'Н/Д — ' + escapeHtml(meta.cloud.error) : meta.cloud?.models ? escapeHtml(meta.cloud.models.join(', ')) : 'Н/Д — ещё не получен'}</p><p>Доступ аккаунта к облачным моделям: Н/Д до успешного вызова. Для прямого вызова нужен API-ключ Ollama; для локального клиента — вход через ollama signin.</p>` : ''}
+    <button class="btn btn-ghost btn-sm" ${checking ? 'disabled' : ''} onclick="event.stopPropagation(); handleAccountProbe('${escapeHtml(profile.profile_id)}')">${checking ? 'Проверяется…' : 'Проверить подключение и модели'}</button>
+  </div>`;
+}
+
+async function handleAccountProbe(profileId) {
+  await executeAction('check_account', {profile_id: profileId});
+  await fetchSnapshot();
 }
 
 function renderQuotaCell(bucket, unavailableReason) {
@@ -1474,6 +1498,7 @@ function renderSettingsView() {
   const quotaActionSel = document.getElementById('setting-quota-threshold-action');
   const emailMaskingSel = document.getElementById('setting-email-masking-mode');
   const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
+  const accountIntervalInput = document.getElementById('setting-account-check-interval');
 
   if (quotaThresholdSel && s.quota_threshold_percent !== undefined) {
     quotaThresholdSel.value = String(Math.round(s.quota_threshold_percent));
@@ -1483,6 +1508,17 @@ function renderSettingsView() {
   }
   if (emailMaskingSel && s.email_masking_mode) {
     emailMaskingSel.value = s.email_masking_mode;
+  }
+  if (accountIntervalInput && !accountIntervalInput.dataset.loaded) {
+    accountIntervalInput.dataset.loaded = 'loading';
+    fetch('/api/settings', {headers: authToken ? {'X-Hub-Token': authToken} : {}})
+      .then(response => { if (!response.ok) throw new Error('Настройки недоступны'); return response.json(); })
+      .then(settings => {
+        if (!Number.isFinite(Number(settings.account_check_interval_seconds))) throw new Error('Период не передан сервером');
+        accountIntervalInput.value = settings.account_check_interval_seconds;
+        accountIntervalInput.disabled = false;
+        accountIntervalInput.dataset.loaded = 'yes';
+      }).catch(error => { accountIntervalInput.placeholder = 'Н/Д: ' + error.message; accountIntervalInput.dataset.loaded = ''; });
   }
   if (monitorIntervalInput && s.monitoring_interval_seconds !== undefined) {
     monitorIntervalInput.value = s.monitoring_interval_seconds;
@@ -1494,8 +1530,10 @@ async function saveHubServerSettings() {
   const quotaActionSel = document.getElementById('setting-quota-threshold-action');
   const emailMaskingSel = document.getElementById('setting-email-masking-mode');
   const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
+  const accountIntervalInput = document.getElementById('setting-account-check-interval');
 
   const newSettings = {};
+  if (accountIntervalInput?.value) newSettings.account_check_interval_seconds = Math.max(60, Number(accountIntervalInput.value));
   if (quotaThresholdSel?.value) newSettings.quota_threshold_percent = Number(quotaThresholdSel.value);
   if (quotaActionSel?.value) newSettings.quota_threshold_action = quotaActionSel.value;
   if (emailMaskingSel?.value) newSettings.email_masking_mode = emailMaskingSel.value;
@@ -1673,7 +1711,7 @@ function openAccountDetailsModal(profileId, isRedraw = false) {
   if (!profile) return;
 
   const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === profile.provider);
-  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
+  const discoveredModels = profile.model_discovery?.models || ((provSummary && provSummary.discovered_models) ? provSummary.discovered_models : []);
   const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
   const qs = profile.quota_snapshot;
   const buckets = (qs && qs.buckets) ? qs.buckets : [];
@@ -1695,12 +1733,14 @@ function openAccountDetailsModal(profileId, isRedraw = false) {
     modelBlockHtml = `
       <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
         <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
-          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
+          ${escapeHtml(profile.model_discovery?.error ? "Сервер отказал: " + profile.model_discovery.error : profile.connection_check?.state === "checking" ? "Идёт запрос списка моделей…" : "Список моделей ещё не получен от провайдера " + (profile.provider_display_name || profile.provider))}
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}', '${escapeHtml(profileId)}')">↻ Запросить список моделей</button>
+        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}', '${escapeHtml(profileId)}')" ${profile.connection_check?.state === 'checking' ? 'disabled' : ''}>${profile.connection_check?.state === 'checking' ? 'Запрашивается список моделей…' : '↻ Запросить список моделей'}</button>
       </div>
     `;
   }
+
+  modelBlockHtml = renderAccountCheck(profile) + modelBlockHtml;
 
   // Local request options section
   let requestOptionsHtml = '';
@@ -1756,6 +1796,7 @@ function openAccountDetailsModal(profileId, isRedraw = false) {
     `;
   }
 
+  modelBlockHtml = renderAccountCheck(profile) + modelBlockHtml;
   elements.modalTitle.textContent = `Учетная запись: ${profile.display_name || profileId}`;
   elements.modalBody.innerHTML = `
     <div id="modal-feedback-area"></div>
@@ -2267,7 +2308,7 @@ async function handleNodeModelChange(roleId, profileId, newModel) {
 
 async function handleRefreshProviderModels(providerId, profileId = null) {
   showToast(`Запрос списка моделей для ${providerId}...`, 'info');
-  const res = await executeAction('refresh_models', { provider: providerId });
+  const res = await executeAction(profileId ? 'check_account' : 'refresh_models', { provider: providerId, profile_id: profileId || '' });
   if (res && res.ok) {
     showToast('Запрос обновления моделей отправлен', 'success');
     if (profileId) {
@@ -2288,7 +2329,7 @@ function openAccountDetailsModal(profileId, isRefresh = false) {
   if (!profile) return;
 
   const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === profile.provider);
-  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
+  const discoveredModels = profile.model_discovery?.models || ((provSummary && provSummary.discovered_models) ? provSummary.discovered_models : []);
   const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
   const qs = profile.quota_snapshot;
   const buckets = (qs && qs.buckets) ? qs.buckets : [];
@@ -2310,13 +2351,14 @@ function openAccountDetailsModal(profileId, isRefresh = false) {
     modelBlockHtml = `
       <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
         <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
-          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
+          ${escapeHtml(profile.model_discovery?.error ? "Сервер отказал: " + profile.model_discovery.error : profile.connection_check?.state === "checking" ? "Идёт запрос списка моделей…" : "Список моделей ещё не получен от провайдера " + (profile.provider_display_name || profile.provider))}
         </div>
-        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}', '${escapeHtml(profileId)}')">↻ Запросить список моделей</button>
+        <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}', '${escapeHtml(profileId)}')" ${profile.connection_check?.state === 'checking' ? 'disabled' : ''}>${profile.connection_check?.state === 'checking' ? 'Запрашивается список моделей…' : '↻ Запросить список моделей'}</button>
       </div>
     `;
   }
 
+  modelBlockHtml = renderAccountCheck(profile) + modelBlockHtml;
   elements.modalTitle.textContent = `Учетная запись: ${profile.display_name || profileId}`;
   elements.modalBody.innerHTML = `
     <div id="modal-feedback-area"></div>
@@ -2400,7 +2442,7 @@ function openAgentModelModal(roleId, profileId) {
   if (!profile) return;
 
   const provSummary = (currentSnapshot.providers || []).find((p) => p.provider_id === profile.provider);
-  const discoveredModels = (provSummary && provSummary.discovered_models) ? provSummary.discovered_models : [];
+  const discoveredModels = profile.model_discovery?.models || ((provSummary && provSummary.discovered_models) ? provSummary.discovered_models : []);
   const currentModel = (profile.preferred_models && profile.preferred_models.length) ? profile.preferred_models[0] : '';
   const roleName = ((currentSnapshot.routing || {})[roleId]?.role_name_ru) || roleId;
 
@@ -2420,7 +2462,7 @@ function openAgentModelModal(roleId, profileId) {
     ` : `
       <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:16px;">
         <div style="font-size:12px; color:var(--status-warning); margin-bottom:6px;">
-          ⚠ Список моделей ещё не получен от провайдера ${escapeHtml(profile.provider_display_name || profile.provider)}.
+          ${escapeHtml(profile.model_discovery?.error ? "Сервер отказал: " + profile.model_discovery.error : profile.connection_check?.state === "checking" ? "Идёт запрос списка моделей…" : "Список моделей ещё не получен от провайдера " + (profile.provider_display_name || profile.provider))}
         </div>
         <button class="btn btn-secondary btn-sm" onclick="handleRefreshProviderModels('${escapeHtml(profile.provider)}')">↻ Запросить список моделей</button>
       </div>
@@ -2475,10 +2517,10 @@ async function handleTestProfile(profileId) {
   if (feedbackArea) {
     feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Запуск тестового запроса к провайдеру...</div>';
   }
-  const res = await executeAction('test', { profile_id: profileId });
+  const res = await executeAction('check_account', { profile_id: profileId });
   if (feedbackArea) {
     if (res && res.ok) {
-      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Тест успешно пройден')}</div>`;
+      feedbackArea.innerHTML = `<div class="modal-feedback success">✓ ${escapeHtml(res.message || 'Проверка запущена; результат появится в карточке')}</div>`;
     } else {
       feedbackArea.innerHTML = `<div class="modal-feedback error">❌ ${escapeHtml((res && res.message) || 'Тест завершился с ошибкой')}</div>`;
     }
@@ -2500,6 +2542,10 @@ function openAddAccountWizard() {
 }
 
 function showWizardStep1() {
+  stopDeviceAuthPolling();
+  stopRedirectAuthPolling();
+  for (const key of ['device_profile', 'device_session', 'redirect_session', 'redirect_provider', 'redirect_slot_id', 'base_url', 'token']) window['_wiz_' + key] = undefined;
+  window._wiz_provider = undefined;
   if (elements.modalTitle) elements.modalTitle.textContent = 'Мастер подключения учетной записи';
   elements.modalBody.innerHTML = `
     <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
@@ -2577,6 +2623,12 @@ function showWizardStep1() {
 }
 
 function showWizardStep2(providerId) {
+  if (window._wiz_provider !== providerId) {
+    window._wiz_device_profile = undefined;
+    window._wiz_base_url = undefined;
+    window._wiz_token = undefined;
+  }
+  window._wiz_provider = providerId;
   let bodyHtml = '';
   let footerHtml = '';
 
@@ -2752,14 +2804,10 @@ function proceedToWizardStep3(providerId) {
   const isRedirectAuthFlow = providerId === 'antigravity' || providerId === 'claude' || providerId === 'openrouter' || providerId === 'nvidia';
   if (isDeviceAuthFlow) {
     const deviceSlot = document.getElementById('wiz-device-slot');
-    if (deviceSlot && deviceSlot.value) {
-      window._wiz_device_profile = deviceSlot.value;
-    }
+    window._wiz_device_profile = deviceSlot?.value || '';
   } else if (isRedirectAuthFlow) {
     const redirectSlot = document.getElementById('wiz-redirect-slot');
-    if (redirectSlot && redirectSlot.value) {
-      window._wiz_device_profile = redirectSlot.value;
-    }
+    window._wiz_device_profile = redirectSlot?.value || '';
   }
   // For local providers (local, local-llm, llama.cpp, ollama, vllm), do not read any slot elements
   showWizardStep3(providerId);
@@ -2811,6 +2859,10 @@ function showWizardStep3(providerId) {
 }
 
 async function finishAddAccount(providerId) {
+  if (window._wiz_saving) return;
+  window._wiz_saving = true;
+  const finishButton = elements.modalFooter?.querySelector(".btn-primary");
+  if (finishButton) finishButton.disabled = true;
   const roleSelect = document.getElementById('wiz-target-role');
   const targetRole = roleSelect ? roleSelect.value : 'coder-primary';
 
@@ -2831,7 +2883,7 @@ async function finishAddAccount(providerId) {
 
   const feedbackArea = document.getElementById('modal-feedback-area');
   if (feedbackArea) {
-    feedbackArea.innerHTML = '<div class="modal-feedback info">⏳ Сохранение учетной записи в роутере...</div>';
+    feedbackArea.innerHTML = `<div class="modal-feedback info">⏳ ${escapeHtml(providerId)}: сохранение аккаунта и запуск проверки. Опрос провайдера может занять до минуты на этап.</div>`;
   }
 
   const payload = {
@@ -2847,10 +2899,12 @@ async function finishAddAccount(providerId) {
     payload.token = window._wiz_token;
   }
 
-  const res = await executeAction('add_account', payload);
+  let res;
+  try { res = await executeAction('add_account', payload); }
+  finally { window._wiz_saving = false; if (finishButton) finishButton.disabled = false; }
 
   if (res && res.ok) {
-    showToast('Аккаунт успешно добавлен в маршрутизацию', 'success');
+    showToast('Аккаунт сохранён. Идёт проверка подключения…', 'success');
     closeModal();
     fetchSnapshot();
   } else {
@@ -2888,6 +2942,7 @@ async function startDeviceAuth(providerId) {
   box.innerHTML = `<div style="color:var(--text-secondary);">Запрашиваем код у провайдера…</div>`;
   // P0-1 BUG-2: send profile_id so server knows which slot the owner chose
   const res = await executeAction('start_device_auth', { provider: providerId, profile_id: selectedSlot });
+  if (window._wiz_provider !== providerId) return;
   if (!res || !res.ok) {
     box.innerHTML = `<div class="modal-feedback error">${escapeHtml((res && res.message) || 'Не удалось начать авторизацию')}</div>`;
     return;
@@ -2967,7 +3022,7 @@ function profilesInRouting() {
 function buildSlotOptions(providerId) {
   const profiles = ((currentSnapshot || {}).profiles_by_provider || {})[providerId] || [];
   if (!profiles.length) {
-    return '<option value="">Список слотов ещё не получен</option>';
+    return '<option value="">Новый свободный слот — автоматически</option>';
   }
   // Роль слота показываем прямо в списке. Без этого выбор вслепую: слоты
   // ag-spare-* и ag-cold-* не входят ни в одну цепочку, поэтому подключённый
@@ -2992,7 +3047,7 @@ function buildSlotOptions(providerId) {
     else used.push(opt);
   });
   // Свободные слоты с ролью — первыми: именно они дают работающий маршрут.
-  return free.concat(used, idle).join('');
+  return '<option value="">Новый свободный слот — автоматически</option>' + free.concat(used, idle).join('');
 }
 
 let _redirectAuthTimer = null;
@@ -3030,6 +3085,7 @@ async function startRedirectAuth(providerId) {
     provider: providerId,
     profile_id: chosen || undefined,
   });
+  if (window._wiz_provider !== providerId) return;
   if (!res || !res.ok) {
     box.innerHTML = `<div class="modal-feedback error">${escapeHtml((res && res.message) || 'Не удалось начать авторизацию')}</div>`;
     return;

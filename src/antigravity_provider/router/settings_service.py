@@ -19,6 +19,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "auto_update": True,
     "release_channel": "stable",
     "model_timeout_seconds": 60,
+    "account_check_interval_seconds": 300,
     "monitoring_interval_seconds": 30,
     "quota_threshold_percent": 10.0,
     "quota_threshold_action": "notify",
@@ -74,6 +75,11 @@ def get_hub_settings() -> Dict[str, Any]:
                 merged.update(data)
         except Exception:
             pass
+
+    try:
+        merged["account_check_interval_seconds"] = max(60, int(merged.get("account_check_interval_seconds", 300)))
+    except (ValueError, TypeError):
+        merged["account_check_interval_seconds"] = 300
 
     # Normalize numeric types
     try:

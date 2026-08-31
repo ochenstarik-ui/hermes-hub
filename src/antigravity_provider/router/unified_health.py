@@ -97,6 +97,8 @@ class ProfileViewModel:
     plan_source: str = "unknown"
     quota_snapshot: Optional[Any] = None
     preferred_models: List[str] = field(default_factory=list)
+    connection_check: Dict[str, Any] = field(default_factory=dict)
+    model_discovery: Dict[str, Any] = field(default_factory=dict)
     active_leases: int = 0
     request_options: dict[str, Any] = field(default_factory=dict)
 
@@ -518,15 +520,30 @@ class UnifiedHealthService:
                     "nvidia": "NVIDIA NIM",
                     "nvidia-nim": "NVIDIA NIM",
                     "ollama": "Ollama",
-                    "local": "Local LLM",
-                    "local-llm": "Local LLM",
-                    "llama.cpp": "Local LLM (llama.cpp)",
+                    "local": "llama.cpp",
+                    "local-llm": "llama.cpp",
+                    "llama.cpp": "llama.cpp",
                     "vllm": "vLLM",
                 }.get(prov.lower(), prov)
 
                 last_success_str = datetime.datetime.fromtimestamp(precord.last_success).strftime("%H:%M:%S") if precord.last_success else None
 
+                from .account_probe_service import AccountProbeService
+                from .model_discovery_service import ModelDiscoveryService
+                check = AccountProbeService.get().state(pid)
+                model_meta = ModelDiscoveryService.get().get_models_with_metadata(prov, pid)
+                if prov == "ollama":
+                    model_meta["cloud"] = ModelDiscoveryService.get().get_models_with_metadata("ollama-cloud-catalog")
+                if is_authenticated and pcfg.enabled:
+                    if check.get("state") == "checking":
+                        health_state, health_lbl = "checking", "Проверяется…"
+                    elif check.get("state") == "failed":
+                        health_state, health_lbl = STATUS_UNHEALTHY, "Проверен: не работает — " + check.get("message", "Причина Н/Д")
+                    elif check.get("state") == "working" and health_state in (STATUS_NOT_TESTED, STATUS_HEALTHY):
+                        health_state, health_lbl = STATUS_HEALTHY, "Проверен: работает"
                 vm = ProfileViewModel(
+                    connection_check=check,
+                    model_discovery=model_meta,
                     profile_id=pid,
                     display_name=display_name,
                     account_identity=ident.primary_identifier() if is_authenticated else identity,
@@ -541,7 +558,7 @@ class UnifiedHealthService:
                     health_label_ru=health_lbl,
                     model_states=model_states,
                     cooldown_remaining_sec=max_cd,
-                    last_checked_at=now_str,
+                    last_checked_at=datetime.datetime.fromtimestamp(check["checked_at"]).isoformat() if check.get("checked_at") else None,
                     last_success_at=last_success_str,
                     enabled=pcfg.enabled,
                     is_cold_spare=is_cold,

@@ -200,7 +200,7 @@ function arrangeSettingsPanels() {
   const first = view.querySelector('.settings-card');
   const groups = [
     ['Общие настройки',['setting-theme']],
-    ['Управление квотами',['setting-quota-interval','setting-quota-threshold-percent','setting-quota-threshold-action']],
+    ['Управление квотами',['setting-account-check-interval','setting-quota-interval','setting-quota-threshold-percent','setting-quota-threshold-action']],
     ['Безопасность и API',['setting-server-host','setting-server-token-input','setting-email-masking-mode']],
   ];
   for (const [title,ids] of groups) {
