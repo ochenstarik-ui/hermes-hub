@@ -1495,5 +1495,77 @@ class ActionExecutor:
                 }
             }
 
+        # ── Проверка доступности agy и сценарии владельца (A58) ──
+        elif action == 'refresh_agy_eligibility':
+            from antigravity_provider.router.agy_eligibility_service import AgyEligibilityService
+
+            service = AgyEligibilityService.get()
+            service.invalidate_cache()
+            state = service.check_eligibility_state(force=True)
+            return {
+                'ok': True,
+                'message': f"Состояние проверки agy: {state.get('status_label_ru')}",
+                'data': state,
+            }
+
+        elif action == 'run_agy_patch_script':
+            from pathlib import Path
+            from antigravity_provider.router.settings_service import get_hub_settings
+            from antigravity_provider.router.agy_eligibility_service import AgyEligibilityService
+            from antigravity_provider.agy_subprocess import launch_terminal_task
+
+            settings = get_hub_settings()
+            raw_path = str(settings.get('agy_patch_script_path') or '').strip()
+            if not raw_path:
+                return {'ok': False, 'message': 'Н/Д: путь к сценарию патча не указан в настройках'}
+
+            p = Path(raw_path).expanduser().resolve()
+            if not p.is_file() or not (os.access(p, os.X_OK) or p.suffix in ('.sh', '.py', '.bat', '.cmd', '.exe')):
+                return {'ok': False, 'message': f'Файл сценария не найден или недоступен: {raw_path}'}
+
+            ok, msg, res_data = launch_terminal_task(
+                title='Antigravity Eligibility Patch',
+                command_args=[str(p)],
+                work_dir=p.parent,
+            )
+            if not ok:
+                return {'ok': False, 'message': f'Не удалось запустить сценарий в терминале: {msg}', 'data': res_data}
+
+            service = AgyEligibilityService.get()
+            service.invalidate_cache()
+            new_state = service.check_eligibility_state(force=True)
+            return {
+                'ok': True,
+                'message': 'Сценарий патча запущен в окне терминала',
+                'data': {'eligibility': new_state, 'terminal': res_data},
+            }
+
+        elif action == 'run_agy_update':
+            from antigravity_provider.agy_subprocess import get_agy_exe, launch_terminal_task
+            from antigravity_provider.router.agy_eligibility_service import AgyEligibilityService
+            from antigravity_provider.paths import get_hermes_home
+
+            try:
+                agy_exe = get_agy_exe()
+            except Exception as exc:
+                return {'ok': False, 'message': f'Утилита agy не найдена: {exc}'}
+
+            ok, msg, res_data = launch_terminal_task(
+                title='Обновление Antigravity CLI (agy update)',
+                command_args=[agy_exe, 'update'],
+                work_dir=get_hermes_home(),
+            )
+            if not ok:
+                return {'ok': False, 'message': f'Не удалось запустить обновление в терминале: {msg}', 'data': res_data}
+
+            service = AgyEligibilityService.get()
+            service.invalidate_cache()
+            new_state = service.check_eligibility_state(force=True)
+            return {
+                'ok': True,
+                'message': 'Обновление agy запущено в окне терминала',
+                'data': {'eligibility': new_state, 'terminal': res_data},
+            }
+
         else:
             return {'ok': False, 'message': f'Неизвестное действие: {action}', 'unknown': True}

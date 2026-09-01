@@ -653,6 +653,17 @@ body {
   border: 1px solid var(--border-subtle);
 }
 
+.account-eligibility-warning {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(230, 162, 60, 0.12);
+  border-left: 3px solid var(--status-warning);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  color: var(--status-warning);
+  line-height: 1.4;
+}
+
 .role-answering-status {
   padding: 6px 10px;
   border-radius: var(--radius-sm);

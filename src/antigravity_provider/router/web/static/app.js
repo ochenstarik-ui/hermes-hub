@@ -210,6 +210,42 @@ function initEventListeners() {
     btnResetConfig.addEventListener('click', () => openResetConfigModal());
   }
 
+  // Antigravity eligibility actions (A58)
+  const btnRefreshAgyElig = document.getElementById('btn-refresh-agy-eligibility');
+  if (btnRefreshAgyElig) {
+    btnRefreshAgyElig.addEventListener('click', async () => {
+      showToast('Проверка состояния agy...', 'info');
+      const res = await executeAction('refresh_agy_eligibility');
+      await fetchSettings();
+      await fetchSnapshot();
+      if (res && res.ok) showToast(res.message || 'Состояние обновлено', 'success');
+    });
+  }
+
+  const btnRunAgyUpdate = document.getElementById('btn-run-agy-update');
+  if (btnRunAgyUpdate) {
+    btnRunAgyUpdate.addEventListener('click', async () => {
+      if (!confirm('Обновление agy перезаписывает исполняемый файл и возвращает проверку доступности: сначала выполните обновление, затем повторно примените патч. Запустить agy update в терминале?')) return;
+      const res = await executeAction('run_agy_update');
+      await fetchSettings();
+      await fetchSnapshot();
+    });
+  }
+
+  const btnRunAgyPatch = document.getElementById('btn-run-agy-patch-script');
+  if (btnRunAgyPatch) {
+    btnRunAgyPatch.addEventListener('click', async () => {
+      const pathVal = (document.getElementById('setting-agy-patch-script-path')?.value || '').trim();
+      if (!pathVal && !currentSettings?.agy_patch_script_path) {
+        showToast('Н/Д: путь к сценарию патча не указан в настройках', 'warning');
+        return;
+      }
+      const res = await executeAction('run_agy_patch_script');
+      await fetchSettings();
+      await fetchSnapshot();
+    });
+  }
+
   // Skills view event listeners
   const skillsSearch = document.getElementById('skills-search');
   const filterSkillsSource = document.getElementById('filter-skills-source');
@@ -877,6 +913,37 @@ function renderAccountCard(profile) {
 
   const unassignedBadge = !isAssigned ? '<span class="badge badge-unassigned">Не назначен</span>' : '';
 
+  let agyEligibilityHtml = '';
+  if (['antigravity', 'google-antigravity'].includes(String(profile.provider || '').toLowerCase())) {
+    const agyElig = (currentSnapshot && currentSnapshot.agy_eligibility) || {};
+    let badgeClass = '';
+    let badgeText = agyElig.status_label_ru || 'Н/Д';
+    if (agyElig.status === 'check_removed') {
+      badgeClass = 'healthy';
+      badgeText = '✓ Проверка снята';
+    } else if (agyElig.status === 'check_active') {
+      badgeClass = 'warning';
+      badgeText = '⚠️ Проверка на месте';
+    }
+    const badgeHtml = `<span class="badge badge-status ${badgeClass}" title="${escapeHtml(agyElig.detail_ru || '')}">${escapeHtml(badgeText)}</span>`;
+
+    let warningHtml = '';
+    if (agyElig.status === 'check_active') {
+      warningHtml = `
+        <div class="account-eligibility-warning" style="margin-top:6px; padding:6px 8px; background:rgba(230,162,60,0.15); border-left:3px solid var(--status-warning); border-radius:3px; font-size:11px; color:var(--status-warning); line-height:1.4;">
+          ⚠️ <strong>Проверка доступности Antigravity активна.</strong> Аккаунт может отклоняться Google по региону. Примените патч или настройте прокси.
+        </div>
+      `;
+    }
+    agyEligibilityHtml = `
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:6px; font-size:11px; color:var(--text-muted);">
+        <span>Доступность agy:</span>
+        ${badgeHtml}
+      </div>
+      ${warningHtml}
+    `;
+  }
+
   return `
     <div class="account-card ${isMain ? 'main-account' : ''}" data-profile-id="${escapeHtml(profile.profile_id)}">
       <div class="account-card-header">
@@ -898,6 +965,7 @@ function renderAccountCard(profile) {
       </div>
 
       <div class="account-models"><span>Предпочитаемые:</span>${(profile.preferred_models || []).map(modelBrandLabel).join('')}</div>
+      ${agyEligibilityHtml}
       ${renderAccountCheck(profile)}
       ${quotaGridHtml}
     </div>
@@ -1590,14 +1658,22 @@ function renderHealthView() {
   const warningsContainer = document.getElementById('health-warnings-list');
   if (warningsContainer) {
     const warnings = readiness.warnings || [];
-    if (warnings.length === 0) {
+    const agyElig = currentSnapshot.agy_eligibility || {};
+    const agyWarnHtml = (agyElig.status === 'check_active')
+      ? `<div class="warning-item" style="padding:8px 12px; margin-bottom:6px; border-left:3px solid var(--status-warning); background:var(--surface-muted); font-size:12px;">
+           <strong>⚠️ Проверка доступности Antigravity активна</strong>: аккаунты Google могут отклоняться по региону («not currently available in your location»). Примените патч в Настройках или используйте прокси.
+         </div>`
+      : '';
+
+    if (warnings.length === 0 && !agyWarnHtml) {
       warningsContainer.innerHTML = '<div style="padding:14px; color:var(--status-healthy); font-size:12px;">✓ Критических предупреждений и деградаций не обнаружено</div>';
     } else {
-      warningsContainer.innerHTML = warnings.map((w) => `
+      const regularWarnings = warnings.map((w) => `
         <div class="warning-item" style="padding:8px 12px; margin-bottom:6px; border-left:3px solid var(--status-warning); background:var(--surface-muted); font-size:12px;">
           <strong>⚠ ${escapeHtml(w.title || 'Предупреждение')}</strong>: ${escapeHtml(w.message || w)}
         </div>
       `).join('');
+      warningsContainer.innerHTML = agyWarnHtml + regularWarnings;
     }
   }
 }
@@ -1824,9 +1900,44 @@ function renderSettingsView() {
   if (compKeepRecentSel && s.compression_keep_recent_messages !== undefined) {
     compKeepRecentSel.value = String(s.compression_keep_recent_messages);
   }
-  // checkCompressionStatus() отсюда убран: отрисовка настроек происходит на
-  // каждом обновлении снапшота, и опрос замыкал круг сам на себя. Состояние
-  // запрашивается при открытии экрана настроек и по кнопке.
+
+  // Antigravity CLI & Eligibility Settings (A58)
+  const agyPatchInput = document.getElementById('setting-agy-patch-script-path');
+  if (agyPatchInput) {
+    agyPatchInput.value = s.agy_patch_script_path || '';
+  }
+
+  const agyElig = s.agy_eligibility || (currentSnapshot && currentSnapshot.agy_eligibility) || {};
+  const agyBadge = document.getElementById('agy-eligibility-badge');
+  const agyDesc = document.getElementById('agy-version-path-desc');
+  const agyDetails = document.getElementById('agy-eligibility-details');
+
+  if (agyBadge) {
+    if (agyElig.status === 'check_removed') {
+      agyBadge.textContent = '✓ Проверка снята';
+      agyBadge.className = 'badge healthy';
+    } else if (agyElig.status === 'check_active') {
+      agyBadge.textContent = '⚠️ Проверка на месте';
+      agyBadge.className = 'badge warning';
+    } else {
+      agyBadge.textContent = agyElig.status_label_ru || 'Н/Д: не определено';
+      agyBadge.className = 'badge';
+    }
+  }
+
+  if (agyDesc) {
+    const ver = agyElig.version || 'Н/Д';
+    const bin = agyElig.binary_path || 'Н/Д';
+    agyDesc.innerHTML = `Версия: <strong>${escapeHtml(ver)}</strong> • Путь: <code class="mono-path">${escapeHtml(bin)}</code>`;
+  }
+
+  if (agyDetails) {
+    if (agyElig.binary_sha256) {
+      agyDetails.textContent = `SHA-256: ${agyElig.binary_sha256}\nРазмер: ${agyElig.binary_size_bytes || 0} байт\nОписание: ${agyElig.detail_ru || ''}`;
+    } else {
+      agyDetails.textContent = agyElig.detail_ru || '';
+    }
+  }
 }
 
 function populateCompressorProfiles(s) {
@@ -1865,6 +1976,7 @@ async function saveHubServerSettings() {
   const accountIntervalInput = document.getElementById('setting-account-check-interval');
   const defaultRoleSel = document.getElementById('setting-default-role');
   const themeSel = document.getElementById('setting-theme');
+  const agyPatchInput = document.getElementById('setting-agy-patch-script-path');
 
   const proxyInputSave = document.getElementById('setting-provider-proxy-url');
 
@@ -1872,6 +1984,7 @@ async function saveHubServerSettings() {
   // Пустое поле — это выбор «без прокси», а не отсутствие значения:
   // отправляем его тоже, иначе прокси нельзя было бы убрать.
   if (proxyInputSave) newSettings.provider_proxy_url = proxyInputSave.value.trim();
+  if (agyPatchInput) newSettings.agy_patch_script_path = agyPatchInput.value.trim();
   if (hostInput && hostInput.value.trim()) newSettings.web_api_host = hostInput.value.trim();
   if (portInput && portInput.value) newSettings.web_api_port = Number(portInput.value);
   if (tokenInput && tokenInput.value.trim()) newSettings.web_api_token = tokenInput.value.trim();
@@ -2147,6 +2260,38 @@ function openAccountDetailsModal(profileId, isRedraw = false) {
     `;
   }
 
+  // Antigravity eligibility section
+  let agyModalBlockHtml = '';
+  if (['antigravity', 'google-antigravity'].includes(String(profile.provider || '').toLowerCase())) {
+    const agyElig = (currentSnapshot && currentSnapshot.agy_eligibility) || {};
+    let badgeClass = '';
+    let badgeText = agyElig.status_label_ru || 'Н/Д';
+    if (agyElig.status === 'check_removed') {
+      badgeClass = 'healthy';
+      badgeText = '✓ Проверка снята';
+    } else if (agyElig.status === 'check_active') {
+      badgeClass = 'warning';
+      badgeText = '⚠️ Проверка на месте';
+    }
+    agyModalBlockHtml = `
+      <div style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-bottom:14px;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <strong style="font-size:12px;">Состояние проверки доступности agy:</strong>
+          <span class="badge badge-status ${badgeClass}">${escapeHtml(badgeText)}</span>
+        </div>
+        <div style="font-size:11px; color:var(--text-secondary); margin-bottom:4px;">
+          ${escapeHtml(agyElig.detail_ru || 'Состояние проверки доступности утилиты agy.')}
+        </div>
+        ${agyElig.binary_path ? `<div style="font-size:11px; font-family:var(--font-mono); color:var(--text-muted); word-break:break-all;">Файл: ${escapeHtml(agyElig.binary_path)} (v${escapeHtml(agyElig.version || 'Н/Д')})</div>` : ''}
+        ${agyElig.status === 'check_active' ? `
+          <div style="margin-top:6px; padding:6px 8px; background:rgba(230,162,60,0.15); border-left:3px solid var(--status-warning); border-radius:3px; font-size:11px; color:var(--status-warning);">
+            ⚠️ <strong>Внимание:</strong> Проверка доступности активна. Аккаунт может отклоняться Google по региону. Примените патч в Настройках или настройте прокси.
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
   modelBlockHtml = renderAccountCheck(profile) + modelBlockHtml;
   elements.modalTitle.textContent = `Учетная запись: ${profile.display_name || profileId}`;
   elements.modalBody.innerHTML = `
@@ -2155,7 +2300,7 @@ function openAccountDetailsModal(profileId, isRedraw = false) {
       <div style="font-size:14px; font-weight:700;">${escapeHtml(profile.account_identity || profile.email || profileId)}</div>
       <div style="font-size:12px; color:var(--text-muted);">
         Провайдер: <strong>${escapeHtml(profile.provider_display_name || profile.provider)}</strong> •
-        Тариф: <strong>${escapeHtml(profile.plan || 'Неизвестen')}</strong> •
+        Тариф: <strong>${escapeHtml(profile.plan || 'Неизвестен')}</strong> •
         Статус: <strong class="text-healthy">${escapeHtml(profile.health_label_ru || 'Работает')}</strong>
       </div>
       <div style="font-size:12px; color:var(--text-secondary); margin-top:4px;">
@@ -2163,6 +2308,7 @@ function openAccountDetailsModal(profileId, isRedraw = false) {
       </div>
     </div>
 
+    ${agyModalBlockHtml}
     ${modelBlockHtml}
     ${requestOptionsHtml}
     ${quotasHtml}
