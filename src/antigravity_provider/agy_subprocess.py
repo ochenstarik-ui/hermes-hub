@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import secrets
+import shlex
 import shutil
 import subprocess
 import time
@@ -717,6 +718,61 @@ BLOCKED_SECRET_PATTERNS: tuple[str, ...] = (
 )
 
 
+def _is_windows() -> bool:
+    """Отдельная проверка системы, чтобы тестам не подменять os.name.
+
+    Подмена глобального os.name задевает pathlib: он выбирает по нему
+    класс пути, и на Windows создание PosixPath падает — ломая не только
+    проверяемый код, но и сам pytest.
+    """
+    return os.name == "nt"
+
+
+def write_login_helper(profile_dir: Path, agy_exe: str, profile_id: str) -> Path:
+    """Создать сценарий, который терминал запустит вместо самой agy.
+
+    Три причины, все проверены на сервере владельца.
+
+    Окружение задаётся внутри сценария, а не наследуется. Многие эмуляторы —
+    xfce4-terminal, gnome-terminal — держат один процесс на сеанс: новый вызов
+    передаёт задание уже работающему экземпляру и немедленно умирает (в ps
+    остаётся [xfce4-terminal] <defunct>). Команда при этом выполняется в
+    окружении СТАРОГО экземпляра, и подменённый HOME не применяется — вход
+    ушёл бы в настоящий домашний каталог владельца мимо изоляции слотов.
+
+    Окно не закрывается по завершении agy: с ключом -e терминал исчезает
+    вместе с командой, и владелец не успевает прочитать причину отказа.
+
+    Видно, куда идёт вход: путь к каталогу профиля печатается до запуска.
+    """
+    helper_path = profile_dir / ".hermes-agy-login.sh"
+    lines = [
+        "#!/bin/sh",
+        "# Создан Hermes Hub для входа в слот " + profile_id + ".",
+        "# Секретов не содержит: только пути.",
+        "HOME=" + shlex.quote(str(profile_dir)),
+        "USERPROFILE=" + shlex.quote(str(profile_dir)),
+        "HOMEPATH=" + shlex.quote(str(profile_dir)),
+        "export HOME USERPROFILE HOMEPATH",
+        "cd " + shlex.quote(str(profile_dir)) + " || exit 1",
+        'echo "Вход Antigravity в слот ' + profile_id + '"',
+        'echo "Каталог профиля: $HOME"',
+        'echo',
+        shlex.quote(agy_exe),
+        "status=$?",
+        'echo',
+        'echo "agy завершился с кодом $status. Окно можно закрыть."',
+        'printf "Нажмите Enter... "',
+        "read _ignored",
+    ]
+    helper_path.write_text(chr(10).join(lines) + chr(10), encoding="utf-8")
+    try:
+        os.chmod(helper_path, 0o700)
+    except OSError:
+        pass
+    return helper_path
+
+
 def find_terminal_emulator(
     profile_id: str,
     agy_exe: str,
@@ -729,7 +785,7 @@ def find_terminal_emulator(
     """
     title = f"Antigravity Login ({profile_id})"
 
-    if os.name == "nt":
+    if _is_windows():
         checked = ["Windows Terminal (wt.exe)", "cmd.exe", "powershell.exe"]
         wt_path = shutil.which("wt.exe") or shutil.which("wt")
         if wt_path:
@@ -737,7 +793,9 @@ def find_terminal_emulator(
             return cmd, None, checked
 
         cmd_path = shutil.which("cmd.exe") or shutil.which("cmd") or "cmd.exe"
-        cmd = [cmd_path, "/c", "start", title, agy_exe]
+        # /k вместо /c: иначе окно исчезает вместе с agy и причина отказа
+        # остаётся непрочитанной.
+        cmd = [cmd_path, "/c", "start", title, "cmd", "/k", agy_exe]
         return cmd, None, checked
 
     # Linux / Unix / macOS
@@ -758,18 +816,27 @@ def find_terminal_emulator(
         )
         return None, err_msg, checked
 
+    # Запускаем не саму agy, а сценарий: он сам задаёт HOME и не даёт окну
+    # закрыться. Подробности — в write_login_helper.
+    launch = str(write_login_helper(profile_dir, agy_exe, profile_id))
+
+    # Конкретные эмуляторы идут раньше x-terminal-emulator: это обёртка над
+    # альтернативами Debian, лишний слой между нами и настоящей программой.
+    # У xfce4-terminal обязателен --disable-server, иначе вызов передаётся
+    # уже работающему экземпляру и наш процесс умирает, не открыв окна, —
+    # именно это владелец и увидел.
     candidates: list[tuple[str, Any]] = [
-        ("x-terminal-emulator", lambda p: [p, "-e", agy_exe]),
-        ("gnome-terminal", lambda p: [p, "--title", title, "--", agy_exe]),
-        ("konsole", lambda p: [p, "-p", f"tabtitle={title}", "-e", agy_exe]),
-        ("xfce4-terminal", lambda p: [p, "--title", title, "-e", agy_exe]),
-        ("tilix", lambda p: [p, "-t", title, "-e", agy_exe]),
-        ("alacritty", lambda p: [p, "-t", title, "-e", agy_exe]),
-        ("kitty", lambda p: [p, "--title", title, agy_exe]),
-        ("terminator", lambda p: [p, "-T", title, "-e", agy_exe]),
-        ("urxvt", lambda p: [p, "-title", title, "-e", agy_exe]),
-        ("foot", lambda p: [p, "--title", title, agy_exe]),
-        ("xterm", lambda p: [p, "-title", title, "-e", agy_exe]),
+        ("xfce4-terminal", lambda p: [p, "--disable-server", "--title", title, "-e", launch]),
+        ("konsole", lambda p: [p, "-p", f"tabtitle={title}", "-e", launch]),
+        ("tilix", lambda p: [p, "-t", title, "-e", launch]),
+        ("alacritty", lambda p: [p, "-t", title, "-e", launch]),
+        ("kitty", lambda p: [p, "--title", title, launch]),
+        ("terminator", lambda p: [p, "-T", title, "-e", launch]),
+        ("urxvt", lambda p: [p, "-title", title, "-e", launch]),
+        ("foot", lambda p: [p, "--title", title, launch]),
+        ("xterm", lambda p: [p, "-title", title, "-e", launch]),
+        ("gnome-terminal", lambda p: [p, "--title", title, "--", launch]),
+        ("x-terminal-emulator", lambda p: [p, "-e", launch]),
     ]
 
     checked = []
@@ -970,7 +1037,7 @@ def start_native_agy_login(
     )
 
     try:
-        subprocess.Popen(
+        proc = subprocess.Popen(
             term_cmd,
             env=env,
             cwd=str(profile_dir),
@@ -978,6 +1045,24 @@ def start_native_agy_login(
             stdout=None,
             stderr=None,
         )
+        # Popen возвращается сразу и об открытии окна не говорит ничего.
+        # Владелец видел «Терминал запущен», а окна не было: процесс умирал
+        # мгновенно, оставляя зомби. Даём ему секунду и смотрим, жив ли он.
+        time.sleep(1.0)
+        exit_code = proc.poll()
+        # Только настоящий ненулевой код считаем отказом: в проверках
+        # Popen подменяется заглушкой, и её poll() возвращает объект.
+        if isinstance(exit_code, int) and exit_code != 0:
+            return False, (
+                f"Терминал {term_cmd[0]} завершился сразу с кодом {exit_code}, "
+                f"окно не открылось. Запуск с HOME={profile_dir}"
+            ), {
+                "profile_id": slot,
+                "home": str(profile_dir),
+                "checked_terminals": checked,
+                "terminal_cmd": term_cmd[0],
+                "exit_code": exit_code,
+            }
     except Exception as launch_exc:
         return False, f"Не удалось запустить терминал ({term_cmd[0]}): {launch_exc}. Запуск с HOME={profile_dir}", {
             "profile_id": slot,

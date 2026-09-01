@@ -16,6 +16,8 @@ from __future__ import annotations
 
 import json
 import os
+
+from antigravity_provider import agy_subprocess
 import shutil
 from pathlib import Path
 from unittest.mock import MagicMock
@@ -57,7 +59,7 @@ def isolated_hermes_env(tmp_path, monkeypatch):
 @pytest.mark.unit
 def test_terminal_discovery_linux_found(tmp_path, monkeypatch):
     """P0-1: find_terminal_emulator finds available terminal on Linux and returns correct command."""
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(agy_subprocess, "_is_windows", lambda: False)
     monkeypatch.setenv("DISPLAY", ":10.0")
 
     def mock_which(cmd):
@@ -72,14 +74,21 @@ def test_terminal_discovery_linux_found(tmp_path, monkeypatch):
     assert cmd is not None
     assert cmd[0] == "/usr/bin/gnome-terminal"
     assert "--" in cmd
-    assert "/bin/agy" in cmd
+    # Терминалу передаётся не сама agy, а сценарий: он задаёт HOME сам и
+    # не даёт окну закрыться. Многие эмуляторы передают вызов уже
+    # работающему экземпляру, и наследование окружения теряется.
+    helper = tmp_path / ".hermes-agy-login.sh"
+    assert str(helper) in cmd
+    body = helper.read_text(encoding="utf-8")
+    assert "/bin/agy" in body
+    assert str(tmp_path) in body
     assert any("gnome-terminal (найден: /usr/bin/gnome-terminal)" in item for item in checked)
 
 
 @pytest.mark.unit
 def test_terminal_discovery_linux_missing_honest_error(tmp_path, monkeypatch):
     """P0-1: When no terminal emulator exists on Linux, report honest error listing checked candidates."""
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(agy_subprocess, "_is_windows", lambda: False)
     monkeypatch.setenv("DISPLAY", ":10.0")
     monkeypatch.setattr(shutil, "which", lambda cmd: None)
 
@@ -97,7 +106,7 @@ def test_terminal_discovery_linux_missing_honest_error(tmp_path, monkeypatch):
 @pytest.mark.unit
 def test_terminal_discovery_no_display_honest_error(tmp_path, monkeypatch):
     """P0-1: When DISPLAY/WAYLAND_DISPLAY are absent, return clear message advising browser fallback."""
-    monkeypatch.setattr(os, "name", "posix")
+    monkeypatch.setattr(agy_subprocess, "_is_windows", lambda: False)
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.delenv("MIR_SOCKET", raising=False)
@@ -112,7 +121,7 @@ def test_terminal_discovery_no_display_honest_error(tmp_path, monkeypatch):
 @pytest.mark.unit
 def test_terminal_discovery_windows(tmp_path, monkeypatch):
     """P0-1: On Windows, find_terminal_emulator selects wt.exe or cmd.exe."""
-    monkeypatch.setattr(os, "name", "nt")
+    monkeypatch.setattr(agy_subprocess, "_is_windows", lambda: True)
 
     monkeypatch.setattr(shutil, "which", lambda c: "C:\\Windows\\System32\\wt.exe" if "wt" in c else None)
     cmd, err, checked = find_terminal_emulator("ag-1", "C:\\bin\\agy.exe", tmp_path)
