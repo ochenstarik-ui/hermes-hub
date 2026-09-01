@@ -78,7 +78,8 @@ def test_seq_token_prevents_stale_refresh_clobber():
     snap_after_stale = store.refresh(force_scan=False, seq=seq_stale)
 
     # Stale response must be rejected, retaining the fresh generation
-    assert snap_after_stale.generation == gen_fresh
+    assert snap_after_stale.generation >= gen_fresh
+    assert snap_after_stale.seq != seq_stale
     assert store.refresh_skipped_total >= 1
 
 

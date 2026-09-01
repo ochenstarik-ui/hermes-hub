@@ -930,7 +930,38 @@ class ActionExecutor:
         # A25 внёс их в этот список, но в A24 они выполняют настоящую работу —
         # сохранение цепочки и назначение роли — обработчики ниже. Проглотив их
         # здесь, мы бы молча сломали перестановку блоков в маршрутизации.
-        # ── Вход по localhost-redirect (Antigravity) ──────────────────
+        # ── Вход через CLI в терминале (Antigravity native login, A57) ──
+        if action in ('start_native_auth', 'start_native_agy_login', 'start_terminal_auth'):
+            provider = (data.get('provider') or '').strip().lower()
+            if provider in ('google-antigravity', 'agy'):
+                provider = 'antigravity'
+            if provider != 'antigravity':
+                return {'ok': False, 'message': f'Провайдер {provider} не поддерживает вход через agy CLI'}
+
+            slot = data.get('profile_id')
+            force = bool(data.get('force') or data.get('confirmed') or data.get('overwrite'))
+            from antigravity_provider.agy_subprocess import start_native_agy_login
+
+            ok, msg, res_data = start_native_agy_login(profile_id=slot, force=force)
+            return {'ok': ok, 'message': msg, 'data': res_data}
+
+        if action in ('poll_native_auth', 'poll_native_agy_login', 'poll_terminal_auth'):
+            session_id = data.get('session_id') or ''
+            from antigravity_provider.agy_subprocess import poll_native_agy_login
+
+            ok, msg, res_data = poll_native_agy_login(session_id)
+            if ok and res_data.get('status') == 'completed':
+                _rescan_after_auth('antigravity', res_data.get('profile_id'))
+            return {'ok': ok, 'message': msg, 'data': res_data}
+
+        if action in ('cancel_native_auth', 'cancel_native_agy_login', 'cancel_terminal_auth'):
+            session_id = data.get('session_id') or ''
+            from antigravity_provider.agy_subprocess import cancel_native_agy_login
+
+            ok, msg = cancel_native_agy_login(session_id)
+            return {'ok': ok, 'message': msg}
+
+        # ── Вход по localhost-redirect (Antigravity / Claude запасной путь) ──
         # Раньше веб-мастер писал «авторизация через веб-интерфейс
         # невозможна» и отправлял в консоль по SSH. Это неверно:
         # ProfileOAuthSession.handle_manual_callback_url принимает адрес

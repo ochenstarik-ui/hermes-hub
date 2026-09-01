@@ -514,12 +514,44 @@ class ProfileAuthManager:
 
         if not auth_file.is_file() and provider in ("antigravity", "google-antigravity"):
             pdir = get_profile_dir(profile_id, provider)
+            cli_token = pdir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+            if cli_token.is_file():
+                try:
+                    data = json.loads(cli_token.read_text(encoding="utf-8"))
+                    if isinstance(data, dict):
+                        tokens = data.get("token") or data
+                        # Extract email if possible
+                        email = None
+                        acc_file = pdir / ".gemini" / "google_accounts.json"
+                        if acc_file.is_file():
+                            try:
+                                acc_d = json.loads(acc_file.read_text(encoding="utf-8"))
+                                if isinstance(acc_d, dict) and acc_d.get("active") and "@" in str(acc_d["active"]):
+                                    email = str(acc_d["active"]).strip()
+                            except Exception:
+                                pass
+                        if not email and isinstance(tokens, dict):
+                            id_tok = tokens.get("id_token")
+                            if id_tok:
+                                jwt_em, _ = cls.extract_jwt_identity(str(id_tok))
+                                if jwt_em and "@" in jwt_em:
+                                    email = jwt_em
+                        return {
+                            "provider": provider,
+                            "profile_id": profile_id,
+                            "token": tokens,
+                            "auth_method": data.get("auth_method", "consumer"),
+                            "email": email or "",
+                        }
+                except Exception as e:
+                    logger.warning("Error reading %s: %s", cli_token, e)
+
             gemini_creds = pdir / ".gemini" / "oauth_creds.json"
             if gemini_creds.is_file():
                 try:
                     data = json.loads(gemini_creds.read_text(encoding="utf-8"))
                     if isinstance(data, dict):
-                        return {"provider": provider, "profile_id": profile_id, "token": data}
+                        return {"provider": provider, "profile_id": profile_id, "token": data, "auth_method": "oauth"}
                 except Exception as e:
                     logger.warning("Error reading %s: %s", gemini_creds, e)
 

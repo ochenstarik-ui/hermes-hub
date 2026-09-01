@@ -119,8 +119,8 @@ def health_check():
             "opencode-go": {"supported": True, "reason": "token"},
             "antigravity": {
                 "supported": True,
-                "reason": "redirect-url-paste",
-                "hint": "Откройте ссылку в любом браузере и верните адрес из адресной строки",
+                "reason": "terminal-or-redirect",
+                "hint": "Вход через agy в терминале (основной) или по ссылке в браузере (запасной)",
             },
             "claude": {
                 "supported": True,

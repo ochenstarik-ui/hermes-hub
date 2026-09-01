@@ -2812,6 +2812,7 @@ async function handleTestProfile(profileId) {
 function openAddAccountWizard() {
   window._wiz_device_profile = undefined;
   window._wiz_device_session = undefined;
+  window._wiz_native_session = undefined;
   window._wiz_redirect_session = undefined;
   window._wiz_redirect_provider = undefined;
   window._wiz_redirect_slot_id = undefined;
@@ -2826,8 +2827,9 @@ function openAddAccountWizard() {
 function showWizardStep1() {
   window._wiz_models = undefined;
   stopDeviceAuthPolling();
+  stopNativeAuthPolling();
   stopRedirectAuthPolling();
-  for (const key of ['device_profile', 'device_session', 'redirect_session', 'redirect_provider', 'redirect_slot_id', 'base_url', 'token']) window['_wiz_' + key] = undefined;
+  for (const key of ['device_profile', 'device_session', 'native_session', 'redirect_session', 'redirect_provider', 'redirect_slot_id', 'base_url', 'token']) window['_wiz_' + key] = undefined;
   window._wiz_provider = undefined;
   if (elements.modalTitle) elements.modalTitle.textContent = 'Мастер подключения учетной записи';
   elements.modalBody.innerHTML = `
@@ -2867,7 +2869,7 @@ function showWizardStep1() {
         <span style="font-size:18px; color:var(--prov-antigravity);">●</span>
         <div style="text-align:left; margin-left:8px;">
           <div style="font-weight:700;">Google Antigravity</div>
-          <div style="font-size:11px; color:var(--text-muted);">OAuth редирект (с поддержкой SSH port-forward)</div>
+          <div style="font-size:11px; color:var(--text-muted);">Вход через agy в терминале (основной) или OAuth по ссылке (запасной)</div>
         </div>
       </button>
       <button class="btn btn-secondary" style="justify-content:flex-start; padding:12px;" onclick="showWizardStep2('ollama')">
@@ -2940,21 +2942,77 @@ function showWizardStep2(providerId) {
       <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
       <button class="btn btn-primary" onclick="proceedToWizardStep3('${escapeHtml(providerId)}')">Продолжить →</button>
     `;
-  } else if (providerId === 'antigravity' || providerId === 'claude') {
-    const providerName = providerId === 'antigravity' ? 'Google Antigravity' : 'Claude';
+  } else if (providerId === 'antigravity') {
     bodyHtml = `
       <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
-        Шаг 2 из 3: Авторизация ${providerName}
+        Шаг 2 из 3: Авторизация Google Antigravity
+      </div>
+      <div style="display:flex; gap:8px; margin-bottom:14px; border-bottom:1px solid var(--border-subtle); padding-bottom:8px;">
+        <button id="ag-tab-btn-terminal" class="btn btn-primary btn-sm" onclick="toggleAntigravityAuthMode('terminal')">>_ В терминале на сервере (основной)</button>
+        <button id="ag-tab-btn-browser" class="btn btn-ghost btn-sm" onclick="toggleAntigravityAuthMode('browser')">🌐 По ссылке в браузере (запасной)</button>
+      </div>
+
+      <!-- Mode 1: Native Terminal Login (P0-1) -->
+      <div id="ag-auth-mode-terminal" style="display:block;">
+        <div style="margin-bottom:10px;">
+          <label style="display:block; font-weight:600; margin-bottom:4px;">Слот, в который войти:</label>
+          <select class="input-text" style="width:100%;" id="wiz-native-slot">${buildSlotOptions('antigravity')}</select>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+            Вход выполняет сама утилита agy в окне терминала с изолированным каталогом профиля.
+          </div>
+        </div>
+        <div style="margin-bottom:12px;">
+          <button class="btn btn-primary" onclick="startNativeAuth('antigravity')">>_ Открыть терминал для входа</button>
+        </div>
+        <div id="native-auth-box"></div>
+      </div>
+
+      <!-- Mode 2: Browser Redirect Auth (Fallback, P0-4) -->
+      <div id="ag-auth-mode-browser" style="display:none;">
+        <div style="margin-bottom:10px;">
+          <label style="display:block; font-weight:600; margin-bottom:4px;">Слот, в который войти:</label>
+          <select class="input-text" style="width:100%;" id="wiz-redirect-slot" onchange="startRedirectAuth('antigravity')">${buildSlotOptions('antigravity')}</select>
+          <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
+            Запасной способ для подключения с удалённой машины без графического интерфейса.
+          </div>
+        </div>
+        <div style="margin-bottom:10px;">
+          <button class="btn btn-secondary btn-sm" onclick="startRedirectAuth('antigravity')">Получить ссылку</button>
+        </div>
+        <div id="redirect-auth-box" style="background:var(--surface-muted); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
+          <div style="font-weight:700; margin-bottom:6px;">1. Откройте ссылку:</div>
+          <div style="display:flex; gap:8px; margin-bottom:12px;">
+            <input type="text" class="input-text" style="flex:1;" id="wiz-redirect-url" placeholder="Получение ссылки авторизации…" readonly>
+            <button class="btn btn-secondary btn-sm" onclick="window.open(document.getElementById('wiz-redirect-url').value, '_blank')">Открыть</button>
+            <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(document.getElementById('wiz-redirect-url').value, 'Ссылка скопирована')">Копировать</button>
+          </div>
+          <div style="font-weight:700; margin-bottom:6px;">2. Вставьте адрес из браузера:</div>
+          <div style="display:flex; gap:8px; margin-bottom:6px;">
+            <input type="text" class="input-text" style="flex:1;" id="wiz-redirect-paste" placeholder="http://127.0.0.1:…/oauth-callback?code=…">
+            <button class="btn btn-primary btn-sm" onclick="submitRedirectCallback()">Завершить вход</button>
+          </div>
+          <div id="redirect-auth-status" style="font-size:12px; color:var(--text-muted); margin-top:10px;"></div>
+        </div>
+      </div>
+    `;
+    footerHtml = `
+      <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
+      <button class="btn btn-primary" onclick="proceedToWizardStep3('antigravity')">Продолжить →</button>
+    `;
+  } else if (providerId === 'claude') {
+    bodyHtml = `
+      <div style="margin-bottom:12px; font-size:13px; color:var(--text-secondary);">
+        Шаг 2 из 3: Авторизация Claude
       </div>
       <div style="margin-bottom:10px;">
         <label style="display:block; font-weight:600; margin-bottom:4px;">Слот, в который войти:</label>
-        <select class="input-text" style="width:100%;" id="wiz-redirect-slot" onchange="startRedirectAuth('${escapeHtml(providerId)}')">${buildSlotOptions(providerId)}</select>
+        <select class="input-text" style="width:100%;" id="wiz-redirect-slot" onchange="startRedirectAuth('claude')">${buildSlotOptions('claude')}</select>
         <div style="font-size:12px; color:var(--text-muted); margin-top:4px;">
           Вход в занятый слот заменит учётные данные, которые в нём сейчас.
         </div>
       </div>
       <div style="margin-bottom:10px;">
-        <button class="btn btn-primary btn-sm" onclick="startRedirectAuth('${escapeHtml(providerId)}')">Получить ссылку</button>
+        <button class="btn btn-primary btn-sm" onclick="startRedirectAuth('claude')">Получить ссылку</button>
       </div>
       <div id="redirect-auth-box" style="background:var(--surface-muted); padding:14px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle);">
         <div style="font-weight:700; margin-bottom:6px;">1. Откройте ссылку:</div>
@@ -2963,9 +3021,9 @@ function showWizardStep2(providerId) {
           <button class="btn btn-secondary btn-sm" onclick="window.open(document.getElementById('wiz-redirect-url').value, '_blank')">Открыть</button>
           <button class="btn btn-secondary btn-sm" onclick="copyToClipboard(document.getElementById('wiz-redirect-url').value, 'Ссылка скопирована')">Копировать</button>
         </div>
-        <div style="font-weight:700; margin-bottom:6px;">2. Вставьте адрес из браузера или код:</div>
+        <div style="font-weight:700; margin-bottom:6px;">2. Вставьте код со страницы:</div>
         <div style="display:flex; gap:8px; margin-bottom:6px;">
-          <input type="text" class="input-text" style="flex:1;" id="wiz-redirect-paste" placeholder="http://127.0.0.1:…/oauth-callback?code=…">
+          <input type="text" class="input-text" style="flex:1;" id="wiz-redirect-paste" placeholder="Код со страницы авторизации">
           <button class="btn btn-primary btn-sm" onclick="submitRedirectCallback()">Завершить вход</button>
         </div>
         <div id="redirect-auth-status" style="font-size:12px; color:var(--text-muted); margin-top:10px;"></div>
@@ -2973,7 +3031,7 @@ function showWizardStep2(providerId) {
     `;
     footerHtml = `
       <button class="btn btn-ghost" onclick="showWizardStep1()">← Назад</button>
-      <button class="btn btn-primary" onclick="proceedToWizardStep3('${escapeHtml(providerId)}')">Продолжить →</button>
+      <button class="btn btn-primary" onclick="proceedToWizardStep3('claude')">Продолжить →</button>
     `;
   } else if (providerId === 'ollama') {
     window._wiz_device_profile = undefined;
@@ -3240,7 +3298,7 @@ async function finishAddAccount(providerId) {
   if (isLocalProvider) {
     selectedProfileId = '';
   } else if (providerId === 'antigravity' || providerId === 'claude') {
-    selectedProfileId = window._wiz_redirect_slot_id || window._wiz_device_profile || document.getElementById('wiz-redirect-slot')?.value || '';
+    selectedProfileId = window._wiz_redirect_slot_id || window._wiz_device_profile || document.getElementById('wiz-native-slot')?.value || document.getElementById('wiz-redirect-slot')?.value || '';
   } else {
     const deviceSlot = document.getElementById('wiz-device-slot');
     const redirectSlot = document.getElementById('wiz-redirect-slot');
@@ -3420,6 +3478,159 @@ function buildSlotOptions(providerId) {
   });
   // Свободные слоты с ролью — первыми: именно они дают работающий маршрут.
   return '<option value="">Новый свободный слот — автоматически</option>' + free.concat(used, idle).join('');
+}
+
+// ─────────────────────────────────────────────────────────────
+//  Авторизация Google Antigravity через agy в терминале (A57)
+// ─────────────────────────────────────────────────────────────
+
+let _nativeAuthTimer = null;
+
+function stopNativeAuthPolling() {
+  if (_nativeAuthTimer) {
+    clearInterval(_nativeAuthTimer);
+    _nativeAuthTimer = null;
+  }
+}
+
+function toggleAntigravityAuthMode(mode) {
+  const termBox = document.getElementById('ag-auth-mode-terminal');
+  const browserBox = document.getElementById('ag-auth-mode-browser');
+  const termBtn = document.getElementById('ag-tab-btn-terminal');
+  const browserBtn = document.getElementById('ag-tab-btn-browser');
+  if (!termBox || !browserBox) return;
+
+  if (mode === 'browser') {
+    termBox.style.display = 'none';
+    browserBox.style.display = 'block';
+    if (termBtn) termBtn.className = 'btn btn-ghost btn-sm';
+    if (browserBtn) browserBtn.className = 'btn btn-primary btn-sm';
+    startRedirectAuth('antigravity');
+  } else {
+    termBox.style.display = 'block';
+    browserBox.style.display = 'none';
+    if (termBtn) termBtn.className = 'btn btn-primary btn-sm';
+    if (browserBtn) browserBtn.className = 'btn btn-ghost btn-sm';
+    stopRedirectAuthPolling();
+  }
+}
+
+async function startNativeAuth(providerId, force = false) {
+  stopNativeAuthPolling();
+  const box = document.getElementById('native-auth-box');
+  if (!box) return;
+
+  const slotSelect = document.getElementById('wiz-native-slot');
+  const selectedSlot = slotSelect ? slotSelect.value : '';
+
+  box.innerHTML = `<div style="color:var(--text-secondary); margin-top:8px;">⏳ Запуск терминала…</div>`;
+
+  const res = await executeAction('start_native_auth', {
+    provider: providerId,
+    profile_id: selectedSlot || undefined,
+    force: force,
+  });
+
+  if (window._wiz_provider !== providerId) return;
+
+  if (res && res.data && res.data.confirmation_required) {
+    box.innerHTML = `
+      <div class="modal-feedback warning" style="margin-top:10px; margin-bottom:10px;">
+        ⚠️ ${escapeHtml(res.message || 'Слот уже занят.')}
+      </div>
+      <div style="display:flex; gap:8px;">
+        <button class="btn btn-primary btn-sm" onclick="startNativeAuth('${escapeHtml(providerId)}', true)">Перезаписать учётные данные</button>
+        <button class="btn btn-secondary btn-sm" onclick="showWizardStep2('${escapeHtml(providerId)}')">Выбрать другой слот</button>
+      </div>
+    `;
+    return;
+  }
+
+  if (!res || !res.ok) {
+    const errorDetails = (res && res.data && res.data.checked_terminals)
+      ? `<div style="margin-top:6px; font-size:11px; opacity:0.85;">Проверено: ${escapeHtml(res.data.checked_terminals.join(', '))}</div>`
+      : '';
+    box.innerHTML = `
+      <div class="modal-feedback error" style="margin-top:10px;">
+        ❌ ${escapeHtml((res && res.message) || 'Не удалось запустить терминал')}
+        ${errorDetails}
+      </div>
+      <div style="margin-top:8px;">
+        <button class="btn btn-secondary btn-sm" onclick="toggleAntigravityAuthMode('browser')">Перейти ко входу по ссылке</button>
+      </div>
+    `;
+    return;
+  }
+
+  const d = res.data || {};
+  window._wiz_native_session = d.session_id;
+  window._wiz_device_profile = d.profile_id;
+  window._wiz_redirect_slot_id = d.profile_id;
+
+  box.innerHTML = `
+    <div style="background:var(--surface-subtle); padding:12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-top:10px;">
+      <div style="font-weight:600; color:var(--text-accent); margin-bottom:4px;">
+        🟢 Терминал запущен (${escapeHtml(d.terminal_cmd || 'терминал')}) для слота ${escapeHtml(d.profile_id)}
+      </div>
+      <div style="font-size:12px; color:var(--text-secondary); margin-bottom:8px;">
+        Пройдите авторизацию в открывшемся окне терминала на сервере. После успешного входа agy сохранит учётные данные, и мастер продолжит настройку.
+      </div>
+      <div id="native-auth-status" style="font-size:12px; font-weight:600; color:var(--text-muted);">
+        ⏳ Ожидание завершения авторизации в терминале...
+      </div>
+    </div>
+  `;
+
+  _nativeAuthTimer = setInterval(() => pollNativeAuth(providerId), 1500);
+}
+
+async function pollNativeAuth(providerId) {
+  const statusEl = document.getElementById('native-auth-status');
+  if (!statusEl || !window._wiz_native_session) {
+    stopNativeAuthPolling();
+    return;
+  }
+
+  const res = await executeAction('poll_native_auth', {
+    session_id: window._wiz_native_session,
+  });
+
+  if (!res) return;
+
+  const d = res.data || {};
+  if (res.ok && d.status === 'completed') {
+    stopNativeAuthPolling();
+    window._wiz_device_profile = d.profile_id;
+    window._wiz_redirect_slot_id = d.profile_id;
+    statusEl.innerHTML = `
+      <span style="color:var(--status-healthy); font-weight:700;">
+        ✓ Авторизация успешно завершена (${escapeHtml(d.email || 'Google Account')})
+      </span>
+    `;
+    showToast('Аккаунт Antigravity успешно подключён через agy', 'success');
+    fetchSnapshot();
+    setTimeout(() => {
+      if (window._wiz_provider === 'antigravity') {
+        proceedToWizardStep3('antigravity');
+      }
+    }, 800);
+    return;
+  }
+
+  if (!res.ok || d.status === 'timeout' || d.status === 'failed') {
+    stopNativeAuthPolling();
+    statusEl.innerHTML = `
+      <span style="color:var(--status-error); font-weight:600;">
+        ❌ ${escapeHtml(res.message || 'Время ожидания истекло или произошла ошибка')}
+      </span>
+    `;
+    return;
+  }
+
+  if (d.status === 'pending') {
+    const elapsed = d.elapsed_sec ? ` (${d.elapsed_sec}с)` : '';
+    statusEl.innerHTML = `⏳ Ожидание завершения авторизации в терминале${elapsed}...`;
+  }
 }
 
 let _redirectAuthTimer = null;

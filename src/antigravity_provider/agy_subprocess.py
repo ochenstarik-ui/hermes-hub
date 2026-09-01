@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import shutil
 import subprocess
 import time
@@ -289,71 +290,137 @@ def check_profile_native_auth_status(profile_id: str) -> tuple[bool, str | None,
     """Check if agy native authentication has completed in profile's directory.
 
     Returns (is_authenticated, email, auth_data).
-    A22 Requirement: Detection without credential logging or stream interception.
+    A22/A57 Requirement: Detection without credential logging or stream interception.
+    Checks .gemini/antigravity-cli/antigravity-oauth-token first, then .gemini/oauth_creds.json.
     """
     from antigravity_provider.router.adapters.antigravity_adapter import get_profile_env_dir
 
     profile_dir = get_profile_env_dir(profile_id)
     gemini_dir = profile_dir / ".gemini"
+    cli_dir = gemini_dir / "antigravity-cli"
+    cli_token_file = cli_dir / "antigravity-oauth-token"
     creds_file = gemini_dir / "oauth_creds.json"
     accounts_file = gemini_dir / "google_accounts.json"
+    auth_file = profile_dir / "auth.json"
 
-    if not creds_file.is_file() or creds_file.stat().st_size == 0:
+    token_data: dict[str, Any] | None = None
+    auth_method: str = "consumer"
+
+    # 1. Primary source: agy 2.0 native token file (.gemini/antigravity-cli/antigravity-oauth-token)
+    if cli_token_file.is_file() and cli_token_file.stat().st_size > 0:
+        try:
+            cli_raw = json.loads(cli_token_file.read_text(encoding="utf-8"))
+            if isinstance(cli_raw, dict):
+                auth_method = cli_raw.get("auth_method", "consumer")
+                inner = cli_raw.get("token")
+                if isinstance(inner, dict):
+                    token_data = inner
+                elif "access_token" in cli_raw or "refresh_token" in cli_raw:
+                    token_data = cli_raw
+        except Exception as exc:
+            logger.debug("Error reading cli_token_file for %s: %s", profile_id, exc)
+
+    # 2. Secondary source: Gemini CLI legacy credentials (.gemini/oauth_creds.json)
+    if not token_data and creds_file.is_file() and creds_file.stat().st_size > 0:
+        try:
+            creds_raw = json.loads(creds_file.read_text(encoding="utf-8"))
+            if isinstance(creds_raw, dict):
+                token_data = creds_raw
+                auth_method = "oauth"
+        except Exception as exc:
+            logger.debug("Error reading creds_file for %s: %s", profile_id, exc)
+
+    # 3. Third source: existing auth.json
+    if not token_data and auth_file.is_file() and auth_file.stat().st_size > 0:
+        try:
+            a_raw = json.loads(auth_file.read_text(encoding="utf-8"))
+            if isinstance(a_raw, dict):
+                inner = a_raw.get("token") or a_raw.get("tokens")
+                if isinstance(inner, dict):
+                    token_data = inner
+                    auth_method = a_raw.get("auth_method", "oauth")
+        except Exception as exc:
+            logger.debug("Error reading auth_file for %s: %s", profile_id, exc)
+
+    if not token_data or not isinstance(token_data, dict):
         return False, None, None
 
+    access_token = token_data.get("access_token")
+    refresh_token = token_data.get("refresh_token")
+    if not access_token and not refresh_token:
+        return False, None, None
+
+    # Extract email identity truthfully (P0-3: do not invent)
+    email: str | None = None
+    if accounts_file.is_file() and accounts_file.stat().st_size > 0:
+        try:
+            acc_data = json.loads(accounts_file.read_text(encoding="utf-8"))
+            if isinstance(acc_data, dict) and acc_data.get("active"):
+                em = str(acc_data["active"]).strip()
+                if "@" in em:
+                    email = em
+        except Exception:
+            email = None
+
+    if not email and auth_file.is_file():
+        try:
+            a_data = json.loads(auth_file.read_text(encoding="utf-8"))
+            if isinstance(a_data, dict):
+                em = a_data.get("email") or a_data.get("user_email")
+                if em and "@" in str(em):
+                    email = str(em).strip()
+        except Exception:
+            pass
+
+    if not email:
+        from antigravity_provider.router.profile_manager import ProfileAuthManager
+
+        id_token = token_data.get("id_token")
+        if id_token:
+            jwt_email, _ = ProfileAuthManager.extract_jwt_identity(str(id_token))
+            if jwt_email and "@" in jwt_email:
+                email = jwt_email
+
+    if not email and access_token:
+        from antigravity_provider.router.profile_manager import ProfileAuthManager
+
+        jwt_email, _ = ProfileAuthManager.extract_jwt_identity(str(access_token))
+        if jwt_email and "@" in jwt_email:
+            email = jwt_email
+
+    auth_data = {
+        "auth_method": auth_method,
+        "email": email or "",
+        "token": token_data,
+        "updated_at": time.time(),
+    }
+
+    # Keep profile's auth.json in sync
+    auth_file = profile_dir / "auth.json"
+    if not auth_file.is_file():
+        try:
+            auth_file.write_text(json.dumps(auth_data, indent=2, ensure_ascii=False), encoding="utf-8")
+            os.chmod(auth_file, 0o600)
+        except Exception:
+            pass
+
+    # Ensure profile permissions (0700 on dirs, 0600 on files)
     try:
-        creds_data = json.loads(creds_file.read_text(encoding="utf-8"))
-        if not isinstance(creds_data, dict):
-            return False, None, None
+        os.chmod(profile_dir, 0o700)
+        if gemini_dir.is_dir():
+            os.chmod(gemini_dir, 0o700)
+        if cli_dir.is_dir():
+            os.chmod(cli_dir, 0o700)
+        if cli_token_file.is_file():
+            os.chmod(cli_token_file, 0o600)
+        if creds_file.is_file():
+            os.chmod(creds_file, 0o600)
+        if auth_file.is_file():
+            os.chmod(auth_file, 0o600)
+    except OSError:
+        pass
 
-        # Verify essential fields
-        access_token = creds_data.get("access_token")
-        refresh_token = creds_data.get("refresh_token")
-        if not access_token and not refresh_token:
-            return False, None, None
-
-        email = None
-        if accounts_file.is_file() and accounts_file.stat().st_size > 0:
-            try:
-                acc_data = json.loads(accounts_file.read_text(encoding="utf-8"))
-                if isinstance(acc_data, dict):
-                    email = acc_data.get("active")
-            except Exception:
-                email = None
-
-        if not email:
-            auth_file = profile_dir / "auth.json"
-            if auth_file.is_file():
-                try:
-                    a_data = json.loads(auth_file.read_text(encoding="utf-8"))
-                    if isinstance(a_data, dict):
-                        email = a_data.get("email") or a_data.get("user_email")
-                except Exception:
-                    pass
-
-        if not email:
-            from antigravity_provider.router.profile_manager import ProfileAuthManager
-
-            id_token = creds_data.get("id_token")
-            if id_token:
-                email, _ = ProfileAuthManager.extract_jwt_identity(str(id_token))
-
-        auth_data = {
-            "auth_method": "oauth",
-            "email": email or "Google Account",
-            "token": creds_data,
-            "updated_at": time.time(),
-        }
-
-        # Keep profile's auth.json in sync
-        auth_file = profile_dir / "auth.json"
-        if not auth_file.is_file():
-            auth_file.write_text(json.dumps(auth_data, indent=2), encoding="utf-8")
-
-        return True, email, auth_data
-    except Exception as exc:
-        logger.debug("check_profile_native_auth_status error: %s", exc)
-        return False, None, None
+    return True, email, auth_data
 
 
 def _model_supported_efforts(agy_model: str, profile_id: str | None = None) -> set[str]:
@@ -618,7 +685,10 @@ SAFE_SYSTEM_ENV_VARS: set[str] = {
     "OS", "COMPUTERNAME", "LOGONSERVER", "USERDOMAIN", "USERNAME",
     # Unix standard environment
     "USER", "LOGNAME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "LC_MESSAGES",
-    "TMPDIR", "TERM", "PWD",
+    "TMPDIR", "TERM", "PWD", "COLORTERM",
+    # GUI Display and session environment (for terminal emulators)
+    "DISPLAY", "WAYLAND_DISPLAY", "XAUTHORITY", "DBUS_SESSION_BUS_ADDRESS",
+    "XDG_RUNTIME_DIR", "XDG_SESSION_TYPE", "XDG_CURRENT_DESKTOP", "XDG_SESSION_DESKTOP",
     # Networking & Proxy & SSL certificates
     "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY",
     "http_proxy", "https_proxy", "no_proxy", "all_proxy",
@@ -633,6 +703,306 @@ BLOCKED_SECRET_PATTERNS: tuple[str, ...] = (
     "openai", "codex", "anthropic", "claude", "deepseek", "opencode", "xai", "grok",
     "hermes_api", "hermes_secret", "google_api_key", "gemini_api",
 )
+
+
+def find_terminal_emulator(
+    profile_id: str,
+    agy_exe: str,
+    profile_dir: Path,
+) -> tuple[list[str] | None, str | None, list[str]]:
+    """Locate an available GUI terminal emulator on the host system to run native agy CLI login.
+
+    Returns:
+        (command_args, error_message, checked_candidates)
+    """
+    title = f"Antigravity Login ({profile_id})"
+
+    if os.name == "nt":
+        checked = ["Windows Terminal (wt.exe)", "cmd.exe", "powershell.exe"]
+        wt_path = shutil.which("wt.exe") or shutil.which("wt")
+        if wt_path:
+            cmd = [wt_path, "-w", "0", "nt", "-d", str(profile_dir), "--title", title, agy_exe]
+            return cmd, None, checked
+
+        cmd_path = shutil.which("cmd.exe") or shutil.which("cmd") or "cmd.exe"
+        cmd = [cmd_path, "/c", "start", title, agy_exe]
+        return cmd, None, checked
+
+    # Linux / Unix / macOS
+    display = os.environ.get("DISPLAY", "").strip()
+    wayland = os.environ.get("WAYLAND_DISPLAY", "").strip()
+    mir = os.environ.get("MIR_SOCKET", "").strip()
+
+    if not display and not wayland and not mir:
+        checked = [
+            f"DISPLAY ({'задан: ' + os.environ['DISPLAY'] if 'DISPLAY' in os.environ else 'не задан'})",
+            f"WAYLAND_DISPLAY ({'задан: ' + os.environ['WAYLAND_DISPLAY'] if 'WAYLAND_DISPLAY' in os.environ else 'не задан'})",
+            f"MIR_SOCKET ({'задан: ' + os.environ['MIR_SOCKET'] if 'MIR_SOCKET' in os.environ else 'не задан'})",
+        ]
+        err_msg = (
+            "Графический дисплей не обнаружен (переменные DISPLAY/WAYLAND_DISPLAY не заданы). "
+            "Для входа на сервере без графического интерфейса используйте вход по ссылке через браузер "
+            "либо запустите Hub в сессии с графическим дисплеем."
+        )
+        return None, err_msg, checked
+
+    candidates: list[tuple[str, Any]] = [
+        ("x-terminal-emulator", lambda p: [p, "-e", agy_exe]),
+        ("gnome-terminal", lambda p: [p, "--title", title, "--", agy_exe]),
+        ("konsole", lambda p: [p, "-p", f"tabtitle={title}", "-e", agy_exe]),
+        ("xfce4-terminal", lambda p: [p, "--title", title, "-e", agy_exe]),
+        ("tilix", lambda p: [p, "-t", title, "-e", agy_exe]),
+        ("alacritty", lambda p: [p, "-t", title, "-e", agy_exe]),
+        ("kitty", lambda p: [p, "--title", title, agy_exe]),
+        ("terminator", lambda p: [p, "-T", title, "-e", agy_exe]),
+        ("urxvt", lambda p: [p, "-title", title, "-e", agy_exe]),
+        ("foot", lambda p: [p, "--title", title, agy_exe]),
+        ("xterm", lambda p: [p, "-title", title, "-e", agy_exe]),
+    ]
+
+    checked = []
+    for name, cmd_builder in candidates:
+        found_path = shutil.which(name)
+        if found_path:
+            checked.append(f"{name} (найден: {found_path})")
+            return cmd_builder(found_path), None, checked
+        else:
+            checked.append(f"{name} (не найден)")
+
+    err_msg = (
+        "Терминал не найден на сервере. Проверено: "
+        + "; ".join(checked)
+        + "; и PATH процесса. Запустите вход через браузер либо установите терминал "
+        "(например, gnome-terminal, xfce4-terminal или xterm)."
+    )
+    return None, err_msg, checked
+
+
+class NativeAgySession:
+    """Tracks a native agy CLI terminal login session."""
+
+    def __init__(self, profile_id: str, profile_dir: Path, timeout_sec: int = 600):
+        self.session_id = secrets.token_urlsafe(16)
+        self.profile_id = profile_id
+        self.profile_dir = profile_dir
+        self.timeout_sec = timeout_sec
+        self.created_at = time.time()
+        self.status = "pending"  # pending, completed, timeout, failed, cancelled
+        self.error_msg: str | None = None
+        self.terminal_cmd: list[str] | None = None
+        self.token_path = profile_dir / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+        self.creds_path = profile_dir / ".gemini" / "oauth_creds.json"
+        self.initial_token_mtime = self._get_token_mtime()
+
+    def _get_token_mtime(self) -> float:
+        mtime = 0.0
+        if self.token_path.is_file():
+            try:
+                mtime = max(mtime, self.token_path.stat().st_mtime)
+            except OSError:
+                pass
+        if self.creds_path.is_file():
+            try:
+                mtime = max(mtime, self.creds_path.stat().st_mtime)
+            except OSError:
+                pass
+        return mtime
+
+    def check_status(self) -> tuple[bool, str, dict[str, Any]]:
+        """Poll the filesystem to verify if agy created the authentication credentials."""
+        if self.status == "completed":
+            return True, "Авторизация успешно завершена", {
+                "status": "completed",
+                "profile_id": self.profile_id,
+            }
+        if self.status in ("failed", "cancelled"):
+            return False, self.error_msg or "Авторизация отменена", {
+                "status": self.status,
+                "profile_id": self.profile_id,
+            }
+
+        now = time.time()
+        if now - self.created_at > self.timeout_sec:
+            self.status = "timeout"
+            self.error_msg = (
+                f"Время ожидания авторизации в терминале истекло ({int(self.timeout_sec // 60)} минут). "
+                f"Файл учётных данных не появился в {self.profile_dir}."
+            )
+            return False, self.error_msg, {
+                "status": "timeout",
+                "profile_id": self.profile_id,
+                "home": str(self.profile_dir),
+            }
+
+        is_authenticated, email, auth_data = check_profile_native_auth_status(self.profile_id)
+        current_mtime = self._get_token_mtime()
+
+        if is_authenticated and (current_mtime >= (self.created_at - 2.0) or self.initial_token_mtime == 0.0):
+            # Check duplicate identity
+            if email:
+                try:
+                    from antigravity_provider.router.auto_assigner import AutoAssigner
+
+                    existing = AutoAssigner.check_duplicate_identity(
+                        "antigravity", email, exclude_profile_id=self.profile_id
+                    )
+                    if existing and existing != self.profile_id:
+                        logger.info(
+                            "Native agy login: identity %s already exists in %s, syncing from %s",
+                            email, existing, self.profile_id,
+                        )
+                        from antigravity_provider.router.adapters.antigravity_adapter import get_profile_env_dir
+
+                        target_dir = get_profile_env_dir(existing)
+                        target_gemini = target_dir / ".gemini"
+                        target_gemini.mkdir(parents=True, exist_ok=True)
+                        src_gemini = self.profile_dir / ".gemini"
+                        if src_gemini.is_dir():
+                            shutil.copytree(src_gemini, target_gemini, dirs_exist_ok=True)
+                        self.profile_id = existing
+                except Exception as exc:
+                    logger.warning("Error checking duplicate identity: %s", exc)
+
+            # Ensure profile definition and role assignment
+            from antigravity_provider.router.auto_assigner import AutoAssigner
+
+            AutoAssigner.ensure_profile_definition("antigravity", self.profile_id)
+
+            self.status = "completed"
+
+            # Trigger background probe without blocking
+            try:
+                from antigravity_provider.router.account_probe_service import AccountProbeService
+
+                AccountProbeService.get().schedule("antigravity", self.profile_id, force=True)
+            except Exception:
+                pass
+
+            return True, "Авторизация успешно завершена через agy CLI", {
+                "status": "completed",
+                "profile_id": self.profile_id,
+                "email": email or "Н/Д (почта не передана провайдером)",
+            }
+
+        elapsed = int(now - self.created_at)
+        return True, "Ожидание завершения авторизации в терминале...", {
+            "status": "pending",
+            "profile_id": self.profile_id,
+            "elapsed_sec": elapsed,
+            "timeout_sec": self.timeout_sec,
+        }
+
+
+_ACTIVE_NATIVE_SESSIONS: dict[str, NativeAgySession] = {}
+
+
+def get_native_agy_session(session_id: str) -> NativeAgySession | None:
+    return _ACTIVE_NATIVE_SESSIONS.get(session_id)
+
+
+def start_native_agy_login(
+    profile_id: str | None = None,
+    force: bool = False,
+) -> tuple[bool, str, dict[str, Any]]:
+    """Launch agy CLI in a new host terminal window with isolated HOME pointing to profile directory.
+
+    Returns:
+        (ok, message, data)
+    """
+    from antigravity_provider.router.adapters.antigravity_adapter import get_profile_env_dir
+    from antigravity_provider.router.auto_assigner import AutoAssigner
+    from antigravity_provider.router.profile_manager import ProfileAuthManager
+
+    slot = profile_id or AutoAssigner.find_free_slot("antigravity") or "ag-1"
+    valid, reason = AutoAssigner.validate_slot("antigravity", slot)
+    if not valid:
+        return False, reason, {"profile_id": slot}
+
+    # P0-2.2: Do not overwrite occupied slot without explicit confirmation
+    if not force:
+        status = ProfileAuthManager.get_profile_status("antigravity", slot)
+        if status.get("authenticated"):
+            email_info = status.get("email_masked") or "Google Account"
+            return False, f"Слот {slot} уже занят аккаунтом ({email_info}). Подтвердите перезапись учётных данных.", {
+                "confirmation_required": True,
+                "profile_id": slot,
+                "email": email_info,
+            }
+
+    profile_dir = get_profile_env_dir(slot)
+    try:
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        os.chmod(profile_dir, 0o700)
+    except OSError as exc:
+        return False, f"Не удалось создать каталог профиля {profile_dir}: {exc}", {"profile_id": slot}
+
+    try:
+        agy_exe = get_agy_exe()
+    except Exception as exc:
+        return False, str(exc), {"profile_id": slot, "home": str(profile_dir)}
+
+    term_cmd, err_msg, checked = find_terminal_emulator(slot, agy_exe, profile_dir)
+    if err_msg or not term_cmd:
+        return False, err_msg or "Терминал не найден", {
+            "profile_id": slot,
+            "home": str(profile_dir),
+            "checked_terminals": checked,
+        }
+
+    env = build_safe_subprocess_env(
+        overrides={
+            "HOME": str(profile_dir),
+            "USERPROFILE": str(profile_dir),
+            "HOMEPATH": str(profile_dir),
+        }
+    )
+
+    try:
+        subprocess.Popen(
+            term_cmd,
+            env=env,
+            cwd=str(profile_dir),
+            stdin=None,
+            stdout=None,
+            stderr=None,
+        )
+    except Exception as launch_exc:
+        return False, f"Не удалось запустить терминал ({term_cmd[0]}): {launch_exc}. Запуск с HOME={profile_dir}", {
+            "profile_id": slot,
+            "home": str(profile_dir),
+            "checked_terminals": checked,
+        }
+
+    session = NativeAgySession(profile_id=slot, profile_dir=profile_dir)
+    session.terminal_cmd = term_cmd
+    _ACTIVE_NATIVE_SESSIONS[session.session_id] = session
+
+    logger.info("Started native agy login session=%s profile=%s in terminal=%s", session.session_id, slot, term_cmd[0])
+    return True, "Терминал успешно запущен. Пройдите авторизацию в открывшемся окне.", {
+        "session_id": session.session_id,
+        "profile_id": slot,
+        "profile_dir": str(profile_dir),
+        "terminal_cmd": term_cmd[0],
+        "timeout_sec": session.timeout_sec,
+    }
+
+
+def poll_native_agy_login(session_id: str) -> tuple[bool, str, dict[str, Any]]:
+    """Check the status of an ongoing native agy login session."""
+    session = get_native_agy_session(session_id)
+    if not session:
+        return False, "Сессия авторизации не найдена или уже завершена", {"status": "not_found"}
+    return session.check_status()
+
+
+def cancel_native_agy_login(session_id: str) -> tuple[bool, str]:
+    """Cancel an ongoing native agy login session."""
+    session = get_native_agy_session(session_id)
+    if session:
+        session.status = "cancelled"
+        session.error_msg = "Авторизация отменена пользователем"
+        return True, "Авторизация отменена"
+    return False, "Сессия не найдена"
 
 
 def hidden_process_kwargs() -> dict:
