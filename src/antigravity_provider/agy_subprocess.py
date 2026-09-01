@@ -870,9 +870,10 @@ def find_terminal_emulator(
         )
         return None, err_msg, checked
 
-    # Запускаем не саму agy, а сценарий: он сам задаёт HOME и не даёт окну
-    # закрыться. Подробности — в write_login_helper.
-    launch = str(write_login_helper(profile_dir, agy_exe, profile_id))
+    # Что запускаем, решает вызывающий: поиск терминала не должен ничего
+    # создавать. Нативный вход передаёт сюда путь сценария входа, а не саму
+    # agy — см. write_login_helper.
+    launch = agy_exe
 
     # Конкретные эмуляторы идут раньше x-terminal-emulator: это обёртка над
     # альтернативами Debian, лишний слой между нами и настоящей программой.
@@ -1074,7 +1075,10 @@ def start_native_agy_login(
     except Exception as exc:
         return False, str(exc), {"profile_id": slot, "home": str(profile_dir)}
 
-    term_cmd, err_msg, checked = find_terminal_emulator(slot, agy_exe, profile_dir)
+    # Терминал запускает сценарий, а не agy напрямую: сценарий сам задаёт HOME
+    # и не даёт окну закрыться вместе с командой.
+    launch_script = str(write_login_helper(profile_dir, agy_exe, slot))
+    term_cmd, err_msg, checked = find_terminal_emulator(slot, launch_script, profile_dir)
     if err_msg or not term_cmd:
         return False, err_msg or "Терминал не найден", {
             "profile_id": slot,
@@ -1082,18 +1086,16 @@ def start_native_agy_login(
             "checked_terminals": checked,
         }
 
-    # Дисплей, найденный у systemd, обязан попасть в окружение терминала:
-    # в окружении самого хаба его может не быть, если хаб запущен по SSH или
-    # службой, а окно всё равно должно открыться на рабочем столе владельца.
-    overrides = {
-        "HOME": str(profile_dir),
-        "USERPROFILE": str(profile_dir),
-        "HOMEPATH": str(profile_dir),
-    }
+    # HOME терминалу НЕ подменяем. Клиенты X11 берут ключ авторизации из
+    # ~/.Xauthority, и с подменённым HOME его там нет: xfce4-terminal не мог
+    # подключиться к дисплею и выходил с кодом 1, не открыв окна. Изоляцию
+    # обеспечивает сценарий входа — он задаёт HOME сам, уже внутри терминала,
+    # непосредственно перед запуском agy.
+    #
+    # Дисплей, найденный у systemd, наоборот, обязан попасть в окружение: в
+    # окружении самого хаба его может не быть, если хаб запущен по SSH.
     session_env, _checked = detect_graphical_session()
-    overrides.update(session_env)
-
-    env = build_safe_subprocess_env(overrides=overrides)
+    env = build_safe_subprocess_env(overrides=dict(session_env))
 
     try:
         proc = subprocess.Popen(

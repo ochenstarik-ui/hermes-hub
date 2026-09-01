@@ -94,14 +94,15 @@ def test_alternatives_wrapper_is_the_last_resort(linux, monkeypatch, tmp_path):
     assert cmd[0] == "/usr/bin/xterm"
 
 
-def test_terminal_runs_the_helper_not_agy_directly(linux, monkeypatch, tmp_path):
+def test_terminal_discovery_creates_nothing(linux, monkeypatch, tmp_path):
+    """Поиск терминала — запрос, а не действие: файлов после него не остаётся."""
     monkeypatch.setattr(shutil, "which", _only({"xterm"}))
 
-    cmd, err, _ = find_terminal_emulator("ag-6", "/usr/local/bin/agy", tmp_path)
+    cmd, err, _ = find_terminal_emulator("ag-6", "/путь/к/запуску", tmp_path)
 
     assert err is None
-    assert "/usr/local/bin/agy" not in cmd
-    assert str(tmp_path / ".hermes-agy-login.sh") in cmd
+    assert "/путь/к/запуску" in cmd
+    assert not (tmp_path / ".hermes-agy-login.sh").exists()
 
 
 def test_missing_terminal_lists_what_was_checked(linux, monkeypatch, tmp_path):

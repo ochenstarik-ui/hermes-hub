@@ -74,14 +74,9 @@ def test_terminal_discovery_linux_found(tmp_path, monkeypatch):
     assert cmd is not None
     assert cmd[0] == "/usr/bin/gnome-terminal"
     assert "--" in cmd
-    # Терминалу передаётся не сама agy, а сценарий: он задаёт HOME сам и
-    # не даёт окну закрыться. Многие эмуляторы передают вызов уже
-    # работающему экземпляру, и наследование окружения теряется.
-    helper = tmp_path / ".hermes-agy-login.sh"
-    assert str(helper) in cmd
-    body = helper.read_text(encoding="utf-8")
-    assert "/bin/agy" in body
-    assert str(tmp_path) in body
+    # Поиск терминала подставляет то, что ему передали, и ничего не создаёт.
+    # Сценарий входа готовит start_native_agy_login.
+    assert "/bin/agy" in cmd
     assert any("gnome-terminal (найден: /usr/bin/gnome-terminal)" in item for item in checked)
 
 
@@ -167,12 +162,19 @@ def test_start_native_agy_login_creates_isolated_home(tmp_path, monkeypatch):
     assert "session_id" in data
     assert pdir.is_dir()
 
-    # Verify subprocess called with isolated HOME
+    # Изоляция обеспечивается сценарием входа, а не окружением терминала.
+    # HOME терминалу подменять нельзя: клиенты X11 берут ключ авторизации из
+    # ~/.Xauthority, и с подменённым HOME его там нет — xfce4-terminal выходил
+    # с кодом 1, не открыв окна. Сценарий задаёт HOME сам, уже внутри окна.
     mock_popen.assert_called_once()
     call_kwargs = mock_popen.call_args[1]
-    assert call_kwargs["env"]["HOME"] == str(pdir)
-    assert call_kwargs["env"]["USERPROFILE"] == str(pdir)
+    assert call_kwargs["env"].get("HOME") != str(pdir)
     assert call_kwargs["cwd"] == str(pdir)
+
+    helper = pdir / ".hermes-agy-login.sh"
+    assert helper.is_file(), "сценарий входа должен быть создан"
+    body = helper.read_text(encoding="utf-8")
+    assert str(pdir) in body and "export HOME" in body
 
 
 @pytest.mark.unit

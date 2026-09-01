@@ -99,6 +99,19 @@ def get_auth_token(x_hub_token: str = Header(None)) -> bool:
             raise HTTPException(status_code=401, detail="Invalid X-Hub-Token")
     return True
 
+# Коммит и время запуска СНИМАЮТСЯ ОДИН РАЗ, при старте процесса.
+#
+# get_installed_commit() читает манифест с диска при каждом вызове, поэтому
+# переживший обновление процесс бодро рапортует свежий коммит: владелец видит
+# новый номер и старое поведение. Отличить сборки по такому полю нельзя.
+#
+# Снятое при старте значение отвечает на настоящий вопрос: какой код сейчас
+# в памяти. Вместе со временем запуска этого достаточно, чтобы понять, дошло
+# ли обновление до работы, а не только до файлов.
+RUNNING_COMMIT: str = get_installed_commit()
+PROCESS_STARTED_AT: float = time.time()
+
+
 @app.get("/api/health")
 def health_check():
     from ..account_probe_service import AccountProbeService
@@ -108,6 +121,8 @@ def health_check():
         "ok": True,
         "version": __version__,
         "commit": get_installed_commit(),
+        "running_commit": RUNNING_COMMIT,
+        "started_at": PROCESS_STARTED_AT,
         # Antigravity и Claude раньше стояли здесь как supported: False с
         # советом идти в десктоп или пробрасывать порты. Это было неверно:
         # ProfileOAuthSession.handle_manual_callback_url и
@@ -236,6 +251,8 @@ def get_snapshot(authorized: bool = Depends(get_auth_token)):
     
     snap_dict["version"] = __version__
     snap_dict["commit"] = get_installed_commit()
+    snap_dict["running_commit"] = RUNNING_COMMIT
+    snap_dict["started_at"] = PROCESS_STARTED_AT
     snap_dict["system_paths"] = {
         "hermes_home": str(paths.get_hermes_home()),
         "config_dir": str(paths.get_config_dir()),

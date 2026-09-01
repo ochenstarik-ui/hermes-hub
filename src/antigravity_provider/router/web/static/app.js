@@ -2426,12 +2426,30 @@ function renderUpdateUI() {
   const badgeText = document.getElementById('header-update-text');
   const commitTag = document.getElementById('commit-tag');
 
-  const installedCommit = (latestUpdateInfo && latestUpdateInfo.installed_commit && latestUpdateInfo.installed_commit !== 'unknown')
-    ? latestUpdateInfo.installed_commit
-    : (currentSettings && currentSettings.installed_commit ? currentSettings.installed_commit : '');
+  // Первым источником — снапшот работающего сервера: он приходит всегда, а
+  // панель обновлений заполняется только при её открытии. На Linux строка
+  // сборки поэтому оставалась пустой, и понять, дошло ли обновление, было
+  // нельзя.
+  //
+  // Берём running_commit — коммит, снятый при СТАРТЕ процесса. Поле commit
+  // читается с диска при каждом запросе, и переживший обновление процесс
+  // рапортует им свежий номер при старом поведении.
+  const runningCommit = (currentSnapshot && currentSnapshot.running_commit) || '';
+  const installedCommit = runningCommit
+    || (latestUpdateInfo && latestUpdateInfo.installed_commit && latestUpdateInfo.installed_commit !== 'unknown'
+      ? latestUpdateInfo.installed_commit
+      : (currentSettings && currentSettings.installed_commit ? currentSettings.installed_commit : ''));
 
   if (commitTag) {
-    commitTag.textContent = installedCommit ? `Сборка: ${installedCommit.slice(0, 7)}` : 'Сборка: —';
+    if (!installedCommit) {
+      commitTag.textContent = 'Сборка: Н/Д (сервер не передал номер)';
+    } else {
+      const startedAt = currentSnapshot && currentSnapshot.started_at;
+      const since = startedAt
+        ? ` · запущен ${new Date(startedAt * 1000).toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}`
+        : '';
+      commitTag.textContent = `Сборка: ${installedCommit.slice(0, 7)}${since}`;
+    }
   }
 
   if (badge && badgeText) {
