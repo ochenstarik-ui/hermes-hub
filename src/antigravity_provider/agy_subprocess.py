@@ -205,15 +205,20 @@ def discover_models(profile_id: str | None = None) -> dict[str, str]:
         from antigravity_provider.router.adapters.antigravity_adapter import get_profile_env_dir
 
         profile_dir = get_profile_env_dir(target_profile_id)
-        env = build_safe_subprocess_env(
-            overrides={
-                "USERPROFILE": str(profile_dir),
-                "HOME": str(profile_dir),
-                "HOMEPATH": str(profile_dir),
-            }
-        )
+        overrides = {
+            "USERPROFILE": str(profile_dir),
+            "HOME": str(profile_dir),
+            "HOMEPATH": str(profile_dir),
+        }
+        # Проверка доступности у Google смотрит на адрес: без выхода через
+        # разрешённую страну она отвечает «not currently available in your
+        # location», и каталог моделей получить нельзя.
+        overrides.update(proxy_env_overrides(resolve_provider_proxy(target_profile_id)))
+        env = build_safe_subprocess_env(overrides=overrides)
     else:
-        env = build_safe_subprocess_env()
+        env = build_safe_subprocess_env(
+            overrides=proxy_env_overrides(resolve_provider_proxy())
+        )
 
     try:
         result = subprocess.run(
@@ -718,6 +723,53 @@ BLOCKED_SECRET_PATTERNS: tuple[str, ...] = (
 )
 
 
+def resolve_provider_proxy(profile_id: str | None = None) -> str:
+    """Адрес прокси для обращений провайдера: сначала профиль, затем общий.
+
+    Google отказывает по местоположению: «not currently available in your
+    location». Проверка смотрит на адрес, поэтому вопрос решается выходом
+    через нужную страну, а не правкой чужого бинарника.
+
+    Настройка на профиль важна не для красоты: у владельца несколько
+    выходных узлов в разных странах, и разным аккаунтам может требоваться
+    разный.
+    """
+    if profile_id:
+        try:
+            from antigravity_provider.router.profile_manager import ProfileAuthManager
+
+            auth = ProfileAuthManager.load_profile_auth("antigravity", profile_id) or {}
+            own = str(auth.get("proxy_url") or "").strip()
+            if own:
+                return own
+        except Exception as exc:
+            logger.debug("Прокси профиля %s не прочитан: %s", profile_id, exc)
+    try:
+        from antigravity_provider.router.settings_service import get_hub_settings
+
+        return str(get_hub_settings().get("provider_proxy_url") or "").strip()
+    except Exception as exc:
+        logger.debug("Общая настройка прокси не прочитана: %s", exc)
+        return ""
+
+
+def proxy_env_overrides(proxy_url: str) -> dict[str, str]:
+    """Переменные окружения для прокси. Пустой адрес — пустой набор.
+
+    Пишем и заглавные, и строчные имена: Go читает HTTPS_PROXY, curl и
+    большинство библиотек — https_proxy. ALL_PROXY нужен для socks5.
+    """
+    url = (proxy_url or "").strip()
+    if not url:
+        return {}
+    names = ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY")
+    out: dict[str, str] = {}
+    for name in names:
+        out[name] = url
+        out[name.lower()] = url
+    return out
+
+
 def detect_graphical_session() -> tuple[dict[str, str], list[str]]:
     """Найти графический сеанс владельца. Вернуть (переменные, что проверено).
 
@@ -816,6 +868,19 @@ def write_login_helper(profile_dir: Path, agy_exe: str, profile_id: str) -> Path
         "USERPROFILE=" + shlex.quote(str(profile_dir)),
         "HOMEPATH=" + shlex.quote(str(profile_dir)),
         "export HOME USERPROFILE HOMEPATH",
+    ]
+
+    # Проверка доступности у Google смотрит на адрес выхода. Без прокси вход
+    # завершается «Eligibility check failed: not currently available in your
+    # location» — аккаунт при этом опознан верно, дело только в стране.
+    proxy = resolve_provider_proxy(profile_id)
+    if proxy:
+        for name, value in proxy_env_overrides(proxy).items():
+            lines.append(name + "=" + shlex.quote(value))
+        lines.append("export " + " ".join(sorted(proxy_env_overrides(proxy))))
+        lines.append('echo "Выход через прокси: ' + proxy.replace('"', "") + '"')
+
+    lines += [
         "cd " + shlex.quote(str(profile_dir)) + " || exit 1",
         'echo "Вход Antigravity в слот ' + profile_id + '"',
         'echo "Каталог профиля: $HOME"',

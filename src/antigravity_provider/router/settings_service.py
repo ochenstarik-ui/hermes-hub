@@ -6,6 +6,8 @@ along with Obsidian shared memory validation and canonical structure setup.
 from __future__ import annotations
 
 import json
+from urllib.parse import urlparse
+import re
 import logging
 import os
 import tempfile
@@ -36,6 +38,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "compression_threshold_percent": 75.0,
     "compression_keep_recent_messages": 3,
     "compression_enabled": True,
+    # Прокси для обращений провайдеров, у которых проверка доступности
+    # смотрит на адрес. Google отказал владельцу: «not currently available
+    # in your location». Задаётся адресом вида socks5://127.0.0.1:1080 или
+    # http://127.0.0.1:8080; пустое значение означает «без прокси».
+    "provider_proxy_url": "",
 }
 
 
@@ -55,6 +62,36 @@ def invalidate_settings_cache() -> None:
 def get_settings_file() -> Path:
     """Return the absolute path to hub_settings.json in HERMES_HOME."""
     return get_hermes_home() / "hub_settings.json"
+
+
+def _normalize_proxy_url(raw: Any) -> str:
+    """Привести адрес прокси к рабочему виду или отбросить.
+
+    Проверяем не только схему, но и сам адрес: приписать socks5:// можно
+    чему угодно, и тогда мусор выглядел бы принятым, а все обращения
+    провайдера молча ломались бы без внятной причины.
+    """
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+    if "://" not in value:
+        value = "socks5://" + value
+    try:
+        parsed = urlparse(value)
+    except ValueError:
+        return ""
+    if parsed.scheme not in ("http", "https", "socks5", "socks5h"):
+        return ""
+    host = parsed.hostname or ""
+    if not host or not re.fullmatch(r"[A-Za-z0-9._\-\[\]:]+", host):
+        return ""
+    try:
+        port = parsed.port
+    except ValueError:
+        return ""
+    if port is not None and not (1 <= port <= 65535):
+        return ""
+    return value
 
 
 def get_hub_settings() -> Dict[str, Any]:
@@ -138,6 +175,10 @@ def get_hub_settings() -> Dict[str, Any]:
         merged["compression_threshold_percent"] = max(10.0, min(95.0, float(merged.get("compression_threshold_percent", 75.0))))
     except (ValueError, TypeError):
         merged["compression_threshold_percent"] = 75.0
+
+    # Адрес прокси проверяем на вид, а не принимаем что попало: неверная
+    # схема тихо ломает все обращения провайдера, и причина не видна.
+    merged["provider_proxy_url"] = _normalize_proxy_url(merged.get("provider_proxy_url"))
 
     try:
         merged["compression_keep_recent_messages"] = max(1, min(20, int(merged.get("compression_keep_recent_messages", 3))))

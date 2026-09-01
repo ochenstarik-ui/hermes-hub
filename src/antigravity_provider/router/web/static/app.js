@@ -1727,6 +1727,18 @@ function renderSettingsView() {
     }
   }
 
+  // Прокси провайдеров: пустая строка — осмысленное значение «без прокси»,
+  // поэтому отличаем её от «сервер не передал».
+  const proxyInput = document.getElementById('setting-provider-proxy-url');
+  if (proxyInput) {
+    if (s.provider_proxy_url !== undefined) {
+      proxyInput.value = s.provider_proxy_url || '';
+      proxyInput.placeholder = 'без прокси';
+    } else {
+      proxyInput.placeholder = 'Н/Д: не передан сервером';
+    }
+  }
+
   // Quota Interval
   const quotaIntervalSel = document.getElementById('setting-quota-interval');
   if (quotaIntervalSel) {
@@ -1829,7 +1841,12 @@ async function saveHubServerSettings() {
   const defaultRoleSel = document.getElementById('setting-default-role');
   const themeSel = document.getElementById('setting-theme');
 
+  const proxyInputSave = document.getElementById('setting-provider-proxy-url');
+
   const newSettings = {};
+  // Пустое поле — это выбор «без прокси», а не отсутствие значения:
+  // отправляем его тоже, иначе прокси нельзя было бы убрать.
+  if (proxyInputSave) newSettings.provider_proxy_url = proxyInputSave.value.trim();
   if (hostInput && hostInput.value.trim()) newSettings.web_api_host = hostInput.value.trim();
   if (portInput && portInput.value) newSettings.web_api_port = Number(portInput.value);
   if (tokenInput && tokenInput.value.trim()) newSettings.web_api_token = tokenInput.value.trim();

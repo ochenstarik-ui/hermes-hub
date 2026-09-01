@@ -54,13 +54,20 @@ class AntigravityAdapter(BaseProviderAdapter):
     def invoke(self, profile: RouterProfileConfig, request: Dict[str, Any]) -> Dict[str, Any]:
         profile_dir = get_profile_env_dir(profile.profile_id)
         # Isolate USERPROFILE and HOME while strictly stripping non-Antigravity provider secrets
-        custom_env = build_safe_subprocess_env(
-            overrides={
-                "USERPROFILE": str(profile_dir),
-                "HOME": str(profile_dir),
-                "HOMEPATH": str(profile_dir),
-            }
+        overrides = {
+            "USERPROFILE": str(profile_dir),
+            "HOME": str(profile_dir),
+            "HOMEPATH": str(profile_dir),
+        }
+        # Тот же прокси, что и при входе: иначе аккаунт подключён, а запросы
+        # упираются в проверку доступности по стране.
+        from antigravity_provider.agy_subprocess import (
+            proxy_env_overrides,
+            resolve_provider_proxy,
         )
+
+        overrides.update(proxy_env_overrides(resolve_provider_proxy(profile.profile_id)))
+        custom_env = build_safe_subprocess_env(overrides=overrides)
 
         # If profile specifies a preferred model and request has generic or no model
         req = dict(request)
