@@ -76,6 +76,11 @@ class CompressionOutcome:
     facts_total: int = 0
     facts_retained: int = 0
     retention_percent: float = 100.0
+    # Итог считается посимвольно, если токенизатор сервера недоступен.
+    tokens_after_is_estimate: bool = True
+    # Полнота, которую дала сама модель, до дописывания недостающих фактов.
+    model_retention_percent: float = 100.0
+    facts_added_by_safeguard: List[str] = field(default_factory=list)
     retained_facts: List[str] = field(default_factory=list)
     missing_facts: List[str] = field(default_factory=list)
     model_name: str = ""
@@ -189,14 +194,16 @@ class ContextCompressor:
                 getattr(profile_config, "custom_base_url", None)
                 or (profile_config.auth_config.get("base_url") if hasattr(profile_config, "auth_config") and isinstance(profile_config.auth_config, dict) else None)
                 or os.environ.get("LOCAL_COMPRESSOR_BASE_URL")
-                or "http://127.0.0.1:8082/v1"
+                or ""
             )
             model_name = profile_config.preferred_models[0] if getattr(profile_config, "preferred_models", None) else "default"
             token = profile_config.auth_config.get("api_key") or profile_config.auth_config.get("token") if hasattr(profile_config, "auth_config") and isinstance(profile_config.auth_config, dict) else ""
             return str(base_url).rstrip("/"), str(model_name), str(token or "")
 
-        # Fallback to environment or standard compressor port
-        env_url = os.environ.get("LOCAL_COMPRESSOR_BASE_URL", "http://127.0.0.1:8082/v1")
+        # Порт 8082 сегодняшний, завтра другой: зашивать его нельзя. Нет
+        # адреса — значит компрессор не настроен, и это отдельное состояние,
+        # а не повод молча постучаться в 8082.
+        env_url = os.environ.get("LOCAL_COMPRESSOR_BASE_URL", "")
         return env_url.rstrip("/"), "default", ""
 
     def compress_messages_if_needed(
@@ -216,10 +223,14 @@ class ContextCompressor:
         Guarantees 100% factual retention.
         """
         # P0-1: If compressor profile is not configured
-        if not compressor_profile and not os.environ.get("LOCAL_COMPRESSOR_BASE_URL"):
+        if not self.resolve_compressor_endpoint(compressor_profile)[0]:
             outcome = CompressionOutcome(
                 status="UNCONFIGURED",
-                status_message="Н/Д: модель для сжатия не выбрана",
+                status_message=(
+                    "Н/Д: модель для сжатия не выбрана"
+                    if not compressor_profile
+                    else "Н/Д: у выбранного профиля не задан адрес сервера"
+                ),
                 tokens_before=current_token_count,
                 tokens_after=current_token_count,
                 compression_ratio=1.0,
@@ -362,12 +373,20 @@ class ContextCompressor:
             # P0-3: Verify facts retention
             retention_rate, preserved, missing = verify_facts_retention(raw_summary, all_expected_facts)
 
+            # Полнота, которую дала САМА модель. Её нельзя терять: ниже
+            # недостающие факты дописываются списком, и после этого проверка
+            # покажет сто процентов. Замер на сервере владельца дал 97,4% —
+            # один факт из тридцати восьми модель потеряла. Показывая только
+            # исправленное число, мы скрыли бы от владельца, что модель
+            # теряет факты, и он не заметил бы, когда станет хуже.
+            model_retention_rate = retention_rate
+            model_missing = list(missing)
+
             # P0-3 Safeguard: If any critical technical entities were omitted by model, append explicit factual ledger
             if missing:
                 logger.info("Context compressor missed %d facts. Appending verbatim factual safeguard ledger.", len(missing))
                 facts_ledger = "\n### Ключевые сохранённые факты:\n" + "\n".join(f"- `{f}`" for f in missing)
                 final_summary = f"{raw_summary}\n{facts_ledger}"
-                # Re-verify -> guaranteed 100% retention
                 retention_rate, preserved, missing = verify_facts_retention(final_summary, all_expected_facts)
             else:
                 final_summary = raw_summary
@@ -399,7 +418,18 @@ class ContextCompressor:
 
             outcome = CompressionOutcome(
                 status="SUCCESS",
-                status_message=f"Контекст успешно сжат: {est_before} → {est_after} токенов ({ratio}x, экономия {saved} токенов) за {elapsed:.2f}с. Сохранено фактов: {len(preserved)}/{all_expected_facts.total_count} (100%).",
+                status_message=(
+                    f"Контекст сжат: {est_before} → {est_after} токенов "
+                    f"({ratio}x, экономия {saved}) за {elapsed:.2f}с. "
+                    f"Фактов сохранено: {len(preserved)}/{all_expected_facts.total_count} "
+                    f"({retention_rate:.1f}%)"
+                    + (
+                        f"; {len(model_missing)} из них дописано списком, "
+                        f"сама модель сохранила {model_retention_rate:.1f}%."
+                        if model_missing
+                        else ", все — самой моделью."
+                    )
+                ),
                 tokens_before=est_before,
                 tokens_after=est_after,
                 compression_ratio=ratio,
@@ -408,6 +438,8 @@ class ContextCompressor:
                 facts_total=all_expected_facts.total_count,
                 facts_retained=len(preserved),
                 retention_percent=retention_rate,
+                model_retention_percent=model_retention_rate,
+                facts_added_by_safeguard=model_missing,
                 retained_facts=preserved,
                 missing_facts=missing,
                 model_name=model_name,
