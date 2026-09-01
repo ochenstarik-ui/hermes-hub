@@ -718,6 +718,68 @@ BLOCKED_SECRET_PATTERNS: tuple[str, ...] = (
 )
 
 
+def detect_graphical_session() -> tuple[dict[str, str], list[str]]:
+    """Найти графический сеанс владельца. Вернуть (переменные, что проверено).
+
+    Хаб запускается через nohup и наследует окружение той оболочки, из которой
+    его запустили. Запуск по SSH или из службы оставляет процесс без DISPLAY —
+    и хаб отказывался открыть терминал, стоя при этом на рабочем столе.
+
+    Наследование не единственный источник. systemd знает про сеанс: на сервере
+    владельца `loginctl show-user <user> -p Display` даёт c1, а
+    `loginctl show-session c1` — Type=x11, Display=:10, Active=yes. Спросить у
+    системы честнее, чем сдаться.
+
+    XAUTHORITY не выставляем: клиенты X11 по умолчанию берут ~/.Xauthority
+    того же пользователя, а хаб работает под ним же.
+    """
+    checked: list[str] = []
+    found: dict[str, str] = {}
+
+    for var in ("DISPLAY", "WAYLAND_DISPLAY", "MIR_SOCKET"):
+        value = os.environ.get(var, "").strip()
+        checked.append(f"{var} ({'задан: ' + value if value else 'не задан'})")
+        if value:
+            found[var] = value
+
+    if found:
+        return found, checked
+
+    loginctl = shutil.which("loginctl")
+    if not loginctl:
+        checked.append("loginctl (не найден)")
+        return {}, checked
+
+    def _ask(args: list[str]) -> str:
+        try:
+            res = subprocess.run(
+                [loginctl, *args],
+                capture_output=True, text=True, timeout=5,
+                encoding="utf-8", errors="replace",
+                stdin=subprocess.DEVNULL,
+            )
+            return res.stdout.strip() if res.returncode == 0 else ""
+        except Exception:
+            return ""
+
+    user = os.environ.get("USER") or os.environ.get("LOGNAME") or ""
+    session = _ask(["show-user", user, "--value", "-p", "Display"]) if user else ""
+    if not session:
+        checked.append(f"loginctl show-user {user or '<пользователь неизвестен>'} (сеанс не назван)")
+        return {}, checked
+
+    stype = _ask(["show-session", session, "--value", "-p", "Type"])
+    display = _ask(["show-session", session, "--value", "-p", "Display"])
+    checked.append(f"loginctl сеанс {session} (тип: {stype or 'Н/Д'}, дисплей: {display or 'Н/Д'})")
+
+    if stype == "wayland" and display:
+        found["WAYLAND_DISPLAY"] = display
+    elif display:
+        found["DISPLAY"] = display
+
+    return found, checked
+
+
 def _is_windows() -> bool:
     """Отдельная проверка системы, чтобы тестам не подменять os.name.
 
@@ -799,20 +861,12 @@ def find_terminal_emulator(
         return cmd, None, checked
 
     # Linux / Unix / macOS
-    display = os.environ.get("DISPLAY", "").strip()
-    wayland = os.environ.get("WAYLAND_DISPLAY", "").strip()
-    mir = os.environ.get("MIR_SOCKET", "").strip()
-
-    if not display and not wayland and not mir:
-        checked = [
-            f"DISPLAY ({'задан: ' + os.environ['DISPLAY'] if 'DISPLAY' in os.environ else 'не задан'})",
-            f"WAYLAND_DISPLAY ({'задан: ' + os.environ['WAYLAND_DISPLAY'] if 'WAYLAND_DISPLAY' in os.environ else 'не задан'})",
-            f"MIR_SOCKET ({'задан: ' + os.environ['MIR_SOCKET'] if 'MIR_SOCKET' in os.environ else 'не задан'})",
-        ]
+    session_env, checked = detect_graphical_session()
+    if not session_env:
         err_msg = (
-            "Графический дисплей не обнаружен (переменные DISPLAY/WAYLAND_DISPLAY не заданы). "
-            "Для входа на сервере без графического интерфейса используйте вход по ссылке через браузер "
-            "либо запустите Hub в сессии с графическим дисплеем."
+            "Графический сеанс не обнаружен: ни в окружении хаба, ни у systemd. "
+            "Для входа на машине без графического интерфейса используйте вход по ссылке "
+            "через браузер."
         )
         return None, err_msg, checked
 
@@ -1028,13 +1082,18 @@ def start_native_agy_login(
             "checked_terminals": checked,
         }
 
-    env = build_safe_subprocess_env(
-        overrides={
-            "HOME": str(profile_dir),
-            "USERPROFILE": str(profile_dir),
-            "HOMEPATH": str(profile_dir),
-        }
-    )
+    # Дисплей, найденный у systemd, обязан попасть в окружение терминала:
+    # в окружении самого хаба его может не быть, если хаб запущен по SSH или
+    # службой, а окно всё равно должно открыться на рабочем столе владельца.
+    overrides = {
+        "HOME": str(profile_dir),
+        "USERPROFILE": str(profile_dir),
+        "HOMEPATH": str(profile_dir),
+    }
+    session_env, _checked = detect_graphical_session()
+    overrides.update(session_env)
+
+    env = build_safe_subprocess_env(overrides=overrides)
 
     try:
         proc = subprocess.Popen(

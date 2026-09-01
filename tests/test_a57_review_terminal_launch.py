@@ -165,3 +165,83 @@ def test_asking_for_a_path_creates_nothing(tmp_path, monkeypatch):
     created = paths.get_profile_dir("ag-1", "antigravity", create=True)
     assert created.is_dir()
     assert sorted(p.name for p in root.iterdir()) == ["ag-1"]
+
+
+# ── Дисплей ищется не только в окружении ──
+
+def test_display_from_environment_wins(monkeypatch):
+    from antigravity_provider.agy_subprocess import detect_graphical_session
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    found, checked = detect_graphical_session()
+
+    assert found["DISPLAY"] == ":0"
+    assert any("DISPLAY (задан: :0)" in item for item in checked)
+
+
+def test_display_is_asked_from_systemd_when_environment_is_empty(monkeypatch):
+    """Хаб запускается через nohup: по SSH он остаётся без DISPLAY.
+
+    Измерено на сервере владельца: loginctl show-user даёт сеанс c1, а
+    show-session c1 — Type=x11, Display=:10. Отказываться, не спросив, рано.
+    """
+    from antigravity_provider import agy_subprocess as m
+
+    for var in ("DISPLAY", "WAYLAND_DISPLAY", "MIR_SOCKET"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("USER", "ochenstarik")
+    monkeypatch.setattr(m.shutil, "which", lambda n: "/usr/bin/loginctl" if n == "loginctl" else None)
+
+    answers = {("show-user", "ochenstarik"): "c1", ("show-session", "c1", "Type"): "x11",
+               ("show-session", "c1", "Display"): ":10"}
+
+    class _Res:
+        def __init__(self, out):
+            self.stdout, self.returncode = out, 0
+
+    def _run(cmd, **kwargs):
+        if cmd[1] == "show-user":
+            return _Res(answers[("show-user", cmd[2])])
+        return _Res(answers[("show-session", cmd[2], cmd[-1])])
+
+    monkeypatch.setattr(m.subprocess, "run", _run)
+    found, checked = m.detect_graphical_session()
+
+    assert found == {"DISPLAY": ":10"}
+    assert any("loginctl сеанс c1" in item for item in checked)
+
+
+def test_wayland_session_is_reported_as_wayland(monkeypatch):
+    from antigravity_provider import agy_subprocess as m
+
+    for var in ("DISPLAY", "WAYLAND_DISPLAY", "MIR_SOCKET"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("USER", "owner")
+    monkeypatch.setattr(m.shutil, "which", lambda n: "/usr/bin/loginctl" if n == "loginctl" else None)
+
+    class _Res:
+        def __init__(self, out):
+            self.stdout, self.returncode = out, 0
+
+    def _run(cmd, **kwargs):
+        if cmd[1] == "show-user":
+            return _Res("2")
+        return _Res("wayland" if cmd[-1] == "Type" else "wayland-0")
+
+    monkeypatch.setattr(m.subprocess, "run", _run)
+    found, _ = m.detect_graphical_session()
+
+    assert found == {"WAYLAND_DISPLAY": "wayland-0"}
+
+
+def test_no_session_anywhere_lists_what_was_asked(monkeypatch):
+    from antigravity_provider import agy_subprocess as m
+
+    for var in ("DISPLAY", "WAYLAND_DISPLAY", "MIR_SOCKET"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(m.shutil, "which", lambda _n: None)
+
+    found, checked = m.detect_graphical_session()
+
+    assert found == {}
+    assert any("loginctl (не найден)" in item for item in checked)

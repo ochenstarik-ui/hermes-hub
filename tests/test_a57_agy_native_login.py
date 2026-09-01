@@ -105,17 +105,24 @@ def test_terminal_discovery_linux_missing_honest_error(tmp_path, monkeypatch):
 
 @pytest.mark.unit
 def test_terminal_discovery_no_display_honest_error(tmp_path, monkeypatch):
-    """P0-1: When DISPLAY/WAYLAND_DISPLAY are absent, return clear message advising browser fallback."""
+    """P0-1: сеанса нет ни в окружении, ни у systemd — отказ с перечнем проверенного.
+
+    Пустое окружение само по себе больше не приговор: хаб запускается через
+    nohup и по SSH остаётся без DISPLAY, стоя при этом на рабочем столе. Отказ
+    правомерен, только когда и systemd графического сеанса не знает.
+    """
     monkeypatch.setattr(agy_subprocess, "_is_windows", lambda: False)
     monkeypatch.delenv("DISPLAY", raising=False)
     monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
     monkeypatch.delenv("MIR_SOCKET", raising=False)
+    monkeypatch.setattr(agy_subprocess.shutil, "which", lambda _n: None)
 
     cmd, err, checked = find_terminal_emulator("ag-1", "/bin/agy", tmp_path)
     assert cmd is None
     assert err is not None
-    assert "Графический дисплей не обнаружен" in err
-    assert "DISPLAY/WAYLAND_DISPLAY не заданы" in err
+    assert "Графический сеанс не обнаружен" in err
+    assert any("DISPLAY (не задан)" in item for item in checked)
+    assert any("loginctl" in item for item in checked)
 
 
 @pytest.mark.unit
