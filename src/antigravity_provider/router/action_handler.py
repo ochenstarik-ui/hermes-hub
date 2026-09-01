@@ -5,6 +5,7 @@ import json
 import os
 import logging
 import threading
+from dataclasses import asdict
 from datetime import datetime, timezone
 from typing import Any, Dict, Tuple, Optional, Callable, List
 
@@ -1429,6 +1430,70 @@ class ActionExecutor:
             p_name = data.get('project_name', 'hermes-hub')
             res = setup_memory_structure(vault_path=v_path, project_name=p_name)
             return {'ok': res.get('ok', False), 'message': res.get('message', ''), 'data': res}
+
+        elif action == 'get_compression_status':
+            from antigravity_provider.router.settings_service import get_hub_settings
+            from antigravity_provider.router.local_supervisor import LocalSupervisor
+
+            hub_settings = get_hub_settings()
+            c_pid = hub_settings.get('compressor_profile_id')
+            c_pcfg = None
+            if c_pid:
+                try:
+                    c_pcfg = load_router_config().get_profile(c_pid)
+                except Exception:
+                    pass
+            supervisor = LocalSupervisor()
+            status_data = supervisor.get_compression_status(c_pcfg)
+            status_data['threshold_percent'] = hub_settings.get('compression_threshold_percent', 75.0)
+            status_data['keep_recent_messages'] = hub_settings.get('compression_keep_recent_messages', 3)
+            status_data['compression_enabled'] = hub_settings.get('compression_enabled', True)
+            return {'ok': True, 'message': 'Статус сжатия получен', 'data': status_data}
+
+        elif action == 'get_compression_history':
+            from antigravity_provider.router.context_compressor import ContextCompressor
+            history = ContextCompressor().get_compression_history(limit=int(data.get('limit', 20)))
+            return {'ok': True, 'message': f'Получено записей: {len(history)}', 'data': {'history': history}}
+
+        elif action == 'test_compression':
+            from antigravity_provider.router.settings_service import get_hub_settings
+            from antigravity_provider.router.local_supervisor import LocalSupervisor
+
+            hub_settings = get_hub_settings()
+            c_pid = data.get('profile_id') or hub_settings.get('compressor_profile_id')
+            c_pcfg = None
+            if c_pid and c_pid != 'none':
+                try:
+                    c_pcfg = load_router_config().get_profile(c_pid)
+                except Exception:
+                    pass
+
+            test_messages = [
+                {"role": "system", "content": "You are a software engineer."},
+                {"role": "user", "content": "Hermes Hub server runs on 192.168.1.81:8765. The primary coder is on port 8081 with 224K context (229376 tokens), generating at 107.4 tok/s. VRAM usage: 30008 MiB. Active branch: antigravity/a56-context-compression, Commit SHA: 26f7d2c, version v0.1.2. Local compressor is on port 8082."},
+                {"role": "assistant", "content": "Acknowledged. All server metrics and ports are noted."},
+                {"role": "user", "content": "Now run preflight diagnostics for LocalSupervisor and ContextCompressor in src/antigravity_provider/router/local_supervisor.py."},
+                {"role": "assistant", "content": "Diagnostics completed successfully. Memory vault is at /srv/projects/AI-Memory."},
+                {"role": "user", "content": "What is our current task?"},
+            ]
+
+            supervisor = LocalSupervisor()
+            new_msgs, outcome = supervisor.compress_context_if_needed(
+                messages=test_messages,
+                target_context_limit=32768,
+                compressor_profile=c_pcfg,
+                threshold_percent=0.0,  # force compression
+                keep_recent_messages=2,
+            )
+            return {
+                'ok': outcome.status == 'SUCCESS',
+                'message': outcome.status_message,
+                'data': {
+                    'outcome': asdict(outcome) if hasattr(outcome, '__dataclass_fields__') else outcome.__dict__,
+                    'messages_before_count': len(test_messages),
+                    'messages_after_count': len(new_msgs),
+                }
+            }
 
         else:
             return {'ok': False, 'message': f'Неизвестное действие: {action}', 'unknown': True}

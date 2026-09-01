@@ -32,6 +32,10 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "email_masking_mode": "none",
     "default_role": "manager",
     "obsidian_vault_path": "/srv/projects/AI-Memory",
+    "compressor_profile_id": None,
+    "compression_threshold_percent": 75.0,
+    "compression_keep_recent_messages": 3,
+    "compression_enabled": True,
 }
 
 
@@ -123,6 +127,24 @@ def get_hub_settings() -> Dict[str, Any]:
 
     vault_path = str(merged.get("obsidian_vault_path", "/srv/projects/AI-Memory")).strip()
     merged["obsidian_vault_path"] = vault_path
+
+    compressor_pid = merged.get("compressor_profile_id")
+    if compressor_pid is not None and str(compressor_pid).strip() and str(compressor_pid).strip() != "none":
+        merged["compressor_profile_id"] = str(compressor_pid).strip()
+    else:
+        merged["compressor_profile_id"] = None
+
+    try:
+        merged["compression_threshold_percent"] = max(10.0, min(95.0, float(merged.get("compression_threshold_percent", 75.0))))
+    except (ValueError, TypeError):
+        merged["compression_threshold_percent"] = 75.0
+
+    try:
+        merged["compression_keep_recent_messages"] = max(1, min(20, int(merged.get("compression_keep_recent_messages", 3))))
+    except (ValueError, TypeError):
+        merged["compression_keep_recent_messages"] = 3
+
+    merged["compression_enabled"] = bool(merged.get("compression_enabled", True))
 
     _SETTINGS_CACHE = dict(merged)
     _SETTINGS_CACHE_MTIME = current_mtime

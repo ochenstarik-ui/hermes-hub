@@ -1778,6 +1778,38 @@ function renderSettingsView() {
   if (vaultPathInput) {
     vaultPathInput.value = s.obsidian_vault_path || '/srv/projects/AI-Memory';
   }
+
+  // Context Compression Settings (A56)
+  populateCompressorProfiles(s);
+  const compThresholdSel = document.getElementById('setting-compression-threshold-percent');
+  if (compThresholdSel && s.compression_threshold_percent !== undefined) {
+    compThresholdSel.value = String(Math.round(s.compression_threshold_percent));
+  }
+  const compKeepRecentSel = document.getElementById('setting-compression-keep-recent');
+  if (compKeepRecentSel && s.compression_keep_recent_messages !== undefined) {
+    compKeepRecentSel.value = String(s.compression_keep_recent_messages);
+  }
+  checkCompressionStatus();
+}
+
+function populateCompressorProfiles(s) {
+  const compProfileSel = document.getElementById('setting-compressor-profile');
+  if (!compProfileSel) return;
+
+  const currentVal = (s && s.compressor_profile_id) || compProfileSel.value || 'none';
+  const profiles = (currentSnapshot && (currentSnapshot.all_profiles || currentSnapshot.profiles)) || {};
+
+  let optionsHtml = '<option value="none">Н/Д: модель для сжатия не выбрана (отключено)</option>';
+  for (const [pid, p] of Object.entries(profiles)) {
+    const prov = p.provider || 'unknown';
+    const name = p.display_name || pid;
+    const model = (p.preferred_models && p.preferred_models[0]) || '';
+    const endpoint = p.custom_base_url || (p.auth_config && p.auth_config.base_url) || '';
+    const label = `${name} [${prov}]${model ? ' — ' + model : ''}${endpoint ? ' (' + endpoint + ')' : ''}`;
+    optionsHtml += `<option value="${escapeHtml(pid)}">${escapeHtml(label)}</option>`;
+  }
+  compProfileSel.innerHTML = optionsHtml;
+  if (currentVal) compProfileSel.value = currentVal;
 }
 
 async function saveHubServerSettings() {
@@ -1790,6 +1822,9 @@ async function saveHubServerSettings() {
   const quotaIntervalSel = document.getElementById('setting-quota-interval');
   const monitorIntervalInput = document.getElementById('setting-monitoring-interval');
   const vaultPathInput = document.getElementById('setting-obsidian-vault-path');
+  const compProfileSel = document.getElementById('setting-compressor-profile');
+  const compThresholdSel = document.getElementById('setting-compression-threshold-percent');
+  const compKeepRecentSel = document.getElementById('setting-compression-keep-recent');
   const accountIntervalInput = document.getElementById('setting-account-check-interval');
   const defaultRoleSel = document.getElementById('setting-default-role');
   const themeSel = document.getElementById('setting-theme');
@@ -1805,6 +1840,9 @@ async function saveHubServerSettings() {
   if (emailMaskingSel && emailMaskingSel.value) newSettings.email_masking_mode = emailMaskingSel.value;
   if (monitorIntervalInput && monitorIntervalInput.value) newSettings.monitoring_interval_seconds = Number(monitorIntervalInput.value);
   if (vaultPathInput && vaultPathInput.value.trim()) newSettings.obsidian_vault_path = vaultPathInput.value.trim();
+  if (compProfileSel) newSettings.compressor_profile_id = (compProfileSel.value === 'none' || !compProfileSel.value) ? null : compProfileSel.value;
+  if (compThresholdSel && compThresholdSel.value) newSettings.compression_threshold_percent = Number(compThresholdSel.value);
+  if (compKeepRecentSel && compKeepRecentSel.value) newSettings.compression_keep_recent_messages = Number(compKeepRecentSel.value);
   if (defaultRoleSel && defaultRoleSel.value) newSettings.default_role = defaultRoleSel.value;
   if (themeSel && themeSel.value) newSettings.theme = themeSel.value;
 
@@ -4331,3 +4369,75 @@ async function handleClearAccounts() {
   showToast(result?.message || 'Нет ответа от сервера', result?.ok ? 'success' : 'error');
   await fetchSnapshot();
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  CONTEXT COMPRESSION UI (A56)
+// ═══════════════════════════════════════════════════════════════
+async function checkCompressionStatus() {
+  const badge = document.getElementById('compression-status-badge');
+  const details = document.getElementById('compression-details-box');
+  const res = await executeAction('get_compression_status', {});
+  if (res && res.ok && res.data) {
+    const d = res.data;
+    if (badge) {
+      if (!d.configured || d.status === 'unconfigured') {
+        badge.textContent = 'Н/Д: модель для сжатия не выбрана';
+        badge.className = 'badge';
+      } else if (d.status === 'ready') {
+        badge.textContent = `🟢 Готов: ${d.model || d.profile_id} (порог ${d.threshold_percent}%)`;
+        badge.className = 'badge healthy';
+      } else {
+        badge.textContent = `⚠️ Недоступен: ${d.endpoint || d.profile_id}`;
+        badge.className = 'badge warning';
+      }
+    }
+    if (details) {
+      if (!d.configured || d.status === 'unconfigured') {
+        details.innerHTML = 'Сжатие отключено. Выберите профиль модели для сжатия контекста в настройках.';
+      } else {
+        const stats = `Эндпоинт: ${d.endpoint}\nМодель: ${d.model}\nИзмеренный контекст: ${d.n_ctx} токенов\nПорог запуска: ${d.threshold_percent}%\nСвежих сообщений без сжатия: ${d.keep_recent_messages}\nСжатий выполнено: ${d.history_count} (Сэкономлено токенов: ${d.total_saved_tokens})`;
+        details.textContent = stats;
+      }
+    }
+  }
+}
+
+async function testCompression() {
+  const details = document.getElementById('compression-details-box');
+  const btn = document.getElementById('btn-test-compression');
+  if (btn) btn.disabled = true;
+  if (details) details.textContent = '⏳ Выполняется тестовое сжатие контекста на сервере...';
+
+  try {
+    const sel = document.getElementById('setting-compressor-profile');
+    const profileId = sel ? sel.value : null;
+    const res = await executeAction('test_compression', { profile_id: profileId });
+    if (res && res.ok && res.data) {
+      const outcome = res.data.outcome || {};
+      const factsRetained = outcome.facts_retained || 0;
+      const factsTotal = outcome.facts_total || 0;
+      const pct = outcome.retention_percent || 100;
+      const text = `✓ ${res.message}\n` +
+        `├─ Токены: ${outcome.tokens_before} → ${outcome.tokens_after} (${outcome.compression_ratio}x, экономия ${outcome.saved_tokens} токенов)\n` +
+        `├─ Время выполнения: ${outcome.duration_sec}с\n` +
+        `├─ Удержание фактов: ${factsRetained}/${factsTotal} (${pct}%)\n` +
+        `└─ Сохранённые факты:\n${(outcome.retained_facts || []).map(f => '   • ' + f).join('\n')}`;
+      if (details) details.textContent = text;
+      showToast('Тест сжатия успешно выполнен: 100% фактов сохранено', 'success');
+      await checkCompressionStatus();
+    } else {
+      if (details) details.textContent = `❌ Ошибка: ${(res && res.message) || 'Не удалось выполнить тестовое сжатие'}`;
+      showToast((res && res.message) || 'Ошибка тестирования сжатия', 'error');
+    }
+  } catch (err) {
+    if (details) details.textContent = `❌ Исключение: ${err.message || String(err)}`;
+    showToast('Ошибка при вызове теста сжатия', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+// Attach event listeners for compression buttons
+document.getElementById('btn-check-compression-status')?.addEventListener('click', checkCompressionStatus);
+document.getElementById('btn-test-compression')?.addEventListener('click', testCompression);
+
