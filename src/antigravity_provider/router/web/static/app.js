@@ -117,6 +117,10 @@ function switchView(viewName) {
 
   if (viewName === 'settings') {
     fetchSettings();
+    // Состояние сжатия спрашиваем при открытии экрана, а не при каждой
+    // отрисовке настроек: раньше опрос запускался на каждом обновлении
+    // снапшота и замыкал круг сам на себя.
+    checkCompressionStatus();
   }
 
   if (currentSnapshot) {
@@ -535,8 +539,23 @@ async function saveAuthTokenFromPrompt() {
 }
 
 // ── ACTIONS EXECUTION (POST /api/action) ──
+
+// Действия-опросы: их запускает сам интерфейс, а не владелец.
+//
+// Показывать их тостами нельзя: опрос состояния сжатия шёл при каждом
+// обновлении снапшота, и владелец не видел за уведомлениями самой программы.
+// Хуже того, успешное действие вызывало fetchSnapshot, тот перерисовывал
+// настройки, а перерисовка снова запускала опрос — круг замыкался и кормил
+// сам себя. Поэтому опросы не только молчат, но и не дёргают снапшот.
+const SILENT_ACTIONS = new Set([
+  'get_compression_status',
+  'poll_native_auth', 'poll_native_agy_login', 'poll_terminal_auth',
+  'poll_redirect_auth', 'poll_device_auth',
+]);
+
 async function executeAction(actionName, actionData = {}) {
-  showToast(`Выполняется «${actionName}»...`, 'info');
+  const silent = SILENT_ACTIONS.has(actionName);
+  if (!silent) showToast(`Выполняется «${actionName}»...`, 'info');
   try {
     const headers = { 'Content-Type': 'application/json' };
     if (authToken) headers['X-Hub-Token'] = authToken;
@@ -555,16 +574,20 @@ async function executeAction(actionName, actionData = {}) {
     const result = await res.json().catch(() => ({ ok: false, message: `Ошибка парсинга ответа (${res.status})` }));
 
     if (result.ok) {
-      showToast(result.message || 'Действие выполнено успешно', 'success');
-      fetchSnapshot();
+      if (!silent) {
+        showToast(result.message || 'Действие выполнено успешно', 'success');
+        fetchSnapshot();
+      }
       return result;
     } else {
-      showToast(result.message || 'Отказ выполнения действия', 'warning');
+      // Отказ опроса показываем в том месте, которое его запросило: у мастера
+      // входа для этого своя область сообщений. Тостом заливать нельзя.
+      if (!silent) showToast(result.message || 'Отказ выполнения действия', 'warning');
       return result;
     }
   } catch (err) {
     console.error(`Action ${actionName} failed:`, err);
-    showToast(`Ошибка сети: ${err.message}`, 'error');
+    if (!silent) showToast(`Ошибка сети: ${err.message}`, 'error');
     return { ok: false, message: `Ошибка сети: ${err.message}` };
   }
 }
@@ -1801,7 +1824,9 @@ function renderSettingsView() {
   if (compKeepRecentSel && s.compression_keep_recent_messages !== undefined) {
     compKeepRecentSel.value = String(s.compression_keep_recent_messages);
   }
-  checkCompressionStatus();
+  // checkCompressionStatus() отсюда убран: отрисовка настроек происходит на
+  // каждом обновлении снапшота, и опрос замыкал круг сам на себя. Состояние
+  // запрашивается при открытии экрана настроек и по кнопке.
 }
 
 function populateCompressorProfiles(s) {
