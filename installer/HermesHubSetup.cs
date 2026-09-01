@@ -14,7 +14,7 @@ namespace HermesHubSetup
 {
     public class SetupEngine
     {
-        public const string HUB_VERSION = "0.1.2";
+        public const string HUB_VERSION = "0.1.3";
         // Подставляется сборщиком из фактического git-коммита. Раньше здесь
         // жил зашитый "8cddc9f", то есть манифест сообщал неправду о том, из
         // какого кода собран установщик.

@@ -132,31 +132,35 @@ def test_p0_3_antigravity_dynamic_model_discovery():
 # ── P0-4: Version Info & API Propagation Tests ──
 
 def test_p0_4_version_single_source_of_truth():
-    """Version must be 0.1.2 and VERSION_INFO must be (0, 1, 2)."""
-    assert __version__ == "0.1.2"
-    assert VERSION_INFO == (0, 1, 2)
+    """Номер версии и VERSION_INFO обязаны совпадать между собой.
+
+    Сверять с записанным в тесте числом бессмысленно: при каждой сборке его
+    пришлось бы править, и тест превращался бы в напоминание, а не в проверку.
+    Смысл требования — единый источник, его и проверяем.
+    """
+    assert VERSION_INFO == tuple(int(part) for part in __version__.split("."))
 
 
 def test_p0_4_version_in_api_endpoints():
-    """API endpoints /api/snapshot, /api/health, and /api/settings must return version 0.1.2."""
+    """Все точки API обязаны отдавать ту же версию, что и пакет."""
     client = TestClient(app)
 
     # /api/health
     res_health = client.get("/api/health")
     assert res_health.status_code == 200
-    assert res_health.json().get("version") == "0.1.2"
+    assert res_health.json().get("version") == __version__
 
     # /api/settings
     res_settings = client.get("/api/settings")
     assert res_settings.status_code == 200
-    assert res_settings.json().get("version") == "0.1.2"
+    assert res_settings.json().get("version") == __version__
 
     # /api/snapshot
     res_snap = client.get("/api/snapshot")
     assert res_snap.status_code == 200
     snap = res_snap.json()
-    assert snap.get("version") == "0.1.2"
-    assert (snap.get("metrics") or {}).get("version") == "0.1.2"
+    assert snap.get("version") == __version__
+    assert (snap.get("metrics") or {}).get("version") == __version__
 
 
 # ── P0-5: Settings View & System Paths Tests ──

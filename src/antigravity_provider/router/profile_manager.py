@@ -15,7 +15,7 @@ import threading
 import time
 import urllib.request
 import urllib.error
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -114,6 +114,76 @@ class ProfileAuthManager:
         """Official API to get isolated directory for a profile."""
         return get_profile_dir(profile_id, provider)
 
+    # agy 2.0 (Antigravity CLI) читает вход НЕ из .gemini/oauth_creds.json —
+    # это формат Gemini CLI. Свой токен он держит в
+    # .gemini/antigravity-cli/antigravity-oauth-token, и структура там другая:
+    # обёртка {"auth_method": ..., "token": {...}}.
+    #
+    # Хаб писал только файл Gemini CLI, поэтому авторизация проходила успешно, а
+    # agy отвечал «Please sign in to view available models»: он смотрел в файл,
+    # которого нет. Установлено сравнением рабочего профиля с неработающим.
+    # Значение взято из рабочего профиля владельца, не выведено из общих
+    # соображений: agy пишет туда "consumer" для личного аккаунта Google.
+    ANTIGRAVITY_AUTH_METHOD = "consumer"
+
+    @classmethod
+    def _write_antigravity_cli_token(cls, profile_dir: Path, creds_dict: dict) -> Optional[Path]:
+        """Записать токен в формате Antigravity CLI рядом с файлом Gemini CLI."""
+        cli_dir = profile_dir / ".gemini" / "antigravity-cli"
+        target = cli_dir / "antigravity-oauth-token"
+        try:
+            cli_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                os.chmod(cli_dir, 0o700)
+            except OSError:
+                pass
+
+            # Способ входа сохраняем такой же, как у уже работающего профиля на
+            # этой машине: угадывать его значение нельзя, а рабочий образец
+            # рядом — самый надёжный источник.
+            auth_method = cls.ANTIGRAVITY_AUTH_METHOD
+            try:
+                for sibling in profile_dir.parent.iterdir():
+                    if sibling == profile_dir or not sibling.is_dir():
+                        continue
+                    ref = sibling / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+                    if ref.is_file():
+                        existing = json.loads(ref.read_text(encoding="utf-8"))
+                        if isinstance(existing, dict) and existing.get("auth_method"):
+                            auth_method = str(existing["auth_method"])
+                            break
+            except Exception:
+                pass
+
+            # Срок годности пишем в обоих видах. Gemini CLI (Node) ждёт
+            # expiry_date в миллисекундах, Go-шный oauth2.Token — expiry
+            # строкой RFC3339. Какой из них читает agy, по бинарнику не
+            # определить, а лишнее поле разбор JSON пропускает.
+            token_payload = dict(creds_dict)
+            try:
+                expiry_ms = int(creds_dict.get("expiry_date") or 0)
+                if expiry_ms > 0:
+                    token_payload["expiry"] = (
+                        datetime.fromtimestamp(expiry_ms / 1000, tz=timezone.utc)
+                        .isoformat()
+                        .replace("+00:00", "Z")
+                    )
+            except (TypeError, ValueError, OSError, OverflowError):
+                pass
+
+            payload = {"auth_method": auth_method, "token": token_payload}
+            temp = cli_dir / f"antigravity-oauth-token.tmp-{threading.get_ident()}-{time.time_ns()}"
+            temp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            os.replace(temp, target)
+            try:
+                os.chmod(target, 0o600)
+            except OSError:
+                pass
+            return target
+        except Exception as exc:
+            logger.error("Не записан токен Antigravity CLI в %s: %s", target, exc)
+            raise
+
     @classmethod
     def write_agy_oauth_creds(cls, profile_dir: Path, auth_data: dict) -> Path:
         """Atomically write <profile_dir>/.gemini/oauth_creds.json in exact agy CLI format."""
@@ -187,6 +257,8 @@ class ProfileAuthManager:
             os.chmod(target_file, 0o600)
         except OSError:
             pass
+
+        cls._write_antigravity_cli_token(profile_dir, creds_dict)
         return target_file
 
     @staticmethod

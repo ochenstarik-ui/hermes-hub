@@ -255,6 +255,29 @@ class ProfileOAuthSession:
                 email = fetch_user_email(tokens["access_token"])
                 logger.info("OAuth account identity resolved (email_found=%s)", bool(email))
 
+                # Слот выбирается ДО входа, когда почта ещё неизвестна, поэтому
+                # повторный вход тем же аккаунтом занимал очередной свободный
+                # слот: у владельца один аккаунт расползся на ag-2, ag-3, ag-4.
+                # Узнав почту, возвращаем учётные данные в слот, который этот
+                # аккаунт уже занимает, вместо создания двойника.
+                if email:
+                    from antigravity_provider.router.auto_assigner import AutoAssigner
+
+                    try:
+                        existing = AutoAssigner.check_duplicate_identity(
+                            "antigravity", email, exclude_profile_id=self.profile_id
+                        )
+                    except Exception as exc:
+                        existing = None
+                        logger.warning("Проверка двойников не выполнена: %s", exc)
+                    if existing and existing != self.profile_id:
+                        logger.info(
+                            "Аккаунт уже занимает профиль %s — пишем туда, а не в %s",
+                            existing,
+                            self.profile_id,
+                        )
+                        self.profile_id = existing
+
                 # Format in standard gemini:antigravity shape
                 expires_at = tokens.get("expires_at") or (int(time.time()) + 3600)
                 auth_data = {
