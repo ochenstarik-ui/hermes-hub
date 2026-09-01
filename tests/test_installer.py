@@ -72,3 +72,50 @@ def test_silent_installer_fails_without_hermes(tmp_path):
 
     res = subprocess.run([str(SETUP_EXE), "/silent"], env=env, capture_output=True, text=True)
     assert res.returncode != 0, f"Expected failure for missing Hermes, got {res.returncode}"
+
+
+# ── Установка на Linux: sudo и защищённый системный Python ──
+#
+# Установка на сервере владельца упала так: запуск через sudo увёл всё в
+# /root/.hermes, венв Hermes там не нашёлся, установщик взял /usr/bin/python3,
+# а он в Ubuntu 24.04 помечен EXTERNALLY-MANAGED и отклоняет pip. Проверка
+# после установки честно упала на «No module named 'fastapi'».
+
+def _linux_installer_text() -> str:
+    root = Path(__file__).resolve().parent.parent
+    return (root / "installer" / "install-linux.sh").read_text(encoding="utf-8")
+
+
+def test_linux_installer_refuses_sudo():
+    text = _linux_installer_text()
+    assert "SUDO_USER" in text, "запуск через sudo обязан распознаваться"
+    assert "HERMES_ALLOW_ROOT" in text, "должен быть осознанный способ обойти отказ"
+    assert "exit 3" in text
+
+
+def test_linux_installer_creates_own_venv_when_system_python_is_managed():
+    text = _linux_installer_text()
+    assert "EXTERNALLY-MANAGED" in text, "PEP 668 должен распознаваться"
+    assert "-m venv" in text, "ответ на PEP 668 — собственное окружение"
+    # --break-system-packages ломает питон всей машины: имя флага не
+    # преувеличивает. Упоминание в пояснении допустимо, применение — нет,
+    # поэтому смотрим только на исполняемые строки.
+    code_lines = [
+        line for line in text.splitlines() if not line.lstrip().startswith("#")
+    ]
+    assert not any("--break-system-packages" in line for line in code_lines)
+
+
+def test_linux_installer_fails_loudly_on_missing_deps():
+    """Раньше pip падал, а установка продолжалась — до отказа на проверке."""
+    text = _linux_installer_text()
+    assert "exit 12" in text and "exit 13" in text
+    assert "|| true" not in text.split("Installing required packages")[1][:400]
+
+
+def test_linux_launcher_knows_about_installer_venv():
+    root = Path(__file__).resolve().parent.parent
+    launcher = (root / "launcher" / "hermes-hub-web.sh").read_text(encoding="utf-8")
+    assert '$HERMES_HOME/venv/bin/python3' in launcher, (
+        "иначе запуск уйдёт на системный python, где зависимостей нет"
+    )

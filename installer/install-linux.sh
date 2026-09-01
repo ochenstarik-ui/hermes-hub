@@ -11,6 +11,27 @@ HUB_VERSION="0.1.3"
 DEFAULT_HERMES_HOME="$HOME/.hermes"
 HERMES_HOME="${HERMES_HOME:-$DEFAULT_HERMES_HOME}"
 
+# Установка пользовательская: всё ложится в $HOME/.hermes и $HOME/.local/bin,
+# службы не ставятся, root не нужен. Под sudo домашним каталогом становится
+# /root, венв Hermes там не находится, установщик сваливается на системный
+# python — а он в Ubuntu 24.04 закрыт для pip (PEP 668). В итоге установка
+# уходит в /root/.hermes, где владелец её не видит, и падает на проверке.
+# Молча ставить не туда нельзя, поэтому отказываемся сразу и по делу.
+if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ] && [ -z "${HERMES_ALLOW_ROOT:-}" ]; then
+    echo "❌ Установщик запущен через sudo." >&2
+    echo "" >&2
+    echo "   Hermes Hub ставится в домашний каталог пользователя, а под sudo" >&2
+    echo "   это /root — туда, где ни аккаунты, ни Hermes Agent не лежат." >&2
+    echo "" >&2
+    # $0 здесь — распакованная копия во временном каталоге, называть её
+    # владельцу бессмысленно: этого файла через минуту не будет.
+    echo "   Запустите тот же установщик от своего имени, без sudo." >&2
+    echo "" >&2
+    echo "   Если установка в /root действительно нужна, задайте" >&2
+    echo "   HERMES_ALLOW_ROOT=1." >&2
+    exit 3
+fi
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -84,6 +105,8 @@ if [ -f "$HERMES_HOME/hermes-agent/venv/bin/python3" ]; then
     PYTHON_BIN="$HERMES_HOME/hermes-agent/venv/bin/python3"
 elif [ -f "$HERMES_HOME/hermes-agent/venv/bin/python" ]; then
     PYTHON_BIN="$HERMES_HOME/hermes-agent/venv/bin/python"
+elif [ -x "$HERMES_HOME/venv/bin/python3" ]; then
+    PYTHON_BIN="$HERMES_HOME/venv/bin/python3"
 elif command -v python3 >/dev/null 2>&1; then
     PYTHON_BIN="$(command -v python3)"
 elif command -v python >/dev/null 2>&1; then
@@ -111,12 +134,48 @@ echo "[2/6] Verifying Python dependencies..."
 DEPS_OK=true
 "$PYTHON_BIN" -c "import fastapi, uvicorn, pydantic, psutil, yaml; print('DEPS_OK')" >/dev/null 2>&1 || DEPS_OK=false
 
+HUB_DEPS="fastapi uvicorn pydantic psutil pyyaml"
+
 if [ "$DEPS_OK" != "true" ]; then
-    echo "      Installing required packages (fastapi, uvicorn, pydantic, psutil, pyyaml)..."
-    "$PYTHON_BIN" -m pip install --no-warn-script-location -q fastapi uvicorn pydantic psutil pyyaml || {
-        echo "⚠️ Warning: pip install returned non-zero code. Trying with --user..."
-        "$PYTHON_BIN" -m pip install --user --no-warn-script-location -q fastapi uvicorn pydantic psutil pyyaml || true
-    }
+    # Системный python в Debian и Ubuntu помечен как externally-managed
+    # (PEP 668) и отклоняет pip install — и обычный, и с --user. Обходить это
+    # через --break-system-packages нельзя: имя флага не преувеличивает, так
+    # ломают питон всей машины. Правильный ответ — собственный venv.
+    NEED_VENV=false
+    if [ -f "/usr/lib/python$PY_VER/EXTERNALLY-MANAGED" ] || [ -f "/usr/lib/python3/EXTERNALLY-MANAGED" ]; then
+        case "$PYTHON_BIN" in
+            */venv/bin/*) : ;;
+            *) NEED_VENV=true ;;
+        esac
+    fi
+
+    if [ "$NEED_VENV" = "true" ]; then
+        echo "      Системный Python защищён от изменений (PEP 668)."
+        echo "      Создаю отдельное окружение: $HERMES_HOME/venv"
+        if ! "$PYTHON_BIN" -m venv "$HERMES_HOME/venv" 2>/dev/null; then
+            echo "❌ Не удалось создать виртуальное окружение." >&2
+            echo "   Установите пакет python3-venv:" >&2
+            echo "       sudo apt install python3-venv" >&2
+            exit 11
+        fi
+        PYTHON_BIN="$HERMES_HOME/venv/bin/python3"
+        echo "      Using Python: $PYTHON_BIN"
+    fi
+
+    echo "      Installing required packages ($HUB_DEPS)..."
+    # shellcheck disable=SC2086
+    if ! "$PYTHON_BIN" -m pip install --no-warn-script-location -q $HUB_DEPS; then
+        echo "❌ Не удалось установить зависимости через $PYTHON_BIN." >&2
+        echo "   Установка прервана: без них хаб не запустится." >&2
+        exit 12
+    fi
+fi
+
+# Проверяем результат, а не код возврата pip: установка «прошла», а модуля нет —
+# именно так предыдущая сборка дошла до проверки и упала на ней.
+if ! "$PYTHON_BIN" -c "import fastapi, uvicorn, pydantic, psutil, yaml" >/dev/null 2>&1; then
+    echo "❌ Зависимости не импортируются даже после установки ($PYTHON_BIN)." >&2
+    exit 13
 fi
 
 # 3. Mirror Plugin Files to ~/.hermes/plugins/antigravity-provider (with cleanup of stale files)
