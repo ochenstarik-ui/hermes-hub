@@ -381,12 +381,24 @@ def check_profile_native_auth_status(profile_id: str) -> tuple[bool, str | None,
             if jwt_email and "@" in jwt_email:
                 email = jwt_email
 
+    # Токен доступа Google (ya29....) — не JWT, разбирать его как JWT
+    # бессмысленно. Почту по нему отдаёт UserInfo, и этим же путём её узнаёт
+    # браузерный вход. Без почты не срабатывает проверка двойников, и один
+    # аккаунт снова расползётся по слотам — ровно та беда, которую чинили.
+    #
+    # Спрашиваем провайдера, только если в самом профиле почты не нашлось:
+    # у свежего слота нет ни google_accounts.json, ни auth.json, а файл
+    # antigravity-oauth-token (505 байт у владельца) id_token не содержит.
     if not email and access_token:
-        from antigravity_provider.router.profile_manager import ProfileAuthManager
+        try:
+            from antigravity_provider.oauth import fetch_user_email
 
-        jwt_email, _ = ProfileAuthManager.extract_jwt_identity(str(access_token))
-        if jwt_email and "@" in jwt_email:
-            email = jwt_email
+            remote_email = fetch_user_email(str(access_token))
+            if remote_email and "@" in remote_email:
+                email = remote_email.strip()
+        except Exception as exc:
+            # Отказ сети не должен ронять вход: аккаунт подключён, почта — Н/Д.
+            logger.info("Почту через UserInfo установить не удалось: %s", exc)
 
     auth_data = {
         "auth_method": auth_method,
