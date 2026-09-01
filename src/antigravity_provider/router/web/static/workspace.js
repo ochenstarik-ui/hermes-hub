@@ -229,12 +229,30 @@ function arrangeSettingsPanels() {
     ['Общие настройки',['setting-default-role','setting-theme']],
     ['Управление квотами',['setting-account-check-interval','setting-quota-interval','setting-quota-threshold-percent','setting-quota-threshold-action']],
     ['Безопасность и API',['setting-server-host','setting-server-token-input','setting-email-masking-mode']],
+    ['Сеть и доступ',['setting-provider-proxy-url']],
   ];
   for (const [title,ids] of groups) {
     const card = document.createElement('section'); card.className='settings-card';
     const heading=document.createElement('h2'); heading.className='settings-group-title'; heading.textContent=title; card.append(heading);
-    for (const id of ids) card.append(document.getElementById(id).closest('.setting-row'));
+    for (const id of ids) {
+      const row = document.getElementById(id)?.closest('.setting-row');
+      if (row) card.append(row);
+    }
     if (title === 'Управление квотами') card.append(document.getElementById('btn-save-hub-settings').closest('.settings-actions'));
+    view.insertBefore(card, first);
+  }
+
+  // Строки, которых нет ни в одной группе, раньше удалялись вместе с исходной
+  // карточкой: новая настройка просто пропадала с экрана, и найти её было
+  // нельзя. Так исчезло поле прокси. Теперь остаток не выбрасывается, а
+  // собирается отдельной карточкой — забыть настройку в списке всё ещё можно,
+  // но потерять её уже нет.
+  const leftovers = Array.from(first.querySelectorAll('.setting-row'));
+  if (leftovers.length) {
+    const card = document.createElement('section'); card.className='settings-card';
+    const heading=document.createElement('h2'); heading.className='settings-group-title';
+    heading.textContent='Прочие настройки'; card.append(heading);
+    for (const row of leftovers) card.append(row);
     view.insertBefore(card, first);
   }
   first.remove();
