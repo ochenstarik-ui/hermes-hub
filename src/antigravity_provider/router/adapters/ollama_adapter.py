@@ -15,6 +15,7 @@ from .local_adapter import LocalLLMAdapter
 logger = logging.getLogger("hermes.router.adapter.ollama")
 
 DEFAULT_OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+CLOUD_OLLAMA_BASE_URL = "https://ollama.com"
 DEFAULT_OLLAMA_MODELS = ["llama3:latest"]
 
 
@@ -25,11 +26,34 @@ class OllamaAdapter(LocalLLMAdapter):
     and native Ollama endpoints (/api/tags).
     """
 
+    def _stored_base_url(self, profile: RouterProfileConfig) -> str:
+        """Адрес из хранилища учётных данных, если владелец его задавал."""
+        try:
+            from antigravity_provider.router.profile_manager import ProfileAuthManager
+
+            stored = ProfileAuthManager.load_profile_auth(profile.provider, profile.profile_id) or {}
+            return str(stored.get("base_url") or "").strip()
+        except Exception:
+            return ""
+
     def _resolve_base_url(self, profile: RouterProfileConfig) -> str:
-        """Resolve base_url from profile custom_base_url, auth_config, or environment."""
-        url = (
+        """Адрес сервера: локальный либо облачный.
+
+        У аккаунта Ollama Cloud локального сервера нет вовсе — только ключ.
+        Раньше адаптер всегда шёл на 127.0.0.1:11434, получал «Connection
+        refused» и объявлял облачный аккаунт неработающим, хотя каталог из
+        девятнадцати моделей у него получался.
+        """
+        explicit = (
             profile.custom_base_url
             or profile.auth_config.get("base_url")
+            or self._stored_base_url(profile)
+        )
+        if not explicit and self._resolve_api_key(profile):
+            return CLOUD_OLLAMA_BASE_URL
+
+        url = (
+            explicit
             or os.environ.get("OLLAMA_BASE_URL")
             or os.environ.get("OLLAMA_HOST")
             or DEFAULT_OLLAMA_BASE_URL
@@ -44,6 +68,18 @@ class OllamaAdapter(LocalLLMAdapter):
         key = profile.auth_config.get("api_key") or profile.auth_config.get("token")
         if key:
             return str(key).strip()
+
+        # Ключ, введённый в мастере, лежит в хранилище учётных данных, а не в
+        # auth_config из router_profiles.yaml.
+        try:
+            from antigravity_provider.router.profile_manager import ProfileAuthManager
+
+            stored = ProfileAuthManager.load_profile_auth(profile.provider, profile.profile_id) or {}
+            key = stored.get("api_key") or stored.get("token")
+            if key:
+                return str(key).strip()
+        except Exception:
+            pass
 
         suffix = profile.profile_id.upper().replace("-", "_")
         for candidate in (f"OLLAMA_API_KEY_{suffix}", "OLLAMA_API_KEY", "OLLAMA_TOKEN"):

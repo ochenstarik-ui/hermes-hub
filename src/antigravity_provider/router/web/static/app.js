@@ -570,15 +570,32 @@ async function executeAction(actionName, actionData = {}) {
 }
 
 // ── GLOBAL HEADER ──
+// Версия между сборками не меняется намеренно, а коммит — строка из
+// шестнадцатеричных цифр. Дата установки отвечает на вопрос «старая сборка
+// загрузилась или новая» сразу и без сверки коммитов.
+function versionTagText(curVer) {
+  const installedAt = currentSettings && currentSettings.installed_at;
+  let stamp = '';
+  if (installedAt) {
+    const d = new Date(installedAt);
+    if (!isNaN(d.getTime())) {
+      stamp = ' · ' + d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    }
+  }
+  return curVer ? `Hermes Hub Web v${curVer}${stamp}` : 'Hermes Hub Web — Н/Д: версия не передана сервером';
+}
+
 function updateGlobalHeader() {
   if (!currentSnapshot) return;
 
   const readiness = currentSnapshot.readiness || {};
   renderAccountSummary(currentSnapshot);
   const allProfiles = Object.values(currentSnapshot.all_profiles || {});
-  const connectedAccounts = readiness.accounts_connected_count ?? allProfiles.filter(
-    (p) => isConnectedProfile(p)
-  ).length;
+  // Одно число — одно определение. Готовность считает строго AUTHENTICATED,
+  // а страница аккаунтов — всё, что не NOT_CONFIGURED. Из-за двух определений
+  // значок в меню показывал 9, а карточка на той же странице — 3.
+  // Берём то же правило, что и страница аккаунтов: расходиться они не должны.
+  const connectedAccounts = allProfiles.filter((p) => isConnectedProfile(p)).length;
 
   if (elements.navAccountsCount) elements.navAccountsCount.textContent = connectedAccounts;
 
@@ -629,7 +646,7 @@ function updateGlobalHeader() {
   const curVer = (currentSnapshot && (currentSnapshot.version || (currentSnapshot.metrics || {}).version)) || (currentSettings && currentSettings.version) || '';
   const versionTag = document.getElementById('version-tag');
   if (versionTag) {
-    versionTag.textContent = curVer ? `Hermes Hub Web v${curVer}` : 'Hermes Hub Web — Н/Д: версия не передана сервером';
+    versionTag.textContent = versionTagText(curVer);
   }
 }
 
@@ -878,7 +895,21 @@ function renderAccountCheck(profile) {
     <details ${models.length <= 16 ? 'open' : ''}><summary>Каталог моделей (${models.length})</summary><div class="account-models">${models.map(modelBrandLabel).join('')}</div></details>
     ${profile.provider === 'ollama' ? `<p>Выше — модели указанного сервера Ollama.</p><p>Облачный каталог Ollama: ${meta.cloud?.error ? 'Н/Д — ' + escapeHtml(meta.cloud.error) : meta.cloud?.models ? escapeHtml(meta.cloud.models.join(', ')) : 'Н/Д — ещё не получен'}</p><p>Доступ аккаунта к облачным моделям: Н/Д до успешного вызова. Для прямого вызова нужен API-ключ Ollama; для локального клиента — вход через ollama signin.</p>` : ''}
     <button class="btn btn-ghost btn-sm" ${checking ? 'disabled' : ''} onclick="event.stopPropagation(); handleAccountProbe('${escapeHtml(profile.profile_id)}')">${checking ? 'Проверяется…' : 'Проверить подключение'}</button>
+    ${['nvidia', 'nvidia-nim', 'openrouter'].includes(String(profile.provider || '').toLowerCase())
+      ? `<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation(); handleProbeAccountModels('${escapeHtml(profile.profile_id)}', '${escapeHtml(profile.provider)}')" title="Каталог провайдера общий для всех и о правах аккаунта не сообщает. Доступность выясняется опросом моделей и расходует вызовы.">Определить доступные модели</button>`
+      : ''}
   </div>`;
+}
+
+// Каталог NVIDIA и OpenRouter публичный: он одинаков у всех и о правах
+// аккаунта ничего не говорит. Доступность выясняется опросом моделей, а он
+// тратит вызовы — поэтому только по явному нажатию, и результат сохраняется.
+async function handleProbeAccountModels(profileId, provider) {
+  if (!confirm('Хаб опросит каталог провайдера, чтобы выяснить, какие модели доступны этому аккаунту. Каталог общий для всех и о правах не сообщает, поэтому каждая модель проверяется отдельным запросом. Недоступная отвечает отказом и ничего не стоит, доступная расходует один токен. Продолжить?')) return;
+  showToast('Опрос моделей начат. Это может занять около минуты.', 'info');
+  const res = await executeAction('probe_account_models', { profile_id: profileId, provider: provider });
+  showToast(res?.message || 'Нет ответа от сервера', res?.ok ? 'success' : 'error');
+  await fetchSnapshot();
 }
 
 async function handleAccountProbe(profileId) {
@@ -2434,7 +2465,7 @@ function renderUpdateUI() {
   }
   const versionTag = document.getElementById('version-tag');
   if (versionTag) {
-    versionTag.textContent = curVer ? `Hermes Hub Web v${curVer}` : 'Hermes Hub Web — Н/Д: версия не передана сервером';
+    versionTag.textContent = versionTagText(curVer);
   }
 
   if (statusBadge) {
@@ -3163,7 +3194,15 @@ async function proceedToWizardStep3(providerId) {
   if (tokenInput || baseInput) {
     const feedback = document.getElementById('modal-feedback-area');
     if (feedback) feedback.textContent = 'Проверка подключения и запрос моделей…';
-    const result = await executeAction('validate_connection', {provider: providerId, token: window._wiz_token || '', base_url: window._wiz_base_url || ''});
+    // Ключ читаем из поля прямо сейчас, а не из глобальной переменной:
+    // она переживает предыдущие попытки подключения и может оказаться пустой
+    // или чужой. Провайдер тогда отвечает «Missing Authentication header» при
+    // заполненном поле, и владелец не понимает, в чём дело.
+    const liveToken = (tokenInput && tokenInput.value.trim()) || window._wiz_token || '';
+    const liveBase = (baseInput && baseInput.value.trim()) || window._wiz_base_url || '';
+    window._wiz_token = liveToken;
+    window._wiz_base_url = liveBase;
+    const result = await executeAction('validate_connection', {provider: providerId, token: liveToken, base_url: liveBase});
     if (!result?.ok) {
       if (feedback) feedback.textContent = result?.message || 'Нет ответа от сервера';
       return;
@@ -3250,7 +3289,10 @@ async function finishAddAccount(providerId) {
 
   const feedbackArea = document.getElementById('modal-feedback-area');
   if (feedbackArea) {
-    feedbackArea.innerHTML = `<div class="modal-feedback info">⏳ ${escapeHtml(providerId)}: сохранение аккаунта и запуск проверки. Опрос провайдера может занять до минуты на этап.</div>`;
+    // Обещать «до минуты на этап» было неправдой: проверка Antigravity через
+    // CLI занимала до четырёх минут, и мастер выглядел зависшим. Теперь
+    // действие возвращается сразу, а проверка идёт в фоне.
+    feedbackArea.innerHTML = `<div class="modal-feedback info">⏳ ${escapeHtml(providerId)}: сохраняем аккаунт…</div>`;
   }
 
   const payload = {

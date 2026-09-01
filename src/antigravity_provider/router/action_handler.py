@@ -708,6 +708,50 @@ class ActionExecutor:
                 return {'ok': False, 'message': reason, 'data': {'status': status}}
             return {'ok': True, 'message': 'Ожидание подтверждения', 'data': {'status': status}}
 
+        if action == 'probe_account_models':
+            # Определение доступных аккаунту моделей. Запускается только по
+            # явному действию владельца: каталог NVIDIA публичный и о правах
+            # аккаунта ничего не сообщает, поэтому доступность выясняется
+            # опросом, а он тратит вызовы и упирается в ограничения частоты.
+            from .model_entitlements import probe_account_models, load_entitlements
+            from .model_discovery_service import ModelDiscoveryService
+
+            pid = data.get('profile_id') or ''
+            prov_norm = (prov or data.get('provider') or '').strip().lower()
+            if not pid or not prov_norm:
+                return {'ok': False, 'message': 'Не указан профиль или провайдер'}
+
+            if data.get('cached_only'):
+                cached = load_entitlements(prov_norm, pid)
+                if not cached:
+                    return {'ok': True, 'message': 'Н/Д: доступность моделей ещё не определялась', 'data': {}}
+                return {'ok': True, 'message': 'Сохранённый результат', 'data': cached}
+
+            auth = ProfileAuthManager.load_profile_auth(prov_norm, pid) or {}
+            token = (auth.get('api_key') or auth.get('token') or '').strip()
+            if not token:
+                return {'ok': False, 'message': f'У профиля {pid} нет сохранённого API-ключа'}
+
+            pcfg = load_router_config().get_profile(pid)
+            base_url = (getattr(pcfg, 'custom_base_url', None) or auth.get('base_url') or '').strip()
+            if not base_url:
+                base_url = 'https://integrate.api.nvidia.com/v1' if prov_norm.startswith('nvidia') else ''
+            if not base_url:
+                return {'ok': False, 'message': f'Не известен адрес провайдера для {pid}'}
+
+            models = ModelDiscoveryService.get().get_models(prov_norm) or []
+            if not models:
+                return {'ok': False, 'message': 'Каталог моделей ещё не получен — сначала запросите список'}
+
+            res = probe_account_models(prov_norm, pid, token, base_url, models)
+            d = res.to_dict()
+            msg = (
+                f"Доступно {len(res.available)} из {d['total']}; "
+                f"не выдано {len(res.unavailable)}; "
+                f"не определено {len(res.undetermined)}"
+            )
+            return {'ok': True, 'message': msg, 'data': d}
+
         if action == 'validate_connection':
             from .connection_preflight import validate_connection
             return validate_connection(prov, data.get('token') or data.get('api_key') or '', data.get('base_url') or '', data.get('preferred_model') or '')
@@ -857,7 +901,27 @@ class ActionExecutor:
                 if validation:
                     AccountProbeService.get().record_validation(prov_norm, slot, validation)
                     return {'ok': True, 'message': validation['message'], 'data': {'profile_id': slot, 'models': validation['data']['models']}}
-                result = AccountProbeService.get().check_now(prov_norm, slot)
+                # Проверку у провайдера не ждём в самом действии. Для
+                # Antigravity она идёт через CLI и в худшем случае занимает до
+                # 90 с на захват замка, до 65 на каталог моделей и до 90 на
+                # пробный вызов — около четырёх минут молчания при обещанной
+                # «минуте на этап». Владелец видит это как зависший мастер.
+                #
+                # Провайдеры с ключом сюда не попадают: их подключение уже
+                # проверено предварительной проверкой выше и возвращается
+                # сразу, как того требует A54.
+                probe = AccountProbeService.get()
+                started = probe.schedule(prov_norm, slot, force=True)
+                if started or probe.state(slot).get('state') == 'checking':
+                    return {
+                        'ok': True,
+                        'message': 'Аккаунт подключён. Проверка у провайдера идёт в фоне, '
+                                   'результат появится в карточке.',
+                        'data': {'profile_id': slot, 'check': 'running'},
+                    }
+                # Фоновая служба не работает — проверяем здесь, иначе результата
+                # не будет вовсе. Ручная проверка обязана работать и без неё.
+                result = probe.check_now(prov_norm, slot)
                 result.setdefault('data', {})['profile_id'] = slot
                 return result
             except Exception as e:

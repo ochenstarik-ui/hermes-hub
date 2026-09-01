@@ -46,12 +46,32 @@ def _find_agy_exe() -> str:
     if env and Path(env).is_file():
         return env
 
-    # 2. Standard location based on hermes home parent
+    # 2. Стандартные места установки.
+    #
+    # Раньше проверялась только раскладка Windows (%LOCALAPPDATA%/agy/bin), а в
+    # Linux agy ставится в ~/.local/bin. Хаб запускается с урезанным окружением,
+    # где этого каталога в PATH нет, и вход в Antigravity падал с «agy executable
+    # not found» при установленной и работающей утилите.
     from antigravity_provider.paths import get_hermes_home
+
     exe_name = "agy.exe" if os.name == "nt" else "agy"
-    candidate = get_hermes_home().parent / "agy" / "bin" / exe_name
-    if candidate.is_file():
-        return str(candidate)
+    candidates = [
+        get_hermes_home().parent / "agy" / "bin" / exe_name,
+        Path.home() / ".local" / "bin" / exe_name,
+        Path("/usr/local/bin") / exe_name,
+        Path("/usr/bin") / exe_name,
+        Path("/snap/bin") / exe_name,
+    ]
+    checked = []
+    for candidate in candidates:
+        checked.append(str(candidate))
+        try:
+            if candidate.is_file():
+                return str(candidate)
+        except OSError as exc:
+            # Каталог может быть закрыт правами: это «не смогли проверить»,
+            # а не «файла нет».
+            checked[-1] = f"{candidate} (нет доступа: {exc.strerror or exc})"
 
     # 3. PATH
     found = shutil.which("agy") or shutil.which("agy.exe")
@@ -59,8 +79,9 @@ def _find_agy_exe() -> str:
         return found
 
     raise FileNotFoundError(
-        "agy executable not found.  Set the AGY_EXE_PATH environment "
-        "variable, install agy, or ensure it is on PATH."
+        "Утилита agy не найдена. Проверено: "
+        + "; ".join(checked)
+        + "; и PATH процесса. Задайте путь переменной AGY_EXE_PATH либо установите agy."
     )
 
 
@@ -207,7 +228,18 @@ def discover_models(profile_id: str | None = None) -> dict[str, str]:
         raw = result.stdout.strip()
         if not raw or result.returncode != 0:
             if profile_id:
-                raise RuntimeError(f"agy models: код {result.returncode}; каталог не получен")
+                # Прежнее сообщение «код 1; каталог не получен» скрывало причину.
+                # agy пишет её в stderr, и без неё непонятно главное: он
+                # запускается с HOME, подменённым на каталог профиля (ради
+                # изоляции учётных данных между аккаунтами). Если вход
+                # выполнялся обычным agy в оболочке, ключи легли в настоящий
+                # домашний каталог, и профиль пуст — отсюда отказ.
+                detail = (result.stderr or "").strip() or (result.stdout or "").strip()
+                detail = detail.splitlines()[-1][:300] if detail else "вывод пуст"
+                raise RuntimeError(
+                    f"agy models: код {result.returncode}. Ответ agy: {detail}. "
+                    f"Запуск с HOME={env.get('HOME') or env.get('USERPROFILE') or 'не задан'}"
+                )
             return dict(_AGY_MODEL_CACHE or {})
     except Exception:
         if profile_id:
@@ -724,6 +756,31 @@ def agy_generate(
         "--disable-slash-commands",
         "--print-timeout", f"{timeout}s",
     ]
+    # Каталог agy отдаёт идентификаторы с уровнем усилия: gemini-3.7-flash-high,
+    # -medium, -low. В профиле же хранится голое имя, и вызов уходил с пустым
+    # --effort: agy отвечал «gemini-3.7-flash requires --effort (available: low,
+    # medium, high)» и работа не начиналась.
+    if agy_model and not agy_effort:
+        base, _, tail = str(agy_model).rpartition("-")
+        if base and tail in ("low", "medium", "high"):
+            # Уровень зашит в самом имени — отделяем его.
+            agy_model, agy_effort = base, tail
+        else:
+            known = _AGY_EFFORT_MAP.get(agy_model) or set()
+            if known:
+                # Берём средний уровень, если он есть: он и по названию средний,
+                # и по расходу квоты. Иначе — любой доступный, по порядку.
+                for candidate in ("medium", "high", "low"):
+                    if candidate in known:
+                        agy_effort = candidate
+                        break
+                if not agy_effort:
+                    agy_effort = sorted(known)[0]
+                logger.info(
+                    "agy_generate: у модели %s не задан уровень усилия, выбран %s из %s",
+                    agy_model, agy_effort, sorted(known),
+                )
+
     if agy_model:
         cmd.extend(["--model", agy_model])
     if agy_effort:

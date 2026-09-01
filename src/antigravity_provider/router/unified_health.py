@@ -543,7 +543,25 @@ class UnifiedHealthService:
                     if check.get("state") == "checking":
                         health_state, health_lbl = "checking", "Проверяется…"
                     elif check.get("state") == "failed":
-                        health_state, health_lbl = STATUS_UNHEALTHY, "Проверен: не работает — " + check.get("message", "Причина Н/Д")
+                        # Вердикт проверки и каталог моделей обновляются
+                        # независимо, и в карточке владельца они оказались
+                        # рядом: «не работает — Please sign in» и тут же
+                        # «Получено 11 моделей» с более поздним временем.
+                        # Утверждать отказ, когда каталог получен ПОЗЖЕ него,
+                        # нельзя: провайдер с тех пор ответил. Но и объявлять
+                        # аккаунт рабочим не за что — проверка после этого не
+                        # выполнялась. Честный ответ — что вердикт устарел.
+                        checked_at = check.get("checked_at") or 0
+                        catalog_at = model_meta.get("discovered_at") or 0
+                        if not model_meta.get("error") and catalog_at > checked_at:
+                            when = datetime.datetime.fromtimestamp(catalog_at).strftime("%H:%M:%S")
+                            health_state = STATUS_NOT_TESTED
+                            health_lbl = (
+                                f"Проверка устарела: каталог моделей получен позже ({when}). "
+                                "Нажмите «Проверить подключение»."
+                            )
+                        else:
+                            health_state, health_lbl = STATUS_UNHEALTHY, "Проверен: не работает — " + check.get("message", "Причина Н/Д")
                     elif check.get("state") == "working" and health_state in (STATUS_NOT_TESTED, STATUS_HEALTHY):
                         health_state, health_lbl = STATUS_HEALTHY, "Проверен: работает"
                 assigned = role_assignments.get(pid, [])

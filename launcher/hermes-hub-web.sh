@@ -16,6 +16,11 @@ if [ -f "$HERMES_HOME/hermes-agent/venv/bin/python3" ]; then
     PYTHON_BIN="$HERMES_HOME/hermes-agent/venv/bin/python3"
 elif [ -f "$HERMES_HOME/hermes-agent/venv/bin/python" ]; then
     PYTHON_BIN="$HERMES_HOME/hermes-agent/venv/bin/python"
+elif [ -x "$HERMES_HOME/venv/bin/python3" ]; then
+    # Окружение, созданное установщиком, когда системный python закрыт
+    # правилом PEP 668. Без этой ветки запуск уходил бы на /usr/bin/python3,
+    # где зависимостей нет и быть не может.
+    PYTHON_BIN="$HERMES_HOME/venv/bin/python3"
 elif command -v python3 >/dev/null 2>&1; then
     PYTHON_BIN="$(command -v python3)"
 elif command -v python >/dev/null 2>&1; then

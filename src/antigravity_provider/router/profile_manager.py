@@ -15,7 +15,7 @@ import threading
 import time
 import urllib.request
 import urllib.error
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -114,6 +114,76 @@ class ProfileAuthManager:
         """Official API to get isolated directory for a profile."""
         return get_profile_dir(profile_id, provider)
 
+    # agy 2.0 (Antigravity CLI) читает вход НЕ из .gemini/oauth_creds.json —
+    # это формат Gemini CLI. Свой токен он держит в
+    # .gemini/antigravity-cli/antigravity-oauth-token, и структура там другая:
+    # обёртка {"auth_method": ..., "token": {...}}.
+    #
+    # Хаб писал только файл Gemini CLI, поэтому авторизация проходила успешно, а
+    # agy отвечал «Please sign in to view available models»: он смотрел в файл,
+    # которого нет. Установлено сравнением рабочего профиля с неработающим.
+    # Значение взято из рабочего профиля владельца, не выведено из общих
+    # соображений: agy пишет туда "consumer" для личного аккаунта Google.
+    ANTIGRAVITY_AUTH_METHOD = "consumer"
+
+    @classmethod
+    def _write_antigravity_cli_token(cls, profile_dir: Path, creds_dict: dict) -> Optional[Path]:
+        """Записать токен в формате Antigravity CLI рядом с файлом Gemini CLI."""
+        cli_dir = profile_dir / ".gemini" / "antigravity-cli"
+        target = cli_dir / "antigravity-oauth-token"
+        try:
+            cli_dir.mkdir(parents=True, exist_ok=True)
+            try:
+                os.chmod(cli_dir, 0o700)
+            except OSError:
+                pass
+
+            # Способ входа сохраняем такой же, как у уже работающего профиля на
+            # этой машине: угадывать его значение нельзя, а рабочий образец
+            # рядом — самый надёжный источник.
+            auth_method = cls.ANTIGRAVITY_AUTH_METHOD
+            try:
+                for sibling in profile_dir.parent.iterdir():
+                    if sibling == profile_dir or not sibling.is_dir():
+                        continue
+                    ref = sibling / ".gemini" / "antigravity-cli" / "antigravity-oauth-token"
+                    if ref.is_file():
+                        existing = json.loads(ref.read_text(encoding="utf-8"))
+                        if isinstance(existing, dict) and existing.get("auth_method"):
+                            auth_method = str(existing["auth_method"])
+                            break
+            except Exception:
+                pass
+
+            # Срок годности пишем в обоих видах. Gemini CLI (Node) ждёт
+            # expiry_date в миллисекундах, Go-шный oauth2.Token — expiry
+            # строкой RFC3339. Какой из них читает agy, по бинарнику не
+            # определить, а лишнее поле разбор JSON пропускает.
+            token_payload = dict(creds_dict)
+            try:
+                expiry_ms = int(creds_dict.get("expiry_date") or 0)
+                if expiry_ms > 0:
+                    token_payload["expiry"] = (
+                        datetime.fromtimestamp(expiry_ms / 1000, tz=timezone.utc)
+                        .isoformat()
+                        .replace("+00:00", "Z")
+                    )
+            except (TypeError, ValueError, OSError, OverflowError):
+                pass
+
+            payload = {"auth_method": auth_method, "token": token_payload}
+            temp = cli_dir / f"antigravity-oauth-token.tmp-{threading.get_ident()}-{time.time_ns()}"
+            temp.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+            os.replace(temp, target)
+            try:
+                os.chmod(target, 0o600)
+            except OSError:
+                pass
+            return target
+        except Exception as exc:
+            logger.error("Не записан токен Antigravity CLI в %s: %s", target, exc)
+            raise
+
     @classmethod
     def write_agy_oauth_creds(cls, profile_dir: Path, auth_data: dict) -> Path:
         """Atomically write <profile_dir>/.gemini/oauth_creds.json in exact agy CLI format."""
@@ -123,6 +193,14 @@ class ProfileAuthManager:
 
         access_token = token_info.get("access_token") or auth_data.get("access_token") or ""
         refresh_token = token_info.get("refresh_token") or auth_data.get("refresh_token") or ""
+        # Файл без токена доступа бесполезен: agy на нём отвечает «Please sign in
+        # to view available models», а хаб считает аккаунт подключённым. Пустой
+        # вход не должен выдаваться за успешный.
+        if not access_token and not refresh_token:
+            raise ValueError(
+                "Вход не завершён: провайдер не вернул токен доступа. "
+                "Учётные данные agy не записаны."
+            )
         scope = token_info.get("scope") or auth_data.get("scope") or ""
         token_type = token_info.get("token_type") or auth_data.get("token_type") or "Bearer"
         id_token = token_info.get("id_token") or auth_data.get("id_token") or ""
@@ -179,6 +257,8 @@ class ProfileAuthManager:
             os.chmod(target_file, 0o600)
         except OSError:
             pass
+
+        cls._write_antigravity_cli_token(profile_dir, creds_dict)
         return target_file
 
     @staticmethod
@@ -314,7 +394,16 @@ class ProfileAuthManager:
             try:
                 cls.write_agy_oauth_creds(pdir, auth_data)
             except Exception as e:
-                logger.warning("Failed to write .gemini/oauth_creds.json for profile=%s: %s", profile_id, e)
+                # Прежде сбой оставался только в журнале, и владелец видел
+                # «подключено» при неработающем аккаунте. agy читает именно
+                # этот файл, поэтому без него подключения нет.
+                logger.error(
+                    "Не записаны учётные данные agy для профиля %s: %s", profile_id, e
+                )
+                raise RuntimeError(
+                    f"Учётные данные для agy не записаны ({e}). "
+                    f"Аккаунт {profile_id} подключённым не считается."
+                ) from e
 
         # For Local and OpenAI-compatible providers, synchronize custom_base_url in router_profiles.yaml
         if provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm", "openrouter", "nvidia", "nvidia-nim"):

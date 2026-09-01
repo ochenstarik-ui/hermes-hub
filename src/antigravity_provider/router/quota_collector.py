@@ -918,6 +918,31 @@ class AccountQuotaService:
     def _generate_baseline_snapshot(self, provider: str, profile_id: str) -> QuotaSnapshot:
         """Truthful offline baseline with provider-specific independent limit pools."""
         now = _utc_now()
+        # У облачного аккаунта Ollama лимиты есть, и объявлять их
+        # отсутствующими нельзя. Локальный сервер узнаётся по отсутствию
+        # ключа: облачный доступ без ключа невозможен.
+        if provider == "ollama":
+            try:
+                from .profile_manager import ProfileAuthManager
+
+                auth = ProfileAuthManager.load_profile_auth(provider, profile_id) or {}
+                is_cloud = bool((auth.get("api_key") or auth.get("token") or "").strip())
+            except Exception:
+                is_cloud = False
+            if is_cloud:
+                return QuotaSnapshot(
+                    account_id=profile_id,
+                    provider=provider,
+                    buckets=[],
+                    fetched_at=now,
+                    source="cloud_provider",
+                    unavailable_reason=(
+                        "Н/Д: лимиты облачного аккаунта Ollama не измерены — "
+                        "провайдер не сообщает их через API"
+                    ),
+                    is_loading=False,
+                )
+
         if provider in ("local", "local-llm", "llama.cpp", "ollama", "vllm"):
             b_unlimited = QuotaBucket(
                 id="local.unlimited",
