@@ -952,7 +952,21 @@ class ActionExecutor:
 
             ok, msg, res_data = poll_native_agy_login(session_id)
             if ok and res_data.get('status') == 'completed':
-                _rescan_after_auth('antigravity', res_data.get('profile_id'))
+                slot = res_data.get('profile_id')
+                # Вход через терминал завершается своим путём и мимо add_account.
+                # Учётные данные при этом на диске, профиль числится
+                # подключённым — но записи о нём в конфигурации маршрутизатора
+                # нет, а список аккаунтов строится по ней. Владелец входил
+                # успешно и видел пустой экран.
+                if slot:
+                    def_ok, def_msg = AutoAssigner.ensure_profile_definition('antigravity', slot)
+                    if not def_ok:
+                        return {
+                            'ok': False,
+                            'message': f'Вход выполнен, но аккаунт не зарегистрирован: {def_msg}',
+                            'data': res_data,
+                        }
+                _rescan_after_auth('antigravity', slot)
             return {'ok': ok, 'message': msg, 'data': res_data}
 
         if action in ('cancel_native_auth', 'cancel_native_agy_login', 'cancel_terminal_auth'):
