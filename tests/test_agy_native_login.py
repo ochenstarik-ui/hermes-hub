@@ -116,7 +116,7 @@ def test_check_profile_native_auth_status(tmp_path, monkeypatch):
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
 
     slot = "ag-w3"
-    pdir = get_profile_dir(slot, "antigravity")
+    pdir = get_profile_dir(slot, "antigravity", create=True)
     gemini_dir = pdir / ".gemini"
     gemini_dir.mkdir(parents=True, exist_ok=True)
 
@@ -169,7 +169,7 @@ def test_multi_account_sequential_slot_progression(tmp_path, monkeypatch):
 
     # Connect first slot
     AutoAssigner.ensure_profile_definition("antigravity", first_slot)
-    pdir = get_profile_dir(first_slot, "antigravity")
+    pdir = get_profile_dir(first_slot, "antigravity", create=True)
     (pdir / "auth.json").write_text(json.dumps({"auth_method": "oauth", "email": "user1@gmail.com"}))
 
     # Next free slot
@@ -178,7 +178,7 @@ def test_multi_account_sequential_slot_progression(tmp_path, monkeypatch):
 
     # Connect second slot
     AutoAssigner.ensure_profile_definition("antigravity", second_slot)
-    pdir2 = get_profile_dir(second_slot, "antigravity")
+    pdir2 = get_profile_dir(second_slot, "antigravity", create=True)
     (pdir2 / "auth.json").write_text(json.dumps({"auth_method": "oauth", "email": "user2@gmail.com"}))
 
     # Next free slot

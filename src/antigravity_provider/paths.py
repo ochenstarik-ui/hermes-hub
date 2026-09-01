@@ -111,9 +111,21 @@ def get_compatibility_path() -> Path:
     return get_config_dir() / "compatibility.json"
 
 
-def get_profile_dir(profile_id: str, provider: Optional[str] = None) -> Path:
-    """Return isolated storage directory for a profile.
-    
+def get_profile_dir(
+    profile_id: str, provider: Optional[str] = None, create: bool = False
+) -> Path:
+    """Вернуть каталог профиля. По умолчанию НИЧЕГО не создаёт.
+
+    Раньше эта функция создавала каталог при каждом обращении. В коде зашит
+    список «стандартных» слотов — ag-orch-primary, ag-orch-fallback, ag-1..ag-20,
+    ag-w1..ag-w10, — и любой обход этого списка материализовал их на диске. У
+    владельца накопилось 25 каталогов, из которых он заводил единицы: остальные
+    появились сами, просто потому что кто-то спросил путь.
+
+    Спрашивать, где профиль жил бы, и создавать его — разные действия. Создание
+    теперь запрашивается явно через create=True: так делают те, кто
+    действительно заводит профиль.
+
     Accepts both (profile_id) and (provider, profile_id) or (profile_id, provider) gracefully.
     """
     # If first argument looks like a provider or swapped, resolve cleanly
@@ -151,7 +163,8 @@ def get_profile_dir(profile_id: str, provider: Optional[str] = None) -> Path:
             folder_prefix = f"{prov_lower}_profiles"
 
     d = get_hermes_home() / folder_prefix / p_id
-    d.mkdir(parents=True, exist_ok=True)
+    if create:
+        d.mkdir(parents=True, exist_ok=True)
     return d
 
 

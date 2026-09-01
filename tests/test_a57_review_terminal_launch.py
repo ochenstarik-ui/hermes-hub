@@ -138,3 +138,30 @@ def test_immediate_exit_is_reported_as_failure(linux, monkeypatch, tmp_path):
     assert ok is False
     assert "окно не открылось" in msg
     assert data.get("exit_code") == 1
+
+
+# ── Пустые слоты появлялись сами ──
+
+def test_asking_for_a_path_creates_nothing(tmp_path, monkeypatch):
+    """У владельца накопилось 25 каталогов профилей при единицах заведённых.
+
+    Причина: get_profile_dir создавал каталог при каждом обращении, а в коде
+    зашит список «стандартных» слотов — ag-orch-primary, ag-orch-fallback,
+    ag-1..ag-20, ag-w1..ag-w10. Любой обход этого списка материализовал их все.
+    Спросить, где профиль жил бы, и завести его — разные действия.
+    """
+    from antigravity_provider import paths
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path))
+    root = tmp_path / "agy_profiles"
+
+    for pid in ("ag-orch-primary", "ag-w7", "ag-19", "ag-cold-3"):
+        paths.get_profile_dir(pid, "antigravity")
+
+    assert not root.exists() or not any(root.iterdir()), (
+        "запрос пути не должен оставлять каталоги на диске"
+    )
+
+    created = paths.get_profile_dir("ag-1", "antigravity", create=True)
+    assert created.is_dir()
+    assert sorted(p.name for p in root.iterdir()) == ["ag-1"]

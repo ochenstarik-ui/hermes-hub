@@ -238,10 +238,23 @@ class TestRouterEngineFailover:
 class TestAntigravityIsolation:
     """Test environment isolation for Antigravity profiles."""
 
-    def test_profile_env_dir_creation(self):
+    def test_profile_env_dir_is_isolated_and_not_created_on_lookup(self):
+        """Запрос пути не должен создавать каталог.
+
+        Прежде создавал, и любой обход списка стандартных слотов
+        (ag-orch-primary, ag-1..ag-20, ag-w1..ag-w10) материализовал их все:
+        у владельца накопилось 25 каталогов при единицах заведённых вручную.
+        """
         pdir = get_profile_env_dir("ag-w1")
-        assert pdir.exists()
         assert "ag-w1" in str(pdir)
+        assert "agy_profiles" in str(pdir)
+        assert not pdir.exists(), "спросили путь — каталог появиться не должен"
+
+        from antigravity_provider.paths import get_profile_dir
+
+        created = get_profile_dir("ag-w1", "antigravity", create=True)
+        assert created.exists()
+        assert created == pdir
 
 
 class TestRouterCLI:

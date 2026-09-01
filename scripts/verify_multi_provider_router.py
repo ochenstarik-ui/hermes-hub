@@ -138,10 +138,14 @@ def run_checks() -> int:
 
     # 7. Antigravity profile isolation
     print("7. Checking Antigravity profile environment directory isolation...")
+    # Проверяем изоляцию пути, а не побочное создание каталога: запрос пути
+    # каталогов больше не плодит, иначе любая проверка засоряла бы диск
+    # десятком пустых слотов.
     pdir = get_profile_env_dir("ag-w2")
-    assert pdir.exists()
     assert "ag-w2" in str(pdir)
-    print(f"   [PASS] Profile directory isolated at {pdir}")
+    assert "agy_profiles" in str(pdir)
+    assert not pdir.exists(), "запрос пути не должен создавать каталог"
+    print(f"   [PASS] Profile directory isolated at {pdir} (не создан)")
     passed += 1
 
     # 8. Error classification
