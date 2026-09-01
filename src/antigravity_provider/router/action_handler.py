@@ -900,7 +900,27 @@ class ActionExecutor:
                 if validation:
                     AccountProbeService.get().record_validation(prov_norm, slot, validation)
                     return {'ok': True, 'message': validation['message'], 'data': {'profile_id': slot, 'models': validation['data']['models']}}
-                result = AccountProbeService.get().check_now(prov_norm, slot)
+                # Проверку у провайдера не ждём в самом действии. Для
+                # Antigravity она идёт через CLI и в худшем случае занимает до
+                # 90 с на захват замка, до 65 на каталог моделей и до 90 на
+                # пробный вызов — около четырёх минут молчания при обещанной
+                # «минуте на этап». Владелец видит это как зависший мастер.
+                #
+                # Провайдеры с ключом сюда не попадают: их подключение уже
+                # проверено предварительной проверкой выше и возвращается
+                # сразу, как того требует A54.
+                probe = AccountProbeService.get()
+                started = probe.schedule(prov_norm, slot, force=True)
+                if started or probe.state(slot).get('state') == 'checking':
+                    return {
+                        'ok': True,
+                        'message': 'Аккаунт подключён. Проверка у провайдера идёт в фоне, '
+                                   'результат появится в карточке.',
+                        'data': {'profile_id': slot, 'check': 'running'},
+                    }
+                # Фоновая служба не работает — проверяем здесь, иначе результата
+                # не будет вовсе. Ручная проверка обязана работать и без неё.
+                result = probe.check_now(prov_norm, slot)
                 result.setdefault('data', {})['profile_id'] = slot
                 return result
             except Exception as e:

@@ -3251,7 +3251,10 @@ async function finishAddAccount(providerId) {
 
   const feedbackArea = document.getElementById('modal-feedback-area');
   if (feedbackArea) {
-    feedbackArea.innerHTML = `<div class="modal-feedback info">⏳ ${escapeHtml(providerId)}: сохранение аккаунта и запуск проверки. Опрос провайдера может занять до минуты на этап.</div>`;
+    // Обещать «до минуты на этап» было неправдой: проверка Antigravity через
+    // CLI занимала до четырёх минут, и мастер выглядел зависшим. Теперь
+    // действие возвращается сразу, а проверка идёт в фоне.
+    feedbackArea.innerHTML = `<div class="modal-feedback info">⏳ ${escapeHtml(providerId)}: сохраняем аккаунт…</div>`;
   }
 
   const payload = {
