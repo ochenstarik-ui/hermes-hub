@@ -72,15 +72,27 @@ def test_seq_token_prevents_stale_refresh_clobber():
     seq_fresh = store.next_seq()
     snap_fresh = store.refresh(force_scan=False, seq=seq_fresh)
     gen_fresh = snap_fresh.generation
+    skipped_before = store.refresh_skipped_total
 
     # Simulate a delayed/stale response from an earlier seq counter
     seq_stale = seq_fresh - 1
     snap_after_stale = store.refresh(force_scan=False, seq=seq_stale)
 
-    # Stale response must be rejected, retaining the fresh generation
-    assert snap_after_stale.generation == gen_fresh
+    # Устаревший ответ должен быть отброшен.
+    #
+    # Проверяется именно отбрасывание, а не равенство поколений. HubStateStore —
+    # процессный синглтон, и фоновый сборщик квот, оставшийся от другого теста,
+    # успевает поднять generation между двумя вызовами. Прежнее
+    # `generation == gen_fresh` падало на этом с «assert 32 == 31» — примерно раз
+    # на десяток прогонов, только при случайном порядке тестов. Инвариант же
+    # другой: устаревший ответ отбрасывается, состояние назад не откатывается.
+    assert store.refresh_skipped_total == skipped_before + 1, (
+        "устаревший ответ должен быть отброшен ровно один раз"
+    )
+    assert snap_after_stale.generation >= gen_fresh, (
+        "состояние откатилось назад: устаревший ответ затёр более свежее"
+    )
     assert snap_after_stale.seq != seq_stale
-    assert store.refresh_skipped_total >= 1
 
 
 @pytest.mark.unit
