@@ -23,8 +23,13 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from antigravity_provider.console_encoding import force_utf8_output
 from antigravity_provider.version import __version__, get_version
 from antigravity_provider import paths
+
+# Отчёт ворот печатается по-русски, а консоль Windows-раннера — cp1252.
+# Ставится до первого вывода: иначе падает вывод, а не проверки.
+force_utf8_output()
 
 
 def check_version_consistency() -> tuple[bool, str]:
