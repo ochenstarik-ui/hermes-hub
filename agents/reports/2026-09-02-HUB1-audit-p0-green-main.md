@@ -6,10 +6,10 @@
 |---|---|
 | Ветка | `hub/audit-p0-green-main` |
 | `START_HEAD` | `93da1b22fd2e0385f46b71a1e220fa1e4e716545` |
-| `FINAL_HEAD` | `9c25a64df8cefa91e03df3224dbec085f6391b96` |
+| `FINAL_HEAD` | `1982342f42283a6c2be91ceed8d8aa2f6e8a2ace` |
 | `origin/main` на момент сдачи | `93da1b2` (не двигался) |
 | PR | https://github.com/ochenstarik-ui/hermes-hub/pull/2 |
-| Зелёный прогон CI | https://github.com/ochenstarik-ui/hermes-hub/actions/runs/33670116994 |
+| Зелёный прогон CI на `FINAL_HEAD` | https://github.com/ochenstarik-ui/hermes-hub/actions/runs/33670815897 |
 | `git status` | чисто (вне репозитория лежит посторонний `gyoza_shorts.mp4`, не мой и не тронут) |
 
 ### Зелёный CI — все четыре джоба
