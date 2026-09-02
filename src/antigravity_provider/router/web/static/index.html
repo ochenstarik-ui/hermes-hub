@@ -665,6 +665,43 @@
             <div id="compression-details-box" style="font-size:12px; color:var(--text-muted); margin-top:8px; font-family:var(--font-mono); white-space:pre-wrap;"></div>
           </div>
 
+          <!-- Antigravity CLI & Eligibility Settings (A58) -->
+          <div class="settings-card" style="margin-top:16px;" id="settings-agy-card">
+            <div class="section-card-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+              <div>
+                <h2 class="settings-group-title" style="margin:0;">Параметры Antigravity CLI</h2>
+                <div class="setting-desc">Версия утилиты, путь к исполняемому файлу и состояние проверки доступности Google</div>
+              </div>
+              <span id="agy-eligibility-badge" class="badge">Проверка...</span>
+            </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <div class="setting-label">Версия и исполняемый файл agy</div>
+                <div class="setting-desc" id="agy-version-path-desc">Н/Д: определение...</div>
+              </div>
+              <div class="setting-control" style="display:flex; gap:8px;">
+                <button class="btn btn-secondary btn-sm" id="btn-refresh-agy-eligibility">↻ Проверить состояние</button>
+                <button class="btn btn-primary btn-sm" id="btn-run-agy-update" title="Обновление agy перезаписывает исполняемый файл и возвращает проверку доступности: сначала выполните обновление, затем повторно примените патч.">⬆ Обновить agy (agy update)</button>
+              </div>
+            </div>
+            <div class="setting-row" style="background:var(--surface-muted); padding:10px 12px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); margin-top:8px;">
+              <div class="setting-desc" style="font-size:12px; color:var(--text-secondary); margin:0;">
+                ℹ️ <strong>Порядок действий:</strong> <em>Обновление agy перезаписывает исполняемый файл и возвращает проверку доступности: сначала выполните обновление, затем повторно примените патч.</em>
+              </div>
+            </div>
+            <div class="setting-row" style="margin-top:12px;">
+              <div class="setting-info">
+                <label class="setting-label" for="setting-agy-patch-script-path">Путь к сценарию патча владельца</label>
+                <div class="setting-desc">Собственный скрипт владельца для снятия проверки доступности (P0-4). Оставьте пустым, если не используется.</div>
+              </div>
+              <div class="setting-control" style="display:flex; gap:8px; width:55%;">
+                <input type="text" id="setting-agy-patch-script-path" class="input-text" style="flex:1;" placeholder="Н/Д: сценарий не указан">
+                <button class="btn btn-secondary btn-sm" id="btn-run-agy-patch-script">⚡ Запустить сценарий патча</button>
+              </div>
+            </div>
+            <div id="agy-eligibility-details" style="font-size:12px; color:var(--text-muted); margin-top:8px; font-family:var(--font-mono);"></div>
+          </div>
+
           <!-- Hub Updates -->
           <div class="settings-card" style="margin-top:16px;" id="settings-updates-card">
             <h2 class="settings-group-title">Обновление Hermes Hub</h2>

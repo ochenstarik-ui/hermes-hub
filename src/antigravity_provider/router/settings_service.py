@@ -43,6 +43,9 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     # in your location». Задаётся адресом вида socks5://127.0.0.1:1080 или
     # http://127.0.0.1:8080; пустое значение означает «без прокси».
     "provider_proxy_url": "",
+    # Путь к пользовательскому сценарию патча проверки доступности agy (A58).
+    # Пустое значение означает «сценарий не указан».
+    "agy_patch_script_path": "",
 }
 
 
@@ -186,6 +189,7 @@ def get_hub_settings() -> Dict[str, Any]:
         merged["compression_keep_recent_messages"] = 3
 
     merged["compression_enabled"] = bool(merged.get("compression_enabled", True))
+    merged["agy_patch_script_path"] = str(merged.get("agy_patch_script_path") or "").strip()
 
     _SETTINGS_CACHE = dict(merged)
     _SETTINGS_CACHE_MTIME = current_mtime
