@@ -556,3 +556,59 @@ def test_p0_2_app_js_handles_refused_cancel():
     assert "setInterval(pollUpdateProgress" in tail, (
         "после отклонённой отмены опрос хода загрузки должен возобновляться"
     )
+
+
+# ── HUB-1: распаковка обновления не выпускает записи за пределы каталога ──
+
+
+@pytest.mark.unit
+def test_update_package_cannot_write_outside_target(tmp_path):
+    """Ни одна запись архива не должна оказаться вне каталога установки.
+
+    Измерено на CPython: extractall сам отбрасывает "..", ведущие разделители
+    и буквы дисков, а запись-ссылку кладёт обычным файлом — побега добиться не
+    удалось, вопреки формулировке аудита. Но это свойство реализации, а не
+    обещание формата, и распаковка идёт в корень установки. Тест закрепляет
+    границу как собственный инвариант.
+    """
+    import stat as _stat
+    import zipfile as _zipfile
+    from antigravity_provider.updater.update_manager import _extract_within
+
+    dest = tmp_path / "dest"
+    dest.mkdir()
+    outside = tmp_path / "outside.txt"
+
+    hostile = [
+        ("выход через ..", "../outside.txt"),
+        ("абсолютный путь", "/etc/passwd"),
+        ("путь с буквой диска", "C:/Windows/x.txt"),
+    ]
+    for index, (label, arcname) in enumerate(hostile):
+        archive = tmp_path / f"hostile_{index}.zip"
+        with _zipfile.ZipFile(archive, "w") as zf:
+            zf.writestr(arcname, "побег")
+        with _zipfile.ZipFile(archive) as zf:
+            with pytest.raises(ValueError):
+                _extract_within(zf, dest)
+        assert not outside.exists(), f"{label}: запись оказалась вне каталога установки"
+
+    # Символическая ссылка — тоже отказ, а не молчаливая распаковка файлом.
+    link_zip = tmp_path / "link.zip"
+    with _zipfile.ZipFile(link_zip, "w") as zf:
+        info = _zipfile.ZipInfo("link")
+        info.external_attr = (_stat.S_IFLNK | 0o777) << 16
+        zf.writestr(info, "/etc/passwd")
+    with _zipfile.ZipFile(link_zip) as zf:
+        with pytest.raises(ValueError):
+            _extract_within(zf, dest)
+
+    # Обычный пакет распаковывается как прежде.
+    good = tmp_path / "good.zip"
+    with _zipfile.ZipFile(good, "w") as zf:
+        zf.writestr("src/module.py", "x = 1\n")
+        zf.writestr("assets/logo.txt", "logo")
+    with _zipfile.ZipFile(good) as zf:
+        _extract_within(zf, dest)
+    assert (dest / "src" / "module.py").read_text(encoding="utf-8") == "x = 1\n"
+    assert (dest / "assets" / "logo.txt").is_file()

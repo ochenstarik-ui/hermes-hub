@@ -19,6 +19,7 @@ import logging
 import os
 import re
 import shutil
+import zipfile
 import subprocess
 import sys
 import threading
@@ -349,6 +350,43 @@ def acknowledge_last_applied_update() -> None:
             p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     except Exception as exc:
         logger.debug("Failed acknowledging last_applied_update: %s", exc)
+
+
+def _extract_within(zf: "zipfile.ZipFile", dest: Path) -> None:
+    """Распаковать архив, не выпуская ни одной записи за пределы dest.
+
+    Отклоняются: абсолютные пути, выход через "..", символические ссылки и
+    любые записи, не являющиеся обычным файлом или каталогом.
+    """
+    import stat as _stat
+
+    root = dest.resolve()
+    for info in zf.infolist():
+        # Биты типа файла проставлены не всегда: архиватор мог записать только
+        # права доступа. Судим лишь тогда, когда тип действительно указан, —
+        # иначе обычный файл с правами 0o600 выглядел бы записью чужого типа.
+        file_type = _stat.S_IFMT(info.external_attr >> 16)
+        if file_type and file_type not in (_stat.S_IFREG, _stat.S_IFDIR):
+            raise ValueError(
+                f"Пакет обновления содержит запись недопустимого типа: {info.filename!r}"
+            )
+
+        name = info.filename.replace("\\", "/")
+        if name.startswith("/") or re.match(r"^[A-Za-z]:", name):
+            raise ValueError(f"Пакет обновления содержит абсолютный путь: {info.filename!r}")
+
+        target = (root / name).resolve()
+        if target != root and root not in target.parents:
+            raise ValueError(
+                f"Пакет обновления пытается записать за пределы каталога установки: {info.filename!r}"
+            )
+
+        if info.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with zf.open(info, "r") as source, open(target, "wb") as out:
+            shutil.copyfileobj(source, out)
 
 
 def stop_running_hub(timeout_sec: float = 10.0) -> bool:
@@ -1212,8 +1250,6 @@ class UpdateManager:
 
     def apply_update_sync(self, package_zip: Path, target_dir: Optional[Path] = None) -> Tuple[bool, str]:
         """Apply update package with automatic backup and rollback on failure."""
-        import zipfile
-
         dest = target_dir or paths.get_repo_root()
         backup = self.backup_dir
         backup.mkdir(parents=True, exist_ok=True)
@@ -1229,8 +1265,15 @@ class UpdateManager:
                     shutil.copytree(src_item, dst_item)
 
             # 2. Extract update package into dest
+            #
+            # Каждая запись проверяется до записи на диск. Измерено, что
+            # extractall в CPython уже отбрасывает "..", ведущие разделители и
+            # буквы дисков, а запись-ссылку кладёт обычным файлом: побега из
+            # каталога добиться не удалось. Но это свойство реализации, а не
+            # обещание формата — а распаковка идёт в корень установки. Проверка
+            # делает границу собственным инвариантом, который виден в тестах.
             with zipfile.ZipFile(package_zip, "r") as zf:
-                zf.extractall(dest)
+                _extract_within(zf, dest)
 
             # 3. Verify syntax and integrity of updated python files in src/
             import py_compile
