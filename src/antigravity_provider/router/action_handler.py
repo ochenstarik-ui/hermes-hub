@@ -1370,9 +1370,15 @@ class ActionExecutor:
             return {'ok': True, 'message': progress.get('message') or 'Ход обновления', 'data': progress}
 
         elif action == 'cancel_update':
+            # Отмена принимается не всегда: после начала установки отменять уже
+            # нечего. Отвечаем тем, что произошло на самом деле, иначе владелец
+            # видит «отменено» поверх продолжающейся установки.
             mgr = UpdateManager()
             progress = mgr.cancel_download()
-            return {'ok': True, 'message': 'Загрузка обновления отменена', 'data': progress}
+            if progress.get('cancel_accepted'):
+                return {'ok': True, 'message': 'Загрузка обновления отменена', 'data': progress}
+            reason = progress.get('cancel_refused_reason') or 'Отмена сейчас невозможна'
+            return {'ok': False, 'message': reason, 'data': progress}
 
         elif action == 'run_preflight':
             from antigravity_provider.router.preflight_service import PreflightCheckService

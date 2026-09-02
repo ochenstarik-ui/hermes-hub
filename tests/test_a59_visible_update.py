@@ -160,16 +160,63 @@ def test_p0_2_cancel_download_cleans_file_and_sets_cancelled_status(tmp_path, mo
     staging_file.parent.mkdir(parents=True, exist_ok=True)
     staging_file.write_bytes(b"Partial download data 12345")
 
+    # Отмена осмысленна только пока идёт загрузка — ставим это состояние явно,
+    # иначе тест проверял бы отмену того, чего не происходит.
+    UpdateManager._set_progress(
+        status="downloading",
+        filename="partial_download.zip",
+        downloaded_bytes=27,
+        message="Скачивание partial_download.zip...",
+    )
+
     # Trigger cancel
     cancel_res = UpdateManager.cancel_download()
     assert cancel_res["status"] == "cancelled"
+    assert cancel_res["cancel_accepted"] is True
     assert "отменена" in (cancel_res["message"] or "").lower()
     assert not staging_file.exists(), "Partially downloaded file in staging must be removed upon cancellation"
 
     # Also test ActionExecutor 'cancel_update'
+    UpdateManager._set_progress(status="downloading", filename="partial_download.zip")
     action_res = ActionExecutor.execute("cancel_update", {})
     assert action_res["ok"] is True
     assert action_res["data"]["status"] == "cancelled"
+
+
+# ── TEST 3b: отмена после начала установки отклоняется, а не врёт ──
+@pytest.mark.unit
+def test_p0_2_cancel_refused_after_install_started(tmp_path, monkeypatch):
+    """Отмена во время установки не трогает staging и честно сообщает отказ.
+
+    Действие cancel_update открыто в HTTP-API. Раньше вызов на этапе installing
+    чистил каталог staging вместе с исполняемым в этот момент установщиком и
+    отвечал «отменено», хотя установка продолжалась.
+    """
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HUB_DEV_MODE", "1")
+
+    mgr = UpdateManager()
+    installer = mgr.staging_dir / "hermes-hub-setup.sh"
+    installer.parent.mkdir(parents=True, exist_ok=True)
+    installer.write_bytes(b"#!/bin/bash\necho installing\n")
+
+    UpdateManager._set_progress(
+        status="installing",
+        filename="hermes-hub-setup.sh",
+        message="Установка пакета hermes-hub-setup.sh...",
+    )
+
+    res = UpdateManager.cancel_download()
+    assert res["cancel_accepted"] is False
+    assert res["status"] == "installing", "Статус не должен подменяться на cancelled"
+    assert "установка уже началась" in res["cancel_refused_reason"].lower()
+    assert installer.exists(), "Файл исполняемого установщика удалять нельзя"
+
+    action_res = ActionExecutor.execute("cancel_update", {})
+    assert action_res["ok"] is False
+    assert "отмена невозможна" in action_res["message"].lower()
+
+    UpdateManager._set_progress(status="idle", message="Готов к обновлению")
 
 
 # ── TEST 4: P0-2 SHA-256 Mismatch Rejection and Failure Status ──
@@ -313,3 +360,149 @@ def test_p0_5_silent_actions_and_no_interval_polling():
     assert res_prog["ok"] is True
     assert "data" in res_prog
     assert "status" in res_prog["data"]
+
+
+# ── TEST 9: P0-4 провалившаяся установка не выдаёт себя за успешную ──
+@pytest.mark.unit
+def test_p0_4_failed_install_records_nothing_and_names_exit_code(tmp_path, monkeypatch):
+    """Установщик упал — записи о применённом обновлении быть не должно.
+
+    record_last_applied_update вызывался ДО запуска установщика. При падении
+    запись оставалась на диске, и при следующем старте хаб писал в журнал
+    «успешно обновлён», а интерфейс показывал тост об успехе — владельцу
+    сообщали о версии, которая не установилась.
+
+    Заодно проверяется, что причина отказа не пустая: установщик может
+    завершиться, не сказав ни слова, и сообщение «Установка не удалась: »
+    не давало ни одного признака причины.
+    """
+    import hashlib
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HUB_DEV_MODE", "1")
+
+    installer = tmp_path / "hermes-hub-setup.sh"
+    installer.write_bytes(b"#!/bin/bash\nexit 3\n")
+    sha = hashlib.sha256(installer.read_bytes()).hexdigest()
+
+    check_result = UpdateCheckResult(
+        update_available=True,
+        current_version="0.1.3",
+        latest_version="0.1.4",
+        latest_commit="deadbeefdeadbeef",
+        installed_commit="0000000aaaa",
+        assets={
+            "hermes-hub-setup.sh": f"file://{installer}",
+            "checksums.txt": "file:///nonexistent",
+        },
+    )
+
+    mgr = UpdateManager()
+    real_download = UpdateManager._download_file
+
+    def fake_download(self, url, dest, progress_cb=None):
+        if dest.name == "checksums.txt":
+            dest.write_text(f"{sha}  hermes-hub-setup.sh\n", encoding="utf-8")
+            return
+        return real_download(self, url, dest, progress_cb)
+
+    with patch.object(UpdateManager, "_download_file", fake_download):
+        with patch("antigravity_provider.updater.update_manager.stop_running_hub", return_value=True):
+            ok, msg = mgr.install_latest_update(check_result=check_result)
+
+    assert ok is False
+    assert get_last_applied_update() is None, (
+        "После провалившейся установки записи о применённом обновлении быть не должно"
+    )
+    assert "код 3" in msg, f"Причина отказа должна называть код возврата, получено: {msg!r}"
+
+    prog = UpdateManager.get_progress_dict()
+    assert prog["status"] == "failed"
+
+    UpdateManager._set_progress(status="idle", message="Готов к обновлению")
+
+
+# ── TEST 10: P0-4 успешная установка запись всё-таки делает ──
+@pytest.mark.unit
+def test_p0_4_successful_install_records_previous_and_new_build(tmp_path, monkeypatch):
+    """Успех записывает и «было», и «стало», причём «было» снято до установки."""
+    import hashlib
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    monkeypatch.setenv("HERMES_HUB_DEV_MODE", "1")
+
+    installer = tmp_path / "hermes-hub-setup.sh"
+    installer.write_bytes(b"#!/bin/bash\nexit 0\n")
+    sha = hashlib.sha256(installer.read_bytes()).hexdigest()
+
+    check_result = UpdateCheckResult(
+        update_available=True,
+        current_version="0.1.3",
+        latest_version="0.1.4",
+        latest_commit="deadbeefdeadbeef",
+        installed_commit="0000000aaaa",
+        assets={
+            "hermes-hub-setup.sh": f"file://{installer}",
+            "checksums.txt": "file:///nonexistent",
+        },
+    )
+
+    mgr = UpdateManager()
+    real_download = UpdateManager._download_file
+
+    def fake_download(self, url, dest, progress_cb=None):
+        if dest.name == "checksums.txt":
+            dest.write_text(f"{sha}  hermes-hub-setup.sh\n", encoding="utf-8")
+            return
+        return real_download(self, url, dest, progress_cb)
+
+    with patch.object(UpdateManager, "_download_file", fake_download):
+        with patch("antigravity_provider.updater.update_manager.stop_running_hub", return_value=True):
+            with patch.object(UpdateManager, "schedule_restart", return_value=(True, "перезапуск запущен")):
+                ok, msg = mgr.install_latest_update(check_result=check_result)
+
+    assert ok is True
+    rec = get_last_applied_update()
+    assert rec is not None
+    assert rec["new_version"] == "0.1.4"
+    assert rec["new_commit"] == "deadbeefdeadbeef"
+    assert rec["prev_commit"] != rec["new_commit"], (
+        "«Было» снимается до установки, иначе прежняя сборка совпадёт с новой"
+    )
+    assert rec["acknowledged"] is False
+
+    UpdateManager._set_progress(status="idle", message="Готов к обновлению")
+
+
+# ── TEST 11: P0-2 полоса не изображает процент при неизвестном размере ──
+@pytest.mark.unit
+def test_p0_2_app_js_indeterminate_bar_when_size_unknown():
+    """При неизвестном размере полоса бежит, а не заполняется целиком.
+
+    Текст рядом был честным («Н/Д: сервер не сообщил размер»), а полоса при этом
+    рисовалась на всю ширину: `downloaded > 0 ? '100%' : '20%'`. Полная полоса
+    читается как «готово» — тот же выдуманный процент, только нарисованный.
+    """
+    src = APP_JS_PATH.read_text(encoding="utf-8")
+
+    assert "downloaded > 0 ? '100%' : '20%'" not in src, (
+        "Полоса не должна заполняться на всю ширину при неизвестном размере"
+    )
+    assert "Н/Д: сервер не сообщил размер" in src
+    assert "INDETERMINATE_ACTIVE_STATUSES" in src, "нужен список этапов с неопределённой полосой"
+    assert "@keyframes indeterminate-bar" in src, "нужна анимация бегущего отрезка"
+    assert "indeterminate-bar-style" in src, "стиль вставляется один раз по id"
+
+
+# ── TEST 12: P0-2 интерфейс не принимает отказ в отмене за отмену ──
+@pytest.mark.unit
+def test_p0_2_app_js_handles_refused_cancel():
+    """Отказ в отмене возвращает опрос хода, а не оставляет окно замершим."""
+    src = APP_JS_PATH.read_text(encoding="utf-8")
+
+    assert "cancel_accepted" in src, "app.js обязан различать принятую и отклонённую отмену"
+    idx = src.index("async function cancelUpdateProcess()")
+    tail = src[idx:idx + 1200]
+    assert "setInterval(pollUpdateProgress" in tail, (
+        "после отклонённой отмены опрос хода загрузки должен возобновляться"
+    )

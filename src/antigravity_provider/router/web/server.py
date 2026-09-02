@@ -264,7 +264,6 @@ def get_snapshot(authorized: bool = Depends(get_auth_token)):
         "config_dir": str(paths.get_config_dir()),
         "log_file": str(paths.get_log_file()),
     }
-    from antigravity_provider.updater.update_manager import get_last_applied_update
     snap_dict["last_applied_update"] = get_last_applied_update()
     return JSONResponse(content=jsonable_encoder(snap_dict))
 
@@ -680,7 +679,6 @@ def _background_refresh_loop() -> None:
 
     # Check if update was just applied and log event to EventLogService
     try:
-        from antigravity_provider.updater.update_manager import get_last_applied_update, acknowledge_last_applied_update
         from antigravity_provider.router.unified_health import EventLogService
         applied = get_last_applied_update()
         if applied and not applied.get("acknowledged"):

@@ -2506,6 +2506,14 @@ function renderUpdateUI() {
   const badgeText = document.getElementById('header-update-text');
   const commitTag = document.getElementById('commit-tag');
 
+  // Первым источником — снапшот работающего сервера: он приходит всегда, а
+  // панель обновлений заполняется только при её открытии. На Linux строка
+  // сборки поэтому оставалась пустой, и понять, дошло ли обновление, было
+  // нельзя.
+  //
+  // Берём running_commit — коммит, снятый при СТАРТЕ процесса. Поле commit
+  // читается с диска при каждом запросе, и переживший обновление процесс
+  // рапортует им свежий номер при старом поведении.
   const runningCommit = (currentSnapshot && currentSnapshot.running_commit) || '';
   const installedCommit = runningCommit
     || (latestUpdateInfo && latestUpdateInfo.installed_commit && latestUpdateInfo.installed_commit !== 'unknown'
@@ -2543,6 +2551,9 @@ function renderUpdateUI() {
   const releaseMeta = document.getElementById('update-release-meta');
   const releaseNotes = document.getElementById('update-release-notes');
 
+  // Версия берётся ТОЛЬКО из API. Раньше номер был зашит в разметке и в
+  // запасном значении: подъём версии в коде до интерфейса не доходил, и
+  // владелец видел старый номер при новой сборке.
   const curVer = (latestUpdateInfo && latestUpdateInfo.current_version) || (currentSettings && currentSettings.version) || '';
   const cDisplay = installedCommit ? installedCommit.slice(0, 7) : 'неизвестно';
   if (updateInfoDesc) {
@@ -2707,6 +2718,10 @@ async function pollUpdateProgress() {
   }
 }
 
+// Этапы, на которых процесс идёт и доля выполнения неизвестна: полосу
+// заменяем бегущим отрезком, а не заполняем целиком.
+const INDETERMINATE_ACTIVE_STATUSES = new Set(['checking', 'downloading', 'verifying', 'installing', 'restarting']);
+
 function renderUpdateProgressView(p) {
   if (!elements.modalBody) return;
 
@@ -2729,19 +2744,45 @@ function renderUpdateProgressView(p) {
     progressDetail = `${dlMb} МБ из ${totMb} МБ (${pctVal}%)`;
     barWidth = `${Math.min(100, Math.max(0, percent || (downloaded / total * 100)))}%`;
   } else {
-    // Honest: no content-length
+    // Размер неизвестен — доля не вычисляется. Полоса при этом не должна
+    // изображать процент: полная полоса читается как «готово». Активные этапы
+    // показываем бегущим отрезком, завершённые — сплошной полосой.
     progressDetail = `${dlMb} МБ скачано (Н/Д: сервер не сообщил размер)`;
     isIndeterminate = true;
-    barWidth = downloaded > 0 ? '100%' : '20%';
+    barWidth = '100%';
   }
 
   let statusBadge = `<span class="badge badge-status warning">Загрузка</span>`;
-  if (status === 'verifying') statusBadge = `<span class="badge badge-status warning">Проверка SHA-256</span>`;
+  if (status === 'checking') statusBadge = `<span class="badge badge-status warning">Проверка обновлений</span>`;
+  else if (status === 'verifying') statusBadge = `<span class="badge badge-status warning">Проверка SHA-256</span>`;
   else if (status === 'installing') statusBadge = `<span class="badge badge-status warning">Установка</span>`;
   else if (status === 'restarting') statusBadge = `<span class="badge badge-status healthy">Перезапуск</span>`;
   else if (status === 'completed') statusBadge = `<span class="badge badge-status healthy">Завершено</span>`;
   else if (status === 'failed') statusBadge = `<span class="badge badge-status danger">Ошибка</span>`;
   else if (status === 'cancelled') statusBadge = `<span class="badge badge-status">Отменено</span>`;
+
+  // Inject indeterminate animation style if not already present
+  if (isIndeterminate && !document.getElementById('indeterminate-bar-style')) {
+    const style = document.createElement('style');
+    style.id = 'indeterminate-bar-style';
+    style.textContent = `
+      @keyframes indeterminate-bar {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+      }
+      .indeterminate-bar {
+        position: absolute;
+        top: 0;
+        left: 0;
+        height: 100%;
+        width: 30%;
+        background: var(--accent);
+        animation: indeterminate-bar 1.5s ease-in-out infinite;
+        opacity: 0.8;
+      }
+    `;
+    document.head.appendChild(style);
+  }
 
   elements.modalBody.innerHTML = `
     <div class="update-progress-body" style="padding:4px 0;">
@@ -2755,7 +2796,11 @@ function renderUpdateProgressView(p) {
       <div style="margin-bottom:8px; font-size:12px; color:var(--text-muted);">${escapeHtml(msg)}</div>
 
       <div style="background:var(--surface-muted); border-radius:var(--radius-sm); overflow:hidden; height:12px; margin-bottom:8px; border:1px solid var(--border-subtle); position:relative;">
-        <div style="background:${status === 'failed' ? 'var(--status-danger)' : (status === 'cancelled' ? 'var(--text-muted)' : 'var(--accent)')}; height:100%; width:${barWidth}; transition:width 0.3s ease; ${isIndeterminate && status === 'downloading' ? 'opacity:0.8;' : ''}"></div>
+        ${isIndeterminate && INDETERMINATE_ACTIVE_STATUSES.has(status) ? `
+          <div class="indeterminate-bar"></div>
+        ` : `
+          <div style="background:${status === 'failed' ? 'var(--status-danger)' : (status === 'cancelled' ? 'var(--text-muted)' : 'var(--accent)')}; height:100%; width:${barWidth}; transition:width 0.3s ease;"></div>
+        `}
       </div>
 
       <div style="font-size:12px; color:var(--text-muted); font-family:var(--font-mono); margin-bottom:12px; display:flex; justify-content:space-between;">
@@ -2800,7 +2845,17 @@ function renderUpdateProgressView(p) {
 
 async function cancelUpdateProcess() {
   stopUpdateProgressPolling();
-  await executeAction('cancel_update', {});
+  const cancelRes = await executeAction('cancel_update', {});
+
+  // Отмену могли не принять: после начала установки отменять уже нечего.
+  // Тогда возвращаем опрос обратно, иначе окно замрёт на последнем кадре и
+  // владелец решит, что установка встала.
+  const accepted = cancelRes && cancelRes.data && cancelRes.data.cancel_accepted;
+  if (!accepted) {
+    showToast((cancelRes && cancelRes.message) || 'Отменять уже нечего: установка идёт', 'warning');
+    updateProgressInterval = setInterval(pollUpdateProgress, 500);
+  }
+
   const res = await executeAction('get_update_progress', {});
   if (res && res.ok && res.data) {
     renderUpdateProgressView(res.data);

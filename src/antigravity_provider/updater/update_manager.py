@@ -13,6 +13,7 @@ Features:
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import logging
 import os
@@ -433,28 +434,46 @@ def stop_running_hub(timeout_sec: float = 10.0) -> bool:
             return True
 
 
+# Почему отмена отклонена — своими словами для владельца, а не кодом состояния.
+_CANCEL_REFUSAL = {
+    "installing": "Отмена невозможна: установка уже началась",
+    "restarting": "Отмена невозможна: Hermes Hub уже перезапускается",
+    "completed": "Отменять нечего: обновление уже установлено",
+    "failed": "Отменять нечего: обновление уже завершилось ошибкой",
+    "cancelled": "Загрузка уже отменена",
+    "idle": "Отменять нечего: обновление не запускалось",
+}
+
+
 def _call_progress_cb(cb: Optional[Callable], downloaded: int, total: Optional[int]) -> None:
-    """Safely invoke progress callback supporting both 1-arg float and 2-arg (downloaded, total) signatures."""
+    """Вызвать обработчик хода загрузки, поддержав обе его формы.
+
+    Старая форма принимает одну долю (0..1), новая — (скачано, всего).
+
+    Доли при неизвестном общем размере не существует, и подставлять вместо неё
+    ноль нельзя: обработчик получал бы «0%» на каждом чанке всю загрузку.
+    Старую форму в этом случае просто не зовём — молчание честнее выдуманного
+    числа, а сам ход всё равно виден через _set_progress.
+    """
     if not cb:
         return
-    import inspect
+    known_total = bool(total and total > 0)
     try:
         sig = inspect.signature(cb)
-        if len(sig.parameters) == 1:
-            if total and total > 0:
-                cb(downloaded / total)
-            else:
-                cb(0.0)
-        else:
-            cb(downloaded, total)
-    except Exception:
-        try:
-            cb(downloaded, total)
-        except TypeError:
-            if total and total > 0:
-                cb(downloaded / total)
-            else:
-                cb(0.0)
+        single_arg = len(sig.parameters) == 1
+    except (TypeError, ValueError):
+        single_arg = False
+
+    if single_arg:
+        if known_total:
+            cb(downloaded / total)
+        return
+
+    try:
+        cb(downloaded, total)
+    except TypeError:
+        if known_total:
+            cb(downloaded / total)
 
 
 class UpdateManager:
@@ -507,7 +526,25 @@ class UpdateManager:
 
     @classmethod
     def cancel_download(cls) -> Dict[str, Any]:
-        """Cancel in-progress download, remove partially downloaded files, and set status to cancelled."""
+        """Отменить загрузку обновления и удалить недокачанные файлы.
+
+        Отмена допустима только пока идёт проверка или загрузка. Действие
+        `cancel_update` открыто в HTTP-API, и без этой проверки вызов во время
+        установки вычищал каталог staging вместе с файлом установщика, который
+        в этот момент исполняет bash: установка ломалась на середине, а ответ
+        «отменено» сообщал владельцу неправду о том, что происходит с машиной.
+        """
+        with cls._lock:
+            current_status = cls._progress.status
+            if current_status not in ("checking", "downloading"):
+                refused = cls._progress.to_dict()
+                refused["cancel_accepted"] = False
+                refused["cancel_refused_reason"] = _CANCEL_REFUSAL.get(
+                    current_status,
+                    f"Отмена невозможна на этапе «{current_status}»",
+                )
+                return refused
+
         cls._cancel_event.set()
         with cls._lock:
             cls._progress = UpdateProgress(
@@ -529,7 +566,9 @@ class UpdateManager:
                         f.unlink(missing_ok=True)
         except Exception as exc:
             logger.debug("Clean staging dir on cancel failed: %s", exc)
-        return cls.get_progress_dict()
+        accepted = cls.get_progress_dict()
+        accepted["cancel_accepted"] = True
+        return accepted
 
     @classmethod
     def cancel_update(cls) -> Dict[str, Any]:
@@ -996,6 +1035,10 @@ class UpdateManager:
         if not expected_sha and check_result.manifest and check_result.manifest.sha256:
             expected_sha = check_result.manifest.sha256.lower()
 
+        # Отсутствие суммы — не разрешение. Раньше при недоступном checksums.txt
+        # expected_sha оставался пустым, проверка молча пропускалась и скачанный
+        # файл всё равно запускался. Здесь запускается загруженный из сети
+        # исполняемый код, поэтому непроверенный файл не запускаем вовсе.
         if not expected_sha:
             dest_file.unlink(missing_ok=True)
             err = (
@@ -1028,12 +1071,6 @@ class UpdateManager:
         prev_c = get_installed_commit()
         new_v = check_result.latest_version
         new_c = check_result.latest_commit or ""
-        record_last_applied_update(
-            prev_version=prev_v,
-            prev_commit=prev_c,
-            new_version=new_v,
-            new_commit=new_c,
-        )
 
         # 6. Apply update based on file type
         self._set_progress(
@@ -1042,11 +1079,20 @@ class UpdateManager:
             message=f"Установка пакета {chosen_asset_name}...",
         )
 
+        def _record_success():
+            record_last_applied_update(
+                prev_version=prev_v,
+                prev_commit=prev_c,
+                new_version=new_v,
+                new_commit=new_c,
+            )
+
         if chosen_asset_name.endswith(".zip"):
             ok, msg = self.apply_update_sync(dest_file, target_dir=target_dir)
             if not ok:
                 self._set_progress(status="failed", filename=chosen_asset_name, error=msg, message=msg)
                 return False, msg
+            _record_success()
             self._set_progress(status="completed", filename=chosen_asset_name, message=msg)
             return True, "Обновление успешно установлено"
 
@@ -1067,6 +1113,7 @@ class UpdateManager:
                     err = f"Установщик завершился с кодом {rc}. Обновление не применено."
                     self._set_progress(status="failed", filename=chosen_asset_name, error=err, message=err)
                     return False, err
+                _record_success()
                 self._set_progress(status="restarting", filename=chosen_asset_name, message="Hermes Hub перезапускается...")
                 ok_r, msg_r = self.schedule_restart()
                 if not ok_r:
@@ -1082,15 +1129,25 @@ class UpdateManager:
         elif chosen_asset_name.endswith(".sh"):
             try:
                 os.chmod(dest_file, 0o755)
+                # Ждём завершения: без этого перезапуск начался бы прямо во
+                # время распаковки, а владелец получил бы обещание перезапуска
+                # при неизвестном исходе установки.
                 res_i = subprocess.run(
                     ["bash", str(dest_file)],
                     capture_output=True, text=True, timeout=600,
                 )
                 if res_i.returncode != 0:
+                    # Код возврата в сообщении обязателен: установщик может
+                    # завершиться, не сказав ни слова, и владелец получал
+                    # «Установка не удалась: » без единого признака причины.
                     tail = (res_i.stderr or res_i.stdout or "").strip().splitlines()[-3:]
-                    err = "Установка не удалась: " + " / ".join(tail)
+                    if tail:
+                        err = f"Установка не удалась (код {res_i.returncode}): " + " / ".join(tail)
+                    else:
+                        err = f"Установка не удалась (код {res_i.returncode}): установщик ничего не сообщил"
                     self._set_progress(status="failed", filename=chosen_asset_name, error=err, message=err)
                     return False, err
+                _record_success()
                 self._set_progress(status="restarting", filename=chosen_asset_name, message="Hermes Hub перезапускается...")
                 ok_r, msg_r = self.schedule_restart()
                 if not ok_r:
@@ -1107,7 +1164,17 @@ class UpdateManager:
         return True, "Файл обновления загружен и проверен"
 
     def schedule_restart(self, delay_sec: float = 3.0) -> Tuple[bool, str]:
-        """Перезапустить веб-хаб после установки обновления."""
+        """Перезапустить веб-хаб после установки обновления.
+
+        Ни install-linux.sh, ни виндовый установщик в тихом режиме приложение не
+        поднимают, а сообщение обещало перезапуск. Владелец оставался со старым
+        процессом, продолжавшим отдавать старый код, и делал вывод, что
+        обновление не сработало.
+
+        Порядок именно такой: сначала отсоединённый помощник, потом выход
+        текущего процесса. Лаунчер считает хаб работающим, если порт отвечает,
+        поэтому поднимать новый, не освободив порт, бесполезно.
+        """
         home = paths.get_hermes_home()
         if sys.platform == "win32":
             launcher = home / "HermesHubWeb.exe"
