@@ -18,6 +18,13 @@ for p in [
     if p.is_dir() and str(p) not in sys.path:
         sys.path.insert(0, str(p))
 
+from antigravity_provider.console_encoding import force_utf8_output
+
+# Отчёт печатается по-русски, а консоль Windows-раннера в CI — cp1252: без этого
+# первый же [PASS] с кириллицей роняет скрипт UnicodeEncodeError'ом ещё до того,
+# как проверки что-либо покажут. Ставится до первого вывода.
+force_utf8_output()
+
 from antigravity_provider.router.router_config import (
     RolePolicy,
     RouterConfig,

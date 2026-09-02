@@ -9,17 +9,16 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from antigravity_provider.console_encoding import force_utf8_output
 from antigravity_provider.router.router_config import RouterConfig, RouterProfileConfig, load_router_config
 from antigravity_provider.router.health_tracker import HealthTracker
 from antigravity_provider.router.router_engine import RouterEngine, get_router_engine
 from antigravity_provider.router.adapters import get_adapter
 from antigravity_provider.router.profile_manager import ProfileAuthManager, mask_email, mask_id
 
-if hasattr(sys.stdout, "reconfigure"):
-    try:
-        sys.stdout.reconfigure(encoding="utf-8")
-    except Exception:
-        pass
+# Вывод CLI — по-русски, консоль Windows по умолчанию не UTF-8. Общий помощник,
+# тот же, что и у скриптов проверки: одна реализация, одно поведение.
+force_utf8_output()
 
 
 def print_router_status() -> int:

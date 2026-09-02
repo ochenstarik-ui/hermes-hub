@@ -396,3 +396,83 @@ def test_destructive_command_with_tilde_is_rejected(monkeypatch, tmp_path):
     # Обычная работа внутри проекта не должна страдать.
     allowed, _reason, _alt = guard.validate_command("rm src/temp_file.py")
     assert allowed, "защита мешает штатной работе внутри проекта"
+
+
+# ── HUB-1: граница обязана держаться одинаково на Windows и Linux ──
+#
+# Инвариант A37 падал только на Windows-раннере: "rm -rf $HOME/.hermes"
+# проходил мимо защиты, потому что переменной HOME в окружении Windows нет.
+# Прогон на одной системе этого не показывал. Тесты ниже воспроизводят
+# окружение обеих систем на любой из них, поэтому дыра больше не может
+# спрятаться за тем, где именно запущен CI.
+
+_DESTRUCTIVE_BOTH_DIALECTS = [
+    "rm -rf ~/.hermes/agy_profiles",
+    "rm -rf ~/.ssh",
+    "rm -rf $HOME/.hermes",
+    "rm -rf ${HOME}/.hermes",
+    r"rm -rf %USERPROFILE%\.hermes",
+    r"del /f /q %USERPROFILE%\.ssh",
+]
+
+
+@pytest.fixture
+def guard_env(monkeypatch, tmp_path):
+    """Guard с HERMES_HOME во временном каталоге — вне домашнего и вне проекта."""
+    from antigravity_provider.router.security_guard import WorkspaceBoundaryGuard
+
+    monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
+    return WorkspaceBoundaryGuard()
+
+
+@pytest.mark.parametrize("simulated_os", ["linux", "windows"])
+@pytest.mark.parametrize("cmd", _DESTRUCTIVE_BOTH_DIALECTS)
+def test_home_directed_destruction_rejected_on_both_systems(monkeypatch, guard_env, simulated_os, cmd):
+    """Удаление по домашнему каталогу отклоняется в обоих окружениях.
+
+    Окружение Windows отличается от Linux ровно тем, из-за чего защита и
+    расходилась: HOME не задан, домашний каталог известен через USERPROFILE.
+    """
+    if simulated_os == "windows":
+        monkeypatch.delenv("HOME", raising=False)
+        monkeypatch.setenv("USERPROFILE", str(Path.home()))
+    else:
+        monkeypatch.setenv("HOME", str(Path.home()))
+        monkeypatch.delenv("USERPROFILE", raising=False)
+
+    allowed, reason, _alt = guard_env.validate_command(cmd)
+    assert not allowed, f"[{simulated_os}] команда прошла мимо защиты: {cmd} ({reason})"
+
+
+@pytest.mark.parametrize("simulated_os", ["linux", "windows"])
+def test_guard_fails_closed_on_unresolvable_argument(monkeypatch, guard_env, simulated_os):
+    """Нераскрытая переменная — отказ, а не пропуск.
+
+    Раньше "$HOME/.hermes" с неизвестной переменной переставал быть абсолютным
+    путём, склеивался с каталогом проекта и признавался допустимым. Путь,
+    который нельзя разрешить, нельзя и признать безопасным.
+    """
+    if simulated_os == "windows":
+        monkeypatch.delenv("HOME", raising=False)
+    monkeypatch.delenv("HERMES_UNSET_TARGET", raising=False)
+
+    for cmd in ["rm -rf $HERMES_UNSET_TARGET/data", r"rm -rf %HERMES_UNSET_TARGET%\data"]:
+        allowed, reason, _alt = guard_env.validate_command(cmd)
+        assert not allowed, f"[{simulated_os}] guard не закрылся на нераскрытом пути: {cmd} ({reason})"
+
+
+def test_foreign_dialect_absolute_path_is_not_treated_as_project_local(guard_env):
+    """Путь с буквой диска на Linux не должен считаться внутренним.
+
+    Path("C:/Windows").resolve() на Linux приписывает пути текущий каталог, и
+    удаление системного каталога Windows выглядело как работа внутри проекта.
+    """
+    allowed, reason, _alt = guard_env.validate_command(r"del /f /q C:\Windows\System32")
+    assert not allowed, f"путь чужого диалекта признан внутренним: {reason}"
+
+
+def test_normal_work_inside_project_still_allowed(guard_env):
+    """Ужесточение не должно мешать штатной работе."""
+    for cmd in ["rm src/temp_file.py", "rm -rf build/", "rm ./tests/tmp.log"]:
+        allowed, reason, _alt = guard_env.validate_command(cmd)
+        assert allowed, f"защита мешает штатной работе: {cmd} ({reason})"
