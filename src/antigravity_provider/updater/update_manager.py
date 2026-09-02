@@ -5,24 +5,28 @@ Features:
 - SHA-256 package cryptographic hash verification.
 - Staged download without touching live executable.
 - Hermetic backup and automatic rollback on corrupt/failing update.
+- Real-time thread-safe progress tracking and cancellation.
+- Isolated process lifecycle management (stopping only own hub processes).
 - Non-blocking execution and honest error reporting (rate limits, 404, network errors).
 - Zero embedded developer PATs (safe public asset feed / signed release manifests).
 """
 from __future__ import annotations
 
 import hashlib
+import inspect
 import json
 import logging
 import os
 import re
 import shutil
 import subprocess
-import threading
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
@@ -72,8 +76,6 @@ def _is_release_older(published_at: str, installed_at: str) -> bool:
     if not published_at or not installed_at:
         return False
     try:
-        from datetime import datetime
-
         def _parse(v: str):
             return datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
 
@@ -169,6 +171,30 @@ def extract_release_commit(release_data: Dict[str, Any]) -> str:
 
 
 @dataclass
+class UpdateProgress:
+    status: str = "idle"  # idle | checking | downloading | verifying | installing | restarting | completed | failed | cancelled
+    filename: str = ""
+    downloaded_bytes: int = 0
+    total_bytes: Optional[int] = None
+    progress_percent: Optional[float] = None
+    message: str = "Готов к обновлению"
+    error: Optional[str] = None
+    updated_at: float = field(default_factory=time.time)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "status": self.status,
+            "filename": self.filename,
+            "downloaded_bytes": self.downloaded_bytes,
+            "total_bytes": self.total_bytes,
+            "progress_percent": round(self.progress_percent, 1) if self.progress_percent is not None else None,
+            "message": self.message,
+            "error": self.error,
+            "updated_at": self.updated_at,
+        }
+
+
+@dataclass
 class UpdateManifest:
     version: str
     channel: str = "stable"
@@ -180,6 +206,7 @@ class UpdateManifest:
     changelog: Optional[str] = None
     git_commit: Optional[str] = None
     assets: Dict[str, str] = field(default_factory=dict)
+    asset_sizes: Dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -194,6 +221,8 @@ class UpdateCheckResult:
     changelog: Optional[str] = None
     release_notes: Optional[str] = None
     assets: Dict[str, str] = field(default_factory=dict)
+    asset_sizes: Dict[str, int] = field(default_factory=dict)
+    download_size: Optional[int] = None
     manifest: Optional[UpdateManifest] = None
     error: Optional[str] = None
     message: Optional[str] = None
@@ -211,6 +240,8 @@ class UpdateCheckResult:
             "changelog": self.changelog,
             "release_notes": self.release_notes,
             "assets": self.assets,
+            "asset_sizes": self.asset_sizes,
+            "download_size": self.download_size,
             "error": self.error,
             "message": self.message,
             "checked_at": self.checked_at,
@@ -268,9 +299,189 @@ def is_allowed_update_host(url: str, allow_dev_local: bool = False) -> bool:
         return False
 
 
+def get_last_applied_update_path() -> Path:
+    """Path to ~/.hermes/updates/last_applied_update.json."""
+    return paths.get_hermes_home() / "updates" / "last_applied_update.json"
+
+
+def record_last_applied_update(
+    prev_version: str,
+    prev_commit: str,
+    new_version: str,
+    new_commit: str,
+) -> None:
+    """Save record of applied update for post-restart notification."""
+    try:
+        p = get_last_applied_update_path()
+        p.parent.mkdir(parents=True, exist_ok=True)
+        data = {
+            "prev_version": prev_version,
+            "prev_commit": prev_commit,
+            "new_version": new_version,
+            "new_commit": new_commit,
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "acknowledged": False,
+        }
+        p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+        logger.info("Recorded last applied update: %s (%s) -> %s (%s)", prev_version, prev_commit[:7], new_version, new_commit[:7])
+    except Exception as exc:
+        logger.warning("Failed to record last_applied_update: %s", exc)
+
+
+def get_last_applied_update() -> Optional[Dict[str, Any]]:
+    """Retrieve last applied update info if present."""
+    try:
+        p = get_last_applied_update_path()
+        if p.is_file():
+            return json.loads(p.read_text(encoding="utf-8"))
+    except Exception as exc:
+        logger.debug("Failed reading last_applied_update: %s", exc)
+    return None
+
+
+def acknowledge_last_applied_update() -> None:
+    """Mark last applied update as acknowledged."""
+    try:
+        p = get_last_applied_update_path()
+        if p.is_file():
+            data = json.loads(p.read_text(encoding="utf-8"))
+            data["acknowledged"] = True
+            p.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    except Exception as exc:
+        logger.debug("Failed acknowledging last_applied_update: %s", exc)
+
+
+def stop_running_hub(timeout_sec: float = 10.0) -> bool:
+    """Останавливает только процессы хаба текущего пользователя, исключая текущий PID."""
+    current_pid = os.getpid()
+    is_win = sys.platform == "win32"
+
+    if is_win:
+        try:
+            cmd = ["wmic", "process", "where", "name='HermesHubWeb.exe'", "get", "ProcessId"]
+            res = subprocess.run(cmd, capture_output=True, text=True, timeout=5, **hidden_process_kwargs())
+            pids = []
+            if res.returncode == 0:
+                for line in res.stdout.splitlines():
+                    val = line.strip()
+                    if val.isdigit():
+                        pid = int(val)
+                        if pid != current_pid:
+                            pids.append(pid)
+            for pid in pids:
+                try:
+                    subprocess.run(["taskkill", "/F", "/PID", str(pid)], capture_output=True, timeout=5, **hidden_process_kwargs())
+                except Exception:
+                    pass
+            return True
+        except Exception as exc:
+            logger.debug("Windows stop_running_hub: %s", exc)
+            return True
+    else:
+        try:
+            uid = os.getuid()
+            pattern = "antigravity_provider.router.web|hermes_hub_web_entry"
+            res = subprocess.run(
+                ["pgrep", "-u", str(uid), "-f", pattern],
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if res.returncode != 0 or not res.stdout.strip():
+                logger.debug("No other hub processes found on Linux")
+                return True
+
+            pids = [int(p) for p in res.stdout.split() if p.strip().isdigit() and int(p) != current_pid]
+            if not pids:
+                return True
+
+            logger.info("Stopping hub processes for user %s: %s", uid, pids)
+            import signal
+            for pid in pids:
+                try:
+                    os.kill(pid, signal.SIGTERM)
+                except ProcessLookupError:
+                    pass
+                except Exception as e:
+                    logger.debug("Failed to SIGTERM pid %s: %s", pid, e)
+
+            start_t = time.time()
+            alive = list(pids)
+            while alive and (time.time() - start_t) < timeout_sec:
+                time.sleep(0.5)
+                still_alive = []
+                for pid in alive:
+                    try:
+                        os.kill(pid, 0)
+                        still_alive.append(pid)
+                    except ProcessLookupError:
+                        pass
+                alive = still_alive
+
+            if alive:
+                logger.warning("Hub processes still alive after %ss, sending SIGKILL: %s", timeout_sec, alive)
+                for pid in alive:
+                    try:
+                        os.kill(pid, signal.SIGKILL)
+                    except ProcessLookupError:
+                        pass
+                    except Exception as e:
+                        logger.debug("Failed to SIGKILL pid %s: %s", pid, e)
+
+            return True
+        except Exception as exc:
+            logger.warning("Linux stop_running_hub error: %s", exc)
+            return True
+
+
+# Почему отмена отклонена — своими словами для владельца, а не кодом состояния.
+_CANCEL_REFUSAL = {
+    "installing": "Отмена невозможна: установка уже началась",
+    "restarting": "Отмена невозможна: Hermes Hub уже перезапускается",
+    "completed": "Отменять нечего: обновление уже установлено",
+    "failed": "Отменять нечего: обновление уже завершилось ошибкой",
+    "cancelled": "Загрузка уже отменена",
+    "idle": "Отменять нечего: обновление не запускалось",
+}
+
+
+def _call_progress_cb(cb: Optional[Callable], downloaded: int, total: Optional[int]) -> None:
+    """Вызвать обработчик хода загрузки, поддержав обе его формы.
+
+    Старая форма принимает одну долю (0..1), новая — (скачано, всего).
+
+    Доли при неизвестном общем размере не существует, и подставлять вместо неё
+    ноль нельзя: обработчик получал бы «0%» на каждом чанке всю загрузку.
+    Старую форму в этом случае просто не зовём — молчание честнее выдуманного
+    числа, а сам ход всё равно виден через _set_progress.
+    """
+    if not cb:
+        return
+    known_total = bool(total and total > 0)
+    try:
+        sig = inspect.signature(cb)
+        single_arg = len(sig.parameters) == 1
+    except (TypeError, ValueError):
+        single_arg = False
+
+    if single_arg:
+        if known_total:
+            cb(downloaded / total)
+        return
+
+    try:
+        cb(downloaded, total)
+    except TypeError:
+        if known_total:
+            cb(downloaded / total)
+
+
 class UpdateManager:
     """Manages update checks, package download, hash validation, and updater execution."""
 
+    _lock = threading.Lock()
+    _progress: UpdateProgress = UpdateProgress()
+    _cancel_event = threading.Event()
     _last_check_result: Optional[UpdateCheckResult] = None
     _last_check_time: float = 0.0
 
@@ -284,6 +495,85 @@ class UpdateManager:
     @classmethod
     def get_last_check_result(cls) -> Optional[UpdateCheckResult]:
         return cls._last_check_result
+
+    @classmethod
+    def get_progress_dict(cls) -> Dict[str, Any]:
+        with cls._lock:
+            return cls._progress.to_dict()
+
+    @classmethod
+    def _set_progress(
+        cls,
+        status: str,
+        message: str = "",
+        filename: str = "",
+        downloaded_bytes: int = 0,
+        total_bytes: Optional[int] = None,
+        progress_percent: Optional[float] = None,
+        error: Optional[str] = None,
+    ) -> None:
+        with cls._lock:
+            cls._progress = UpdateProgress(
+                status=status,
+                filename=filename if filename else cls._progress.filename,
+                downloaded_bytes=downloaded_bytes,
+                total_bytes=total_bytes,
+                progress_percent=progress_percent,
+                message=message if message else cls._progress.message,
+                error=error,
+                updated_at=time.time(),
+            )
+
+    @classmethod
+    def cancel_download(cls) -> Dict[str, Any]:
+        """Отменить загрузку обновления и удалить недокачанные файлы.
+
+        Отмена допустима только пока идёт проверка или загрузка. Действие
+        `cancel_update` открыто в HTTP-API, и без этой проверки вызов во время
+        установки вычищал каталог staging вместе с файлом установщика, который
+        в этот момент исполняет bash: установка ломалась на середине, а ответ
+        «отменено» сообщал владельцу неправду о том, что происходит с машиной.
+        """
+        with cls._lock:
+            current_status = cls._progress.status
+            if current_status not in ("checking", "downloading"):
+                refused = cls._progress.to_dict()
+                refused["cancel_accepted"] = False
+                refused["cancel_refused_reason"] = _CANCEL_REFUSAL.get(
+                    current_status,
+                    f"Отмена невозможна на этапе «{current_status}»",
+                )
+                return refused
+
+        cls._cancel_event.set()
+        with cls._lock:
+            cls._progress = UpdateProgress(
+                status="cancelled",
+                filename=cls._progress.filename,
+                downloaded_bytes=0,
+                total_bytes=None,
+                progress_percent=None,
+                message="Загрузка обновления отменена пользователем",
+                error=None,
+                updated_at=time.time(),
+            )
+        try:
+            updates_dir = paths.get_hermes_home() / "updates"
+            staging_dir = updates_dir / "staging"
+            if staging_dir.exists():
+                for f in staging_dir.iterdir():
+                    if f.is_file():
+                        f.unlink(missing_ok=True)
+        except Exception as exc:
+            logger.debug("Clean staging dir on cancel failed: %s", exc)
+        accepted = cls.get_progress_dict()
+        accepted["cancel_accepted"] = True
+        return accepted
+
+    @classmethod
+    def cancel_update(cls) -> Dict[str, Any]:
+        """Alias for cancel_download."""
+        return cls.cancel_download()
 
     def get_status_dict(self) -> Dict[str, Any]:
         installed_commit = get_installed_commit()
@@ -302,6 +592,8 @@ class UpdateManager:
             "changelog": None,
             "release_notes": None,
             "assets": {},
+            "asset_sizes": {},
+            "download_size": None,
             "error": None,
             "message": "Проверка обновлений еще не выполнялась",
             "checked_at": 0.0,
@@ -392,13 +684,16 @@ class UpdateManager:
             body = str(data.get("body") or data.get("changelog") or "")
             published_at = str(data.get("published_at") or "")
 
-            # Extract assets mapping {name: download_url}
+            # Extract assets mapping {name: download_url} and asset sizes {name: size_bytes}
             assets_map: Dict[str, str] = {}
+            asset_sizes: Dict[str, int] = {}
             raw_assets = data.get("assets", [])
             if isinstance(raw_assets, list):
                 for asset in raw_assets:
                     if isinstance(asset, dict) and "name" in asset and "browser_download_url" in asset:
                         assets_map[asset["name"]] = asset["browser_download_url"]
+                        if "size" in asset and isinstance(asset["size"], (int, float)):
+                            asset_sizes[asset["name"]] = int(asset["size"])
             elif isinstance(raw_assets, dict):
                 assets_map = dict(raw_assets)
 
@@ -420,7 +715,26 @@ class UpdateManager:
                 changelog=body,
                 git_commit=latest_commit,
                 assets=assets_map,
+                asset_sizes=asset_sizes,
             )
+
+            # Determine download_size for target platform
+            is_win = sys.platform == "win32"
+            chosen_size: Optional[int] = None
+            if is_win and "HermesHubSetup.exe" in asset_sizes:
+                chosen_size = asset_sizes["HermesHubSetup.exe"]
+            elif not is_win:
+                for linux_name in ("hermes-hub-setup.sh", "install-linux.sh"):
+                    if linux_name in asset_sizes:
+                        chosen_size = asset_sizes[linux_name]
+                        break
+            if chosen_size is None:
+                for aname, asize in asset_sizes.items():
+                    if aname.endswith(".zip"):
+                        chosen_size = asize
+                        break
+            if chosen_size is None and asset_sizes:
+                chosen_size = next(iter(asset_sizes.values()), None)
 
             # Compare commits
             inst_clean = installed_commit.strip().lower()
@@ -463,6 +777,8 @@ class UpdateManager:
                 changelog=body,
                 release_notes=body,
                 assets=assets_map,
+                asset_sizes=asset_sizes,
+                download_size=chosen_size,
                 manifest=manifest,
                 error=None,
                 message=message,
@@ -490,17 +806,45 @@ class UpdateManager:
         self,
         url: str,
         dest_file: Path,
-        progress_cb: Optional[Callable[[float], None]] = None,
+        progress_cb: Optional[Callable] = None,
     ) -> None:
-        """Helper to download a file with allowlist check and optional progress callback."""
+        """Helper to download a file with allowlist check, progress tracking, and cancellation support."""
         if not is_allowed_update_host(url, allow_dev_local=False):
             raise ValueError(f"Недопустимый хост пакета обновления: {url}")
 
+        if self._cancel_event.is_set():
+            self._set_progress(status="cancelled", filename=dest_file.name, message="Загрузка отменена")
+            raise InterruptedError("Загрузка обновления отменена пользователем")
+
         if url.startswith("file://") or Path(url).is_file():
             local_src = Path(url.replace("file://", ""))
+            total_bytes = local_src.stat().st_size if local_src.exists() else None
+            self._set_progress(
+                status="downloading",
+                filename=dest_file.name,
+                downloaded_bytes=0,
+                total_bytes=total_bytes,
+                progress_percent=0.0 if total_bytes else None,
+                message=f"Копирование {dest_file.name}...",
+            )
+            if self._cancel_event.is_set():
+                dest_file.unlink(missing_ok=True)
+                self._set_progress(status="cancelled", filename=dest_file.name, message="Загрузка отменена")
+                raise InterruptedError("Загрузка обновления отменена пользователем")
+
             shutil.copy2(local_src, dest_file)
+            downloaded = dest_file.stat().st_size
+            pct = 100.0 if total_bytes else None
+            self._set_progress(
+                status="downloading",
+                filename=dest_file.name,
+                downloaded_bytes=downloaded,
+                total_bytes=total_bytes,
+                progress_percent=pct,
+                message=f"Файл {dest_file.name} скопирован",
+            )
             if progress_cb:
-                progress_cb(1.0)
+                _call_progress_cb(progress_cb, downloaded, total_bytes)
             return
 
         req = urllib.request.Request(
@@ -508,21 +852,53 @@ class UpdateManager:
             headers={"User-Agent": f"HermesHub/{__version__}"},
         )
         with urllib.request.urlopen(req, timeout=60) as resp:
-            total_len = int(resp.headers.get("content-length", 0))
+            raw_len = resp.headers.get("content-length")
+            total_len = int(raw_len) if raw_len and raw_len.isdigit() else 0
+            total_bytes = total_len if total_len > 0 else None
             downloaded = 0
+
+            self._set_progress(
+                status="downloading",
+                filename=dest_file.name,
+                downloaded_bytes=0,
+                total_bytes=total_bytes,
+                progress_percent=0.0 if total_bytes else None,
+                message=f"Скачивание {dest_file.name}...",
+            )
+
             with open(dest_file, "wb") as out_f:
-                while chunk := resp.read(65536):
+                while True:
+                    if self._cancel_event.is_set():
+                        out_f.close()
+                        dest_file.unlink(missing_ok=True)
+                        self._set_progress(status="cancelled", filename=dest_file.name, message="Загрузка отменена")
+                        raise InterruptedError("Загрузка обновления отменена пользователем")
+
+                    chunk = resp.read(65536)
+                    if not chunk:
+                        break
+
                     out_f.write(chunk)
                     downloaded += len(chunk)
-                    if progress_cb and total_len > 0:
-                        progress_cb(downloaded / total_len)
+                    pct = ((downloaded / total_bytes) * 100.0) if (total_bytes and total_bytes > 0) else None
+                    self._set_progress(
+                        status="downloading",
+                        filename=dest_file.name,
+                        downloaded_bytes=downloaded,
+                        total_bytes=total_bytes,
+                        progress_percent=pct,
+                        message=f"Скачивание {dest_file.name}...",
+                    )
+                    if progress_cb:
+                        _call_progress_cb(progress_cb, downloaded, total_bytes)
 
     def download_and_verify(
         self,
         manifest: UpdateManifest,
-        progress_cb: Optional[Callable[[float], None]] = None,
+        progress_cb: Optional[Callable] = None,
     ) -> Tuple[bool, str, Optional[Path]]:
         """Download update package into staging and verify SHA-256 hash."""
+        self._cancel_event.clear()
         self.staging_dir.mkdir(parents=True, exist_ok=True)
         dest_file = self.staging_dir / f"hermes-hub-{manifest.version}.zip"
 
@@ -530,31 +906,54 @@ class UpdateManager:
             self._download_file(manifest.package_url, dest_file, progress_cb)
 
             # Cryptographic SHA-256 Verification
+            self._set_progress(
+                status="verifying",
+                filename=dest_file.name,
+                message=f"Проверка контрольной суммы SHA-256 для {dest_file.name}...",
+            )
             calc_hash = compute_sha256(dest_file)
             if manifest.sha256 and calc_hash != manifest.sha256.lower():
                 dest_file.unlink(missing_ok=True)
-                return False, f"SHA-256 hash mismatch! Expected {manifest.sha256}, got {calc_hash}", None
+                err = f"SHA-256 hash mismatch! Expected {manifest.sha256}, got {calc_hash}"
+                self._set_progress(status="failed", filename=dest_file.name, error=err, message=err)
+                return False, err, None
 
+            self._set_progress(
+                status="completed",
+                filename=dest_file.name,
+                message="Пакет успешно загружен и верифицирован",
+            )
             return True, "Пакет успешно загружен и верифицирован", dest_file
 
+        except InterruptedError:
+            dest_file.unlink(missing_ok=True)
+            self._set_progress(status="cancelled", filename=dest_file.name, message="Загрузка обновления отменена")
+            return False, "Загрузка обновления отменена пользователем", None
         except Exception as exc:
             dest_file.unlink(missing_ok=True)
-            return False, f"Ошибка загрузки: {exc}", None
+            err = f"Ошибка загрузки: {exc}"
+            self._set_progress(status="failed", filename=dest_file.name, error=err, message=err)
+            return False, err, None
 
     def install_latest_update(
         self,
         check_result: Optional[UpdateCheckResult] = None,
-        progress_cb: Optional[Callable[[float], None]] = None,
+        progress_cb: Optional[Callable] = None,
         target_dir: Optional[Path] = None,
     ) -> Tuple[bool, str]:
         """Download installer or update package, verify checksums, apply and restart."""
+        self._cancel_event.clear()
+
         if check_result is None:
+            self._set_progress(status="checking", message="Проверка наличия обновлений...")
             check_result = self.check_for_updates()
 
         if check_result.error:
+            self._set_progress(status="failed", error=check_result.error, message=check_result.error)
             return False, f"Ошибка проверки обновлений: {check_result.error}"
 
         if not check_result.update_available:
+            self._set_progress(status="idle", message="Обновление не требуется")
             return False, "Обновление не требуется (установлена последняя сборка)"
 
         self.staging_dir.mkdir(parents=True, exist_ok=True)
@@ -573,6 +972,8 @@ class UpdateManager:
                         sha = parts[0].strip().lower()
                         fname = parts[1].lstrip("*").strip().lower()
                         checksums_map[fname] = sha
+            except InterruptedError:
+                return False, "Загрузка обновления отменена пользователем"
             except Exception as e:
                 logger.warning("Failed to download or parse checksums.txt: %s", e)
 
@@ -605,17 +1006,30 @@ class UpdateManager:
             chosen_asset_name = Path(chosen_url).name or f"hermes-hub-{check_result.latest_version}.zip"
 
         if not chosen_url or not chosen_asset_name:
-            return False, "В релизе не найден подходящий файл обновления для текущей платформы"
+            err = "В релизе не найден подходящий файл обновления для текущей платформы"
+            self._set_progress(status="failed", error=err, message=err)
+            return False, err
 
         # 3. Download target asset into staging
         dest_file = self.staging_dir / chosen_asset_name
         try:
             self._download_file(chosen_url, dest_file, progress_cb)
+        except InterruptedError:
+            dest_file.unlink(missing_ok=True)
+            self._set_progress(status="cancelled", filename=chosen_asset_name, message="Загрузка отменена")
+            return False, "Загрузка обновления отменена пользователем"
         except Exception as exc:
             dest_file.unlink(missing_ok=True)
-            return False, f"Ошибка загрузки {chosen_asset_name}: {exc}"
+            err = f"Ошибка загрузки {chosen_asset_name}: {exc}"
+            self._set_progress(status="failed", filename=chosen_asset_name, error=err, message=err)
+            return False, err
 
         # 4. SHA-256 Checksum Verification
+        self._set_progress(
+            status="verifying",
+            filename=chosen_asset_name,
+            message=f"Проверка контрольной суммы SHA-256 для {chosen_asset_name}...",
+        )
         calc_sha = compute_sha256(dest_file)
         expected_sha = checksums_map.get(chosen_asset_name.lower())
         if not expected_sha and check_result.manifest and check_result.manifest.sha256:
@@ -627,26 +1041,59 @@ class UpdateManager:
         # исполняемый код, поэтому непроверенный файл не запускаем вовсе.
         if not expected_sha:
             dest_file.unlink(missing_ok=True)
-            return (
-                False,
+            err = (
                 f"Не удалось получить контрольную сумму для {chosen_asset_name}: "
                 "в релизе нет checksums.txt или файл не скачался. "
                 "Установка отменена — непроверенный файл не запускается."
             )
+            self._set_progress(status="failed", filename=chosen_asset_name, error=err, message=err)
+            return False, err
 
         if calc_sha != expected_sha:
             dest_file.unlink(missing_ok=True)
-            return (
-                False,
+            err = (
                 f"Контрольная сумма SHA-256 не совпала для {chosen_asset_name}! "
                 f"Ожидалось {expected_sha}, получено {calc_sha}. Установка отменена."
             )
+            self._set_progress(status="failed", filename=chosen_asset_name, error=err, message=err)
+            return False, err
 
-        # 5. Apply update based on file type
+        # 5. Stop running hub services before applying update
+        self._set_progress(
+            status="installing",
+            filename=chosen_asset_name,
+            message="Остановка работающих служб хаба...",
+        )
+        stop_running_hub()
+
+        # Record metadata for post-restart notification
+        prev_v = __version__
+        prev_c = get_installed_commit()
+        new_v = check_result.latest_version
+        new_c = check_result.latest_commit or ""
+
+        # 6. Apply update based on file type
+        self._set_progress(
+            status="installing",
+            filename=chosen_asset_name,
+            message=f"Установка пакета {chosen_asset_name}...",
+        )
+
+        def _record_success():
+            record_last_applied_update(
+                prev_version=prev_v,
+                prev_commit=prev_c,
+                new_version=new_v,
+                new_commit=new_c,
+            )
+
         if chosen_asset_name.endswith(".zip"):
             ok, msg = self.apply_update_sync(dest_file, target_dir=target_dir)
             if not ok:
+                self._set_progress(status="failed", filename=chosen_asset_name, error=msg, message=msg)
                 return False, msg
+            _record_success()
+            self._set_progress(status="completed", filename=chosen_asset_name, message=msg)
             return True, "Обновление успешно установлено"
 
         elif chosen_asset_name == "HermesHubSetup.exe":
@@ -659,15 +1106,25 @@ class UpdateManager:
                 try:
                     rc = proc.wait(timeout=600)
                 except subprocess.TimeoutExpired:
-                    return False, "Установщик не завершился за 10 минут. Проверьте состояние вручную."
+                    err = "Установщик не завершился за 10 минут. Проверьте состояние вручную."
+                    self._set_progress(status="failed", filename=chosen_asset_name, error=err, message=err)
+                    return False, err
                 if rc != 0:
-                    return False, f"Установщик завершился с кодом {rc}. Обновление не применено."
+                    err = f"Установщик завершился с кодом {rc}. Обновление не применено."
+                    self._set_progress(status="failed", filename=chosen_asset_name, error=err, message=err)
+                    return False, err
+                _record_success()
+                self._set_progress(status="restarting", filename=chosen_asset_name, message="Hermes Hub перезапускается...")
                 ok_r, msg_r = self.schedule_restart()
                 if not ok_r:
+                    self._set_progress(status="completed", filename=chosen_asset_name, message=f"Обновление установлено. {msg_r}")
                     return True, f"Обновление установлено. {msg_r}"
+                self._set_progress(status="restarting", filename=chosen_asset_name, message="Обновление установлено, Hermes Hub перезапускается.")
                 return True, "Обновление установлено, Hermes Hub перезапускается."
             except Exception as exc:
-                return False, f"Не удалось запустить установщик: {exc}"
+                err = f"Не удалось запустить установщик: {exc}"
+                self._set_progress(status="failed", filename=chosen_asset_name, error=err, message=err)
+                return False, err
 
         elif chosen_asset_name.endswith(".sh"):
             try:
@@ -680,17 +1137,31 @@ class UpdateManager:
                     capture_output=True, text=True, timeout=600,
                 )
                 if res_i.returncode != 0:
+                    # Код возврата в сообщении обязателен: установщик может
+                    # завершиться, не сказав ни слова, и владелец получал
+                    # «Установка не удалась: » без единого признака причины.
                     tail = (res_i.stderr or res_i.stdout or "").strip().splitlines()[-3:]
-                    return False, "Установка не удалась: " + " / ".join(tail)
+                    if tail:
+                        err = f"Установка не удалась (код {res_i.returncode}): " + " / ".join(tail)
+                    else:
+                        err = f"Установка не удалась (код {res_i.returncode}): установщик ничего не сообщил"
+                    self._set_progress(status="failed", filename=chosen_asset_name, error=err, message=err)
+                    return False, err
+                _record_success()
+                self._set_progress(status="restarting", filename=chosen_asset_name, message="Hermes Hub перезапускается...")
                 ok_r, msg_r = self.schedule_restart()
                 if not ok_r:
+                    self._set_progress(status="completed", filename=chosen_asset_name, message=f"Обновление установлено. {msg_r}")
                     return True, f"Обновление установлено. {msg_r}"
+                self._set_progress(status="restarting", filename=chosen_asset_name, message="Обновление установлено, Hermes Hub перезапускается.")
                 return True, "Обновление установлено, Hermes Hub перезапускается."
             except Exception as exc:
-                return False, f"Не удалось запустить скрипт установки: {exc}"
+                err = f"Не удалось запустить скрипт установки: {exc}"
+                self._set_progress(status="failed", filename=chosen_asset_name, error=err, message=err)
+                return False, err
 
+        self._set_progress(status="completed", filename=chosen_asset_name, message="Файл обновления загружен и проверен")
         return True, "Файл обновления загружен и проверен"
-
 
     def schedule_restart(self, delay_sec: float = 3.0) -> Tuple[bool, str]:
         """Перезапустить веб-хаб после установки обновления.
