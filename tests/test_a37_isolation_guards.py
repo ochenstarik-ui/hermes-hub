@@ -476,3 +476,70 @@ def test_normal_work_inside_project_still_allowed(guard_env):
     for cmd in ["rm src/temp_file.py", "rm -rf build/", "rm ./tests/tmp.log"]:
         allowed, reason, _alt = guard_env.validate_command(cmd)
         assert allowed, f"защита мешает штатной работе: {cmd} ({reason})"
+
+
+# ── HUB-1: небезопасные методы не принимаются с чужой страницы ──
+
+
+@pytest.fixture
+def loopback_client():
+    """Клиент при конфигурации по умолчанию: web_api_host=127.0.0.1, токен не нужен."""
+    import antigravity_provider.router.web.server as srv
+
+    with patch.object(srv, "_web_settings", return_value={"web_api_host": "127.0.0.1"}):
+        yield TestClient(app)
+
+
+_UNSAFE_ENDPOINTS = [
+    ("/api/action", '{"action": "clear_accounts", "data": {}}'),
+    ("/api/skills/assign", '{"skill": "x", "profile": "y"}'),
+    ("/api/skills/unassign", '{"skill": "x", "profile": "y"}'),
+    ("/api/skills/diagnose", '{"skill": "x"}'),
+    ("/api/compression/test", '{"text": "x"}'),
+]
+
+
+@pytest.mark.parametrize("path, body", _UNSAFE_ENDPOINTS)
+def test_cross_site_post_is_rejected(loopback_client, path, body):
+    """Межсайтовый POST отклоняется до того, как что-либо изменит.
+
+    На loopback токен не требуется, а действия меняют состояние: удаляют
+    учётные данные, чистят аккаунты, переключают маршрутизацию. CORS от этого
+    не защищает — он мешает прочитать ответ, а не отправить запрос. Измерено:
+    POST с Content-Type text/plain уходит кросс-сайтом без предварительного
+    запроса, request.json() разбирает тело независимо от Content-Type, и
+    запрос с чужим Origin доходил до исполнителя действий.
+    """
+    headers = {
+        "Content-Type": "text/plain;charset=UTF-8",
+        "Origin": "https://evil.example.com",
+        "Sec-Fetch-Site": "cross-site",
+    }
+    res = loopback_client.post(path, content=body, headers=headers)
+    assert res.status_code == 403, f"{path} принял межсайтовый запрос: HTTP {res.status_code}"
+
+
+@pytest.mark.parametrize("path, body", _UNSAFE_ENDPOINTS)
+def test_cross_site_post_rejected_without_fetch_metadata(loopback_client, path, body):
+    """Браузер без Sec-Fetch-* всё равно ставит Origin — по нему и отклоняем."""
+    headers = {"Content-Type": "text/plain", "Origin": "https://evil.example.com"}
+    res = loopback_client.post(path, content=body, headers=headers)
+    assert res.status_code == 403, f"{path} принял запрос с чужим Origin: HTTP {res.status_code}"
+
+
+@pytest.mark.parametrize(
+    "label, headers",
+    [
+        ("собственный интерфейс", {"Origin": "http://testserver", "Sec-Fetch-Site": "same-origin"}),
+        ("адресная строка", {"Sec-Fetch-Site": "none"}),
+        ("не-браузерный клиент", {}),
+    ],
+)
+def test_own_interface_and_cli_still_work(loopback_client, label, headers):
+    """Защита не должна мешать собственному интерфейсу и не-браузерным клиентам."""
+    res = loopback_client.post(
+        "/api/action",
+        json={"action": "___нет_такого___", "data": {}},
+        headers=headers,
+    )
+    assert res.status_code != 403, f"{label} отклонён межсайтовой защитой"

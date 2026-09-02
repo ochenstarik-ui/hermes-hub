@@ -7,6 +7,7 @@ import time
 import dataclasses
 import logging
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 from antigravity_provider import paths
 from antigravity_provider.version import __version__
@@ -104,6 +105,63 @@ def get_auth_token(x_hub_token: str = Header(None)) -> bool:
         if not secrets.compare_digest(_given, _needed):
             raise HTTPException(status_code=401, detail="Invalid X-Hub-Token")
     return True
+
+# Небезопасные методы принимаются только от собственного интерфейса.
+#
+# На loopback токен не требуется вовсе (см. get_auth_token), а POST /api/action
+# меняет состояние: удаляет учётные данные, чистит аккаунты, переключает
+# маршрутизацию, запускает входы OAuth. CORS от этого не защищает — он мешает
+# ПРОЧИТАТЬ ответ, а не отправить запрос.
+#
+# Проверено на конфигурации по умолчанию (web_api_host=127.0.0.1): POST с
+# Content-Type: text/plain уходит кросс-сайтом без предварительного запроса
+# (простой запрос по правилам CORS), а request.json() разбирает тело
+# независимо от Content-Type. Запрос с Origin: https://evil.example.com и без
+# токена доходил до исполнителя действий — отвечало уже само действие.
+#
+# Проверяется Sec-Fetch-Site, а при его отсутствии — Origin против адреса, по
+# которому пришёл запрос. Отсутствие обоих заголовков означает не-браузерного
+# клиента (curl, собственный CLI): браузер на кросс-сайтовый POST заголовок
+# Origin ставит обязательно, поэтому его отсутствие подделкой не является.
+_SAME_SITE_FETCH_VALUES = {"same-origin", "none"}
+
+
+def _configured_allowed_origins() -> set:
+    raw = str(_web_settings().get("web_api_allowed_origins", "")).split(",")
+    return {o.strip() for o in raw if o.strip() and o.strip() != "*"}
+
+
+def require_same_origin(request: Request) -> bool:
+    """Отклонить межсайтовый небезопасный запрос до того, как он что-то изменит."""
+    fetch_site = (request.headers.get("sec-fetch-site") or "").strip().lower()
+    if fetch_site:
+        if fetch_site in _SAME_SITE_FETCH_VALUES:
+            return True
+        if request.headers.get("origin", "") in _configured_allowed_origins():
+            return True
+        raise HTTPException(
+            status_code=403,
+            detail=f"Межсайтовый запрос отклонён (Sec-Fetch-Site: {fetch_site})",
+        )
+
+    origin = request.headers.get("origin")
+    if not origin:
+        return True
+
+    host = (request.headers.get("host") or "").strip().lower()
+    try:
+        origin_host = urlparse(origin).netloc.strip().lower()
+    except Exception:
+        origin_host = ""
+    if origin_host and host and origin_host == host:
+        return True
+    if origin in _configured_allowed_origins():
+        return True
+    raise HTTPException(
+        status_code=403,
+        detail="Origin не совпадает с адресом хаба: межсайтовый запрос отклонён",
+    )
+
 
 # Коммит и время запуска СНИМАЮТСЯ ОДИН РАЗ, при старте процесса.
 #
@@ -283,7 +341,11 @@ def get_snapshot(authorized: bool = Depends(get_auth_token)):
     return JSONResponse(content=jsonable_encoder(snap_dict))
 
 @app.post("/api/action")
-async def handle_action(request: Request, authorized: bool = Depends(get_auth_token)):
+async def handle_action(
+    request: Request,
+    authorized: bool = Depends(get_auth_token),
+    same_origin: bool = Depends(require_same_origin),
+):
     try:
         data = await request.json()
     except Exception:
@@ -356,7 +418,11 @@ def get_skills_endpoint(authorized: bool = Depends(get_auth_token)):
 
 
 @app.post("/api/skills/assign")
-async def assign_skill_endpoint(request: Request, authorized: bool = Depends(get_auth_token)):
+async def assign_skill_endpoint(
+    request: Request,
+    authorized: bool = Depends(get_auth_token),
+    same_origin: bool = Depends(require_same_origin),
+):
     """Assign a skill to a specific subagent."""
     from antigravity_provider.router.skills_service import SkillsService
     try:
@@ -377,7 +443,11 @@ async def assign_skill_endpoint(request: Request, authorized: bool = Depends(get
 
 
 @app.post("/api/skills/unassign")
-async def unassign_skill_endpoint(request: Request, authorized: bool = Depends(get_auth_token)):
+async def unassign_skill_endpoint(
+    request: Request,
+    authorized: bool = Depends(get_auth_token),
+    same_origin: bool = Depends(require_same_origin),
+):
     """Remove an assigned skill from a subagent."""
     from antigravity_provider.router.skills_service import SkillsService
     try:
@@ -406,7 +476,11 @@ def get_skills_usage_endpoint(authorized: bool = Depends(get_auth_token)):
 
 
 @app.post("/api/skills/diagnose")
-async def diagnose_skill_endpoint(request: Request, authorized: bool = Depends(get_auth_token)):
+async def diagnose_skill_endpoint(
+    request: Request,
+    authorized: bool = Depends(get_auth_token),
+    same_origin: bool = Depends(require_same_origin),
+):
     """Run SkillDoctor diagnostics on a skill by name, filepath, or raw content."""
     from antigravity_provider.router.skills_service import SkillsService
     try:
@@ -456,7 +530,11 @@ def get_compression_history_endpoint(limit: int = 20, authorized: bool = Depends
 
 
 @app.post("/api/compression/test")
-async def test_compression_endpoint(request: Request, authorized: bool = Depends(get_auth_token)):
+async def test_compression_endpoint(
+    request: Request,
+    authorized: bool = Depends(get_auth_token),
+    same_origin: bool = Depends(require_same_origin),
+):
     """Execute test context compression on synthetic benchmark prompt."""
     from antigravity_provider.router.settings_service import get_hub_settings
     from antigravity_provider.router.local_supervisor import LocalSupervisor

@@ -268,7 +268,10 @@ def test_p0_3_stop_running_hub_isolates_user_and_excludes_current_pid(simulated_
     with patch("antigravity_provider.updater.update_manager.sys") as mock_sys:
         mock_sys.platform = "win32" if is_win else "linux"
 
-        with patch("subprocess.run") as mock_run:
+        # На Windows os.getuid не существует; ветка Linux падала бы на нём в
+        # общий except и возвращала «остановлено» никого не остановив. create=True
+        # позволяет подставить его там, где его нет.
+        with patch("os.getuid", return_value=1000, create=True), patch("subprocess.run") as mock_run:
             # wmic и pgrep перечисляют один и тот же набор: чужой PID и свой.
             mock_run.return_value = MagicMock(returncode=0, stdout=f"99999\n{current_pid}\n")
 

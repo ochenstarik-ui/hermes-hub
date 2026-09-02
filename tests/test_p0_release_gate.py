@@ -461,3 +461,163 @@ def test_s4_secret_scanner_ast_detection(tmp_path):
     clean_file.write_text('def hello(): return "world"\n', encoding="utf-8")
     v3 = scan_file_for_secrets(clean_file)
     assert len(v3) == 0
+
+
+# ── HUB-1: ворота публикации не пропускают релиз при любом исходе ──
+
+
+def _load_release_gate():
+    import importlib
+    import sys
+    scripts_dir = str(Path(__file__).resolve().parent.parent / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    import release_gate
+    importlib.reload(release_gate)
+    return release_gate
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    "failure, expected_in_message",
+    [
+        ("network", "недоступен"),
+        ("http_404", "404"),
+        ("no_assets", "ассет"),
+        ("no_checksums", "checksums.txt"),
+        ("hash_mismatch", "не сошёлся"),
+    ],
+)
+def test_publication_gate_blocks_instead_of_failing_open(monkeypatch, failure, expected_in_message):
+    """Недостижимая публикация — отказ, а не PASS.
+
+    Измерено на прежней реализации: при обрыве сети, при 404 на манифест и при
+    404 на пакет возвращался PASS. Ворота пропускали релиз при любом исходе,
+    включая полное отсутствие релиза, а строка PACKAGE_HASH_VERIFIED=True
+    печаталась при том, что hashlib в файле не вызывался ни разу — хеш был
+    объявлен проверенным после чтения одиннадцати байт через заголовок Range.
+    """
+    import urllib.error
+    release_gate = _load_release_gate()
+    monkeypatch.setenv(release_gate.PUBLICATION_MODE_ENV, "1")
+    monkeypatch.setattr(release_gate.sys, "argv", ["release_gate.py"])
+
+    manifest = {
+        "tag_name": "v9.9.9",
+        "assets": [
+            {"name": "HermesHubSetup.exe", "browser_download_url": "https://example.invalid/setup.exe"},
+            {"name": "checksums.txt", "browser_download_url": "https://example.invalid/checksums.txt"},
+        ],
+    }
+    if failure == "no_assets":
+        manifest["assets"] = []
+    if failure == "no_checksums":
+        manifest["assets"] = [manifest["assets"][0]]
+
+    class _Resp:
+        status = 200
+
+        def __init__(self, payload: bytes):
+            self._payload = payload
+
+        def read(self, *_a):
+            payload, self._payload = self._payload, b""
+            return payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    def fake_get(url, timeout=30):
+        if failure == "network":
+            raise urllib.error.URLError("сети нет")
+        if failure == "http_404":
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+        if url.endswith("checksums.txt"):
+            return _Resp(b"%s  HermesHubSetup.exe\n" % (b"a" * 64))
+        if url.endswith("setup.exe"):
+            return _Resp(b"payload-with-a-different-hash")
+        return _Resp(json.dumps(manifest).encode("utf-8"))
+
+    monkeypatch.setattr(release_gate, "_http_get", fake_get)
+
+    ok, msg = release_gate.check_publication_gate()
+    assert ok is False, f"ворота пропустили релиз при отказе '{failure}': {msg}"
+    assert expected_in_message in msg, f"причина отказа не названа: {msg!r}"
+
+
+@pytest.mark.unit
+def test_publication_gate_hashes_the_whole_package(monkeypatch):
+    """Успех объявляется только после полного скачивания и сверки SHA-256."""
+    import hashlib
+    release_gate = _load_release_gate()
+    monkeypatch.setenv(release_gate.PUBLICATION_MODE_ENV, "1")
+    monkeypatch.setattr(release_gate.sys, "argv", ["release_gate.py"])
+
+    package = b"hermes hub installer payload"
+    real_sha = hashlib.sha256(package).hexdigest()
+    read_bytes = {"total": 0}
+
+    class _Resp:
+        status = 200
+
+        def __init__(self, payload: bytes, count: bool = False):
+            self._payload = payload
+            self._count = count
+
+        def read(self, *_a):
+            payload, self._payload = self._payload, b""
+            if self._count:
+                read_bytes["total"] += len(payload)
+            return payload
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_a):
+            return False
+
+    manifest = {
+        "tag_name": "v9.9.9",
+        "assets": [
+            {"name": "HermesHubSetup.exe", "browser_download_url": "https://example.invalid/setup.exe"},
+            {"name": "checksums.txt", "browser_download_url": "https://example.invalid/checksums.txt"},
+        ],
+    }
+
+    def fake_get(url, timeout=30):
+        if url.endswith("checksums.txt"):
+            return _Resp(f"{real_sha}  HermesHubSetup.exe\n".encode("utf-8"))
+        if url.endswith("setup.exe"):
+            return _Resp(package, count=True)
+        return _Resp(json.dumps(manifest).encode("utf-8"))
+
+    monkeypatch.setattr(release_gate, "_http_get", fake_get)
+
+    ok, msg = release_gate.check_publication_gate()
+    assert ok is True, msg
+    assert "PACKAGE_HASH_VERIFIED=True" in msg
+    assert read_bytes["total"] == len(package), (
+        f"пакет должен быть прочитан целиком, прочитано {read_bytes['total']} из {len(package)}"
+    )
+
+
+@pytest.mark.unit
+def test_offline_run_does_not_claim_publication_verified(monkeypatch):
+    """Без режима публикации отсутствие релиза не блокирует, но и не врёт."""
+    import urllib.error
+    release_gate = _load_release_gate()
+    monkeypatch.delenv(release_gate.PUBLICATION_MODE_ENV, raising=False)
+    monkeypatch.setattr(release_gate.sys, "argv", ["release_gate.py"])
+
+    def fake_get(url, timeout=30):
+        raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+    monkeypatch.setattr(release_gate, "_http_get", fake_get)
+
+    ok, msg = release_gate.check_publication_gate()
+    assert ok is True, "обычный прогон CI не должен блокироваться отсутствием релиза"
+    assert "НЕ БЛОКИРУЕТ" in msg
+    assert "PACKAGE_HASH_VERIFIED=True" not in msg, "непроверенное не должно объявляться проверенным"
