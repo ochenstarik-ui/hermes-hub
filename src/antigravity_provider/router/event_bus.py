@@ -24,6 +24,8 @@ EVENT_REFRESH_STARTED = "REFRESH_STARTED"
 EVENT_REFRESH_COMPLETED = "REFRESH_COMPLETED"
 EVENT_REFRESH_FAILED = "REFRESH_FAILED"
 
+EVENT_AGY_ELIGIBILITY_CHANGED = "AGY_ELIGIBILITY_CHANGED"
+
 
 class EventBus:
     """Central thread-safe EventBus for decoupling backend state changes from UI rendering."""

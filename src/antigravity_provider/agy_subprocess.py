@@ -904,25 +904,26 @@ def find_terminal_emulator(
     profile_id: str,
     agy_exe: str,
     profile_dir: Path,
+    title: str | None = None,
 ) -> tuple[list[str] | None, str | None, list[str]]:
     """Locate an available GUI terminal emulator on the host system to run native agy CLI login.
 
     Returns:
         (command_args, error_message, checked_candidates)
     """
-    title = f"Antigravity Login ({profile_id})"
+    term_title = title or f"Antigravity Login ({profile_id})"
 
     if _is_windows():
         checked = ["Windows Terminal (wt.exe)", "cmd.exe", "powershell.exe"]
         wt_path = shutil.which("wt.exe") or shutil.which("wt")
         if wt_path:
-            cmd = [wt_path, "-w", "0", "nt", "-d", str(profile_dir), "--title", title, agy_exe]
+            cmd = [wt_path, "-w", "0", "nt", "-d", str(profile_dir), "--title", term_title, agy_exe]
             return cmd, None, checked
 
         cmd_path = shutil.which("cmd.exe") or shutil.which("cmd") or "cmd.exe"
         # /k вместо /c: иначе окно исчезает вместе с agy и причина отказа
         # остаётся непрочитанной.
-        cmd = [cmd_path, "/c", "start", title, "cmd", "/k", agy_exe]
+        cmd = [cmd_path, "/c", "start", term_title, "cmd", "/k", agy_exe]
         return cmd, None, checked
 
     # Linux / Unix / macOS
@@ -946,16 +947,16 @@ def find_terminal_emulator(
     # уже работающему экземпляру и наш процесс умирает, не открыв окна, —
     # именно это владелец и увидел.
     candidates: list[tuple[str, Any]] = [
-        ("xfce4-terminal", lambda p: [p, "--disable-server", "--title", title, "-e", launch]),
-        ("konsole", lambda p: [p, "-p", f"tabtitle={title}", "-e", launch]),
-        ("tilix", lambda p: [p, "-t", title, "-e", launch]),
-        ("alacritty", lambda p: [p, "-t", title, "-e", launch]),
-        ("kitty", lambda p: [p, "--title", title, launch]),
-        ("terminator", lambda p: [p, "-T", title, "-e", launch]),
-        ("urxvt", lambda p: [p, "-title", title, "-e", launch]),
-        ("foot", lambda p: [p, "--title", title, launch]),
-        ("xterm", lambda p: [p, "-title", title, "-e", launch]),
-        ("gnome-terminal", lambda p: [p, "--title", title, "--", launch]),
+        ("xfce4-terminal", lambda p: [p, "--disable-server", "--title", term_title, "-e", launch]),
+        ("konsole", lambda p: [p, "-p", f"tabtitle={term_title}", "-e", launch]),
+        ("tilix", lambda p: [p, "-t", term_title, "-e", launch]),
+        ("alacritty", lambda p: [p, "-t", term_title, "-e", launch]),
+        ("kitty", lambda p: [p, "--title", term_title, launch]),
+        ("terminator", lambda p: [p, "-T", term_title, "-e", launch]),
+        ("urxvt", lambda p: [p, "-title", term_title, "-e", launch]),
+        ("foot", lambda p: [p, "--title", term_title, launch]),
+        ("xterm", lambda p: [p, "-title", term_title, "-e", launch]),
+        ("gnome-terminal", lambda p: [p, "--title", term_title, "--", launch]),
         ("x-terminal-emulator", lambda p: [p, "-e", launch]),
     ]
 
@@ -975,6 +976,93 @@ def find_terminal_emulator(
         "(например, gnome-terminal, xfce4-terminal или xterm)."
     )
     return None, err_msg, checked
+
+
+def write_terminal_script_helper(
+    work_dir: Path,
+    command_args: list[str],
+    title: str,
+    env_vars: dict[str, str] | None = None,
+) -> Path:
+    """Создать исполняемый сценарий запуска в терминале с удержанием окна."""
+    work_dir.mkdir(parents=True, exist_ok=True)
+    helper_path = work_dir / f".hermes-task-{secrets.token_hex(4)}.sh"
+    cmd_str = " ".join(shlex.quote(a) for a in command_args)
+    lines = [
+        "#!/bin/sh",
+        f"# Hermes Hub terminal helper: {title}",
+    ]
+    if env_vars:
+        for k, v in sorted(env_vars.items()):
+            lines.append(f"{k}={shlex.quote(v)}")
+        lines.append("export " + " ".join(sorted(env_vars.keys())))
+    lines += [
+        f"cd {shlex.quote(str(work_dir))} || exit 1",
+        f'echo "=== {title} ==="',
+        'echo',
+        cmd_str,
+        "status=$?",
+        'echo',
+        'echo "Команда завершилась с кодом $status. Окно можно закрыть."',
+        'printf "Нажмите Enter... "',
+        "read _ignored",
+    ]
+    helper_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    try:
+        os.chmod(helper_path, 0o700)
+    except OSError:
+        pass
+    return helper_path
+
+
+def launch_terminal_task(
+    title: str,
+    command_args: list[str],
+    work_dir: Path | None = None,
+    env_overrides: dict[str, str] | None = None,
+) -> tuple[bool, str, dict[str, Any]]:
+    """Запустить команду в терминале через find_terminal_emulator."""
+    from antigravity_provider.paths import get_hermes_home
+
+    wdir = work_dir or get_hermes_home()
+    wdir.mkdir(parents=True, exist_ok=True)
+
+    script_path = str(write_terminal_script_helper(wdir, command_args, title, env_vars=env_overrides))
+    term_cmd, err_msg, checked = find_terminal_emulator("task", script_path, wdir, title=title)
+    if err_msg or not term_cmd:
+        return False, err_msg or "Терминал не найден", {"checked_terminals": checked}
+
+    session_env, _checked = detect_graphical_session()
+    env = build_safe_subprocess_env(overrides=dict(session_env))
+    if env_overrides:
+        env.update(env_overrides)
+
+    try:
+        proc = subprocess.Popen(
+            term_cmd,
+            env=env,
+            cwd=str(wdir),
+            stdin=None,
+            stdout=None,
+            stderr=None,
+        )
+        time.sleep(1.0)
+        exit_code = proc.poll()
+        if isinstance(exit_code, int) and exit_code != 0:
+            return False, f"Терминал {term_cmd[0]} завершился сразу с кодом {exit_code}", {
+                "checked_terminals": checked,
+                "terminal_cmd": term_cmd[0],
+                "exit_code": exit_code,
+            }
+    except Exception as exc:
+        return False, f"Не удалось запустить терминал ({term_cmd[0]}): {exc}", {
+            "checked_terminals": checked,
+        }
+
+    return True, f"Команда «{title}» успешно запущена в терминале", {
+        "terminal_cmd": term_cmd[0],
+        "work_dir": str(wdir),
+    }
 
 
 class NativeAgySession:

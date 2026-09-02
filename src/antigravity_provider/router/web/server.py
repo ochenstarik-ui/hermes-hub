@@ -258,6 +258,21 @@ def get_snapshot(authorized: bool = Depends(get_auth_token)):
         "config_dir": str(paths.get_config_dir()),
         "log_file": str(paths.get_log_file()),
     }
+    try:
+        from antigravity_provider.router.agy_eligibility_service import AgyEligibilityService
+        snap_dict["agy_eligibility"] = AgyEligibilityService.get().check_eligibility_state(force=False)
+    except Exception as exc:
+        snap_dict["agy_eligibility"] = {
+            "status": "unknown",
+            "status_label_ru": f"Н/Д: {exc}",
+            "detail_ru": str(exc),
+            "version": "Н/Д",
+            "binary_path": "",
+            "binary_sha256": "",
+            "binary_size_bytes": 0,
+            "checked_at": time.time(),
+            "patch_script_path": "",
+        }
     return JSONResponse(content=jsonable_encoder(snap_dict))
 
 @app.post("/api/action")
@@ -523,6 +538,21 @@ def get_settings(authorized: bool = Depends(get_auth_token)):
             ),
         },
     }
+    try:
+        from antigravity_provider.router.agy_eligibility_service import AgyEligibilityService
+        settings_out["agy_eligibility"] = AgyEligibilityService.get().check_eligibility_state(force=False)
+    except Exception as exc:
+        settings_out["agy_eligibility"] = {
+            "status": "unknown",
+            "status_label_ru": f"Н/Д: {exc}",
+            "detail_ru": str(exc),
+            "version": "Н/Д",
+            "binary_path": "",
+            "binary_sha256": "",
+            "binary_size_bytes": 0,
+            "checked_at": time.time(),
+            "patch_script_path": "",
+        }
     for k, v in raw.items():
         if k not in settings_out and not any(secret in k.lower() for secret in ['token', 'secret', 'key', 'password', 'jwt']):
             settings_out[k] = v
