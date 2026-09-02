@@ -9,9 +9,11 @@ Verifies:
 """
 from __future__ import annotations
 
+import contextlib
 import io
 import json
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -249,23 +251,41 @@ def test_p0_2_sha256_mismatch_aborts_and_sets_failed_status(tmp_path, monkeypatc
 
 
 # ── TEST 5: P0-3 Process Isolation stop_running_hub ──
+@pytest.mark.parametrize("simulated_os", ["linux", "windows"])
 @pytest.mark.unit
-def test_p0_3_stop_running_hub_isolates_user_and_excludes_current_pid():
-    """stop_running_hub filters by current UID on Linux and never targets own PID."""
+def test_p0_3_stop_running_hub_isolates_user_and_excludes_current_pid(simulated_os):
+    """Чужие процессы хаба останавливаются, собственный — никогда.
+
+    Проверяется на обеих ветках, а не на той, где случился прогон. Ветки
+    останавливают процессы по-разному: на Linux — os.kill по списку от pgrep,
+    на Windows — taskkill по списку от wmic. Тест знал только про первую и на
+    Windows-раннере падал на пустом списке убитых, хотя проверять надо один и
+    тот же инвариант — «свой PID не трогаем».
+    """
     current_pid = os.getpid()
+    is_win = simulated_os == "windows"
 
-    # Mock subprocess.run for pgrep
-    with patch("subprocess.run") as mock_run:
-        # Simulate pgrep returning other PID and own PID
-        mock_run.return_value = MagicMock(returncode=0, stdout=f"99999 {current_pid}\n")
+    with patch("antigravity_provider.updater.update_manager.sys") as mock_sys:
+        mock_sys.platform = "win32" if is_win else "linux"
 
-        with patch("os.kill") as mock_kill:
-            stop_running_hub(timeout_sec=0.1)
+        with patch("subprocess.run") as mock_run:
+            # wmic и pgrep перечисляют один и тот же набор: чужой PID и свой.
+            mock_run.return_value = MagicMock(returncode=0, stdout=f"99999\n{current_pid}\n")
 
-            # Check that kill was called on 99999 but NEVER on current_pid
-            killed_pids = [call.args[0] for call in mock_kill.call_args_list]
-            assert 99999 in killed_pids
-            assert current_pid not in killed_pids, "stop_running_hub must never kill current PID"
+            with patch("os.kill") as mock_kill:
+                stop_running_hub(timeout_sec=0.1)
+
+                if is_win:
+                    killed_pids = [
+                        int(call.args[0][-1])
+                        for call in mock_run.call_args_list
+                        if call.args and call.args[0] and call.args[0][0] == "taskkill"
+                    ]
+                else:
+                    killed_pids = [call.args[0] for call in mock_kill.call_args_list]
+
+    assert 99999 in killed_pids, f"[{simulated_os}] чужой процесс хаба не остановлен: {killed_pids}"
+    assert current_pid not in killed_pids, f"[{simulated_os}] остановлен собственный процесс"
 
 
 # ── TEST 6: P0-3 apply_update_sync Rollback on Corruption ──
@@ -381,45 +401,73 @@ def test_p0_4_failed_install_records_nothing_and_names_exit_code(tmp_path, monke
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     monkeypatch.setenv("HERMES_HUB_DEV_MODE", "1")
 
-    installer = tmp_path / "hermes-hub-setup.sh"
-    installer.write_bytes(b"#!/bin/bash\nexit 3\n")
-    sha = hashlib.sha256(installer.read_bytes()).hexdigest()
+    with platform_installer(tmp_path, exit_code=3) as (asset_name, installer):
+        sha = hashlib.sha256(installer.read_bytes()).hexdigest()
 
-    check_result = UpdateCheckResult(
-        update_available=True,
-        current_version="0.1.3",
-        latest_version="0.1.4",
-        latest_commit="deadbeefdeadbeef",
-        installed_commit="0000000aaaa",
-        assets={
-            "hermes-hub-setup.sh": f"file://{installer}",
-            "checksums.txt": "file:///nonexistent",
-        },
-    )
+        check_result = UpdateCheckResult(
+            update_available=True,
+            current_version="0.1.3",
+            latest_version="0.1.4",
+            latest_commit="deadbeefdeadbeef",
+            installed_commit="0000000aaaa",
+            assets={
+                asset_name: f"file://{installer}",
+                "checksums.txt": "file:///nonexistent",
+            },
+        )
 
-    mgr = UpdateManager()
-    real_download = UpdateManager._download_file
+        mgr = UpdateManager()
+        real_download = UpdateManager._download_file
 
-    def fake_download(self, url, dest, progress_cb=None):
-        if dest.name == "checksums.txt":
-            dest.write_text(f"{sha}  hermes-hub-setup.sh\n", encoding="utf-8")
-            return
-        return real_download(self, url, dest, progress_cb)
+        def fake_download(self, url, dest, progress_cb=None):
+            if dest.name == "checksums.txt":
+                dest.write_text(f"{sha}  {asset_name}\n", encoding="utf-8")
+                return
+            return real_download(self, url, dest, progress_cb)
 
-    with patch.object(UpdateManager, "_download_file", fake_download):
-        with patch("antigravity_provider.updater.update_manager.stop_running_hub", return_value=True):
-            ok, msg = mgr.install_latest_update(check_result=check_result)
+        with patch.object(UpdateManager, "_download_file", fake_download):
+            with patch("antigravity_provider.updater.update_manager.stop_running_hub", return_value=True):
+                ok, msg = mgr.install_latest_update(check_result=check_result)
 
     assert ok is False
     assert get_last_applied_update() is None, (
         "После провалившейся установки записи о применённом обновлении быть не должно"
     )
-    assert "код 3" in msg, f"Причина отказа должна называть код возврата, получено: {msg!r}"
+    # Проверяется, что код назван, а не как он склоняется: ветки формулируют
+    # по-разному («код 3» и «кодом 3»), инвариант же один.
+    assert re.search(r"код\w*\s+3", msg), (
+        f"Причина отказа должна называть код возврата, получено: {msg!r}"
+    )
 
     prog = UpdateManager.get_progress_dict()
     assert prog["status"] == "failed"
 
     UpdateManager._set_progress(status="idle", message="Готов к обновлению")
+
+
+# ── Установщик под ту систему, на которой идёт прогон ──
+#
+# Ветки установки различаются: на Windows выбирается HermesHubSetup.exe и
+# запускается через Popen, на Linux — hermes-hub-setup.sh через bash. Тесты
+# ниже проверяют не установщик, а учёт его результата, поэтому подставляется
+# тот файл, который данная система действительно выбирает. Раньше в них был
+# зашит bash-скрипт, и на Windows-раннере установка отвечала «в релизе не
+# найден подходящий файл обновления» — падало допущение теста, не продукт.
+
+@contextlib.contextmanager
+def platform_installer(tmp_path, exit_code: int):
+    """Отдать (имя ассета, путь) и заставить установщик вернуть exit_code."""
+    if sys.platform == "win32":
+        installer = tmp_path / "HermesHubSetup.exe"
+        # Содержимое не исполняется: запуск подменён, проверяется учёт кода.
+        installer.write_bytes(b"MZ\x90\x00 hermes hub test installer\n")
+        with patch("subprocess.Popen") as mock_popen:
+            mock_popen.return_value = MagicMock(wait=MagicMock(return_value=exit_code))
+            yield "HermesHubSetup.exe", installer
+    else:
+        installer = tmp_path / "hermes-hub-setup.sh"
+        installer.write_bytes(f"#!/bin/bash\nexit {exit_code}\n".encode("utf-8"))
+        yield "hermes-hub-setup.sh", installer
 
 
 # ── TEST 10: P0-4 успешная установка запись всё-таки делает ──
@@ -431,35 +479,34 @@ def test_p0_4_successful_install_records_previous_and_new_build(tmp_path, monkey
     monkeypatch.setenv("HERMES_HOME", str(tmp_path / "hermes"))
     monkeypatch.setenv("HERMES_HUB_DEV_MODE", "1")
 
-    installer = tmp_path / "hermes-hub-setup.sh"
-    installer.write_bytes(b"#!/bin/bash\nexit 0\n")
-    sha = hashlib.sha256(installer.read_bytes()).hexdigest()
+    with platform_installer(tmp_path, exit_code=0) as (asset_name, installer):
+        sha = hashlib.sha256(installer.read_bytes()).hexdigest()
 
-    check_result = UpdateCheckResult(
-        update_available=True,
-        current_version="0.1.3",
-        latest_version="0.1.4",
-        latest_commit="deadbeefdeadbeef",
-        installed_commit="0000000aaaa",
-        assets={
-            "hermes-hub-setup.sh": f"file://{installer}",
-            "checksums.txt": "file:///nonexistent",
-        },
-    )
+        check_result = UpdateCheckResult(
+            update_available=True,
+            current_version="0.1.3",
+            latest_version="0.1.4",
+            latest_commit="deadbeefdeadbeef",
+            installed_commit="0000000aaaa",
+            assets={
+                asset_name: f"file://{installer}",
+                "checksums.txt": "file:///nonexistent",
+            },
+        )
 
-    mgr = UpdateManager()
-    real_download = UpdateManager._download_file
+        mgr = UpdateManager()
+        real_download = UpdateManager._download_file
 
-    def fake_download(self, url, dest, progress_cb=None):
-        if dest.name == "checksums.txt":
-            dest.write_text(f"{sha}  hermes-hub-setup.sh\n", encoding="utf-8")
-            return
-        return real_download(self, url, dest, progress_cb)
+        def fake_download(self, url, dest, progress_cb=None):
+            if dest.name == "checksums.txt":
+                dest.write_text(f"{sha}  {asset_name}\n", encoding="utf-8")
+                return
+            return real_download(self, url, dest, progress_cb)
 
-    with patch.object(UpdateManager, "_download_file", fake_download):
-        with patch("antigravity_provider.updater.update_manager.stop_running_hub", return_value=True):
-            with patch.object(UpdateManager, "schedule_restart", return_value=(True, "перезапуск запущен")):
-                ok, msg = mgr.install_latest_update(check_result=check_result)
+        with patch.object(UpdateManager, "_download_file", fake_download):
+            with patch("antigravity_provider.updater.update_manager.stop_running_hub", return_value=True):
+                with patch.object(UpdateManager, "schedule_restart", return_value=(True, "перезапуск запущен")):
+                    ok, msg = mgr.install_latest_update(check_result=check_result)
 
     assert ok is True
     rec = get_last_applied_update()
