@@ -1364,6 +1364,16 @@ class ActionExecutor:
             status = mgr.get_status_dict()
             return {'ok': True, 'message': status.get('message') or 'Статус получен', 'data': status}
 
+        elif action == 'get_update_progress':
+            mgr = UpdateManager()
+            progress = mgr.get_progress_dict()
+            return {'ok': True, 'message': progress.get('message') or 'Ход обновления', 'data': progress}
+
+        elif action == 'cancel_update':
+            mgr = UpdateManager()
+            progress = mgr.cancel_download()
+            return {'ok': True, 'message': 'Загрузка обновления отменена', 'data': progress}
+
         elif action == 'run_preflight':
             from antigravity_provider.router.preflight_service import PreflightCheckService
             service = PreflightCheckService.get()

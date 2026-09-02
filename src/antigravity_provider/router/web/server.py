@@ -23,7 +23,13 @@ from antigravity_provider.router.state_store import HubStateStore
 from antigravity_provider.router.action_handler import ActionExecutor
 from antigravity_provider.router.router_config import load_router_config
 
-from antigravity_provider.updater.update_manager import get_installed_commit, get_installed_build_time, UpdateManager
+from antigravity_provider.updater.update_manager import (
+    get_installed_commit,
+    get_installed_build_time,
+    get_last_applied_update,
+    acknowledge_last_applied_update,
+    UpdateManager,
+)
 
 logger = logging.getLogger("hermes.router.web")
 
@@ -258,6 +264,8 @@ def get_snapshot(authorized: bool = Depends(get_auth_token)):
         "config_dir": str(paths.get_config_dir()),
         "log_file": str(paths.get_log_file()),
     }
+    from antigravity_provider.updater.update_manager import get_last_applied_update
+    snap_dict["last_applied_update"] = get_last_applied_update()
     return JSONResponse(content=jsonable_encoder(snap_dict))
 
 @app.post("/api/action")
@@ -512,6 +520,7 @@ def get_settings(authorized: bool = Depends(get_auth_token)):
         "installed_at": get_installed_build_time(),
         "version": __version__,
         "last_update_check": last_check.to_dict() if last_check else None,
+        "last_applied_update": get_last_applied_update(),
         "network_security": {
             "is_external_bind": is_external,
             "is_tls": False,
@@ -668,6 +677,26 @@ def _background_refresh_loop() -> None:
         logger.info("Initial update check completed in background")
     except Exception as exc:
         logger.debug("Initial background update check skipped: %s", exc)
+
+    # Check if update was just applied and log event to EventLogService
+    try:
+        from antigravity_provider.updater.update_manager import get_last_applied_update, acknowledge_last_applied_update
+        from antigravity_provider.router.unified_health import EventLogService
+        applied = get_last_applied_update()
+        if applied and not applied.get("acknowledged"):
+            prev_v = applied.get("prev_version", "unknown")
+            prev_c = (applied.get("prev_commit") or "unknown")[:7]
+            new_v = applied.get("new_version", "unknown")
+            new_c = (applied.get("new_commit") or "unknown")[:7]
+            EventLogService.get().log(
+                "system",
+                f"Hermes Hub успешно обновлён с {prev_v} ({prev_c}) до {new_v} ({new_c})",
+                level="info",
+            )
+            acknowledge_last_applied_update()
+            logger.info("Recorded post-update event in EventLogService: %s -> %s", prev_c, new_c)
+    except Exception as exc:
+        logger.debug("Check last_applied_update on startup skipped: %s", exc)
 
     while not _background_stop.is_set():
         try:

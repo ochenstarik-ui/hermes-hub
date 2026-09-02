@@ -195,7 +195,7 @@ function initEventListeners() {
 
   const btnApplyUpdate = document.getElementById('btn-apply-update');
   if (btnApplyUpdate) {
-    btnApplyUpdate.addEventListener('click', () => applyUpdate());
+    btnApplyUpdate.addEventListener('click', () => openUpdateModal('details'));
   }
 
   // Preflight check listener
@@ -549,6 +549,8 @@ async function saveAuthTokenFromPrompt() {
 // сам себя. Поэтому опросы не только молчат, но и не дёргают снапшот.
 const SILENT_ACTIONS = new Set([
   'get_compression_status',
+  'get_update_progress',
+  'cancel_update',
   'poll_native_auth', 'poll_native_agy_login', 'poll_terminal_auth',
   'poll_redirect_auth', 'poll_device_auth',
 ]);
@@ -2364,6 +2366,7 @@ function closeModal() {
   stopDeviceAuthPolling();
   // Опрос входа по ссылке иначе продолжал бы стучать в закрытое окно.
   stopRedirectAuthPolling();
+  stopUpdateProgressPolling();
   if (elements.modalBackdrop) elements.modalBackdrop.classList.add('hidden');
 }
 
@@ -2429,7 +2432,33 @@ function applyTheme(theme) {
   }
 }
 
-// ── UPDATE MANAGEMENT (P0-1 / In-App Updates) ──
+// ── UPDATE MANAGEMENT (A59 / In-App Updates) ──
+let updateProgressInterval = null;
+
+function stopUpdateProgressPolling() {
+  if (updateProgressInterval) {
+    clearInterval(updateProgressInterval);
+    updateProgressInterval = null;
+  }
+}
+
+function checkPostUpdateNotification() {
+  const applied = (currentSnapshot && currentSnapshot.last_applied_update) || (currentSettings && currentSettings.last_applied_update);
+  if (!applied || !applied.new_commit) return;
+  const key = 'hermes_notified_update_' + (applied.new_commit || applied.new_version);
+  if (!localStorage.getItem(key)) {
+    const prevC = applied.prev_commit ? applied.prev_commit.slice(0, 7) : '—';
+    const newC = applied.new_commit ? applied.new_commit.slice(0, 7) : '—';
+    const newV = applied.new_version || '0.1.3';
+    showToast(
+      `Hermes Hub успешно обновлён до версии ${newV} (сборка ${newC}). Предыдущая сборка: ${prevC}`,
+      'success',
+      10000
+    );
+    localStorage.setItem(key, '1');
+  }
+}
+
 async function checkUpdates(silent = false) {
   if (!silent) {
     showToast('Проверка обновлений...', 'info');
@@ -2439,11 +2468,20 @@ async function checkUpdates(silent = false) {
     if (res && res.ok && res.data) {
       latestUpdateInfo = res.data;
       renderUpdateUI();
-      if (!silent) {
-        if (res.data.update_available) {
+      if (res.data.update_available) {
+        const versionKey = res.data.latest_commit ? res.data.latest_commit.slice(0, 7) : (res.data.latest_version || res.data.release_tag || '');
+        if (silent) {
+          const dismissed = localStorage.getItem('hermes_dismissed_update_' + versionKey);
+          if (!dismissed) {
+            openUpdateModal('details');
+          }
+        } else {
           const c = res.data.latest_commit ? res.data.latest_commit.slice(0, 7) : (res.data.release_tag || 'new');
           showToast(`Доступно обновление (сборка ${c})`, 'info');
-        } else {
+          openUpdateModal('details');
+        }
+      } else {
+        if (!silent) {
           showToast(res.data.message || 'Установлена последняя сборка', 'success');
         }
       }
@@ -2468,14 +2506,6 @@ function renderUpdateUI() {
   const badgeText = document.getElementById('header-update-text');
   const commitTag = document.getElementById('commit-tag');
 
-  // Первым источником — снапшот работающего сервера: он приходит всегда, а
-  // панель обновлений заполняется только при её открытии. На Linux строка
-  // сборки поэтому оставалась пустой, и понять, дошло ли обновление, было
-  // нельзя.
-  //
-  // Берём running_commit — коммит, снятый при СТАРТЕ процесса. Поле commit
-  // читается с диска при каждом запросе, и переживший обновление процесс
-  // рапортует им свежий номер при старом поведении.
   const runningCommit = (currentSnapshot && currentSnapshot.running_commit) || '';
   const installedCommit = runningCommit
     || (latestUpdateInfo && latestUpdateInfo.installed_commit && latestUpdateInfo.installed_commit !== 'unknown'
@@ -2513,9 +2543,6 @@ function renderUpdateUI() {
   const releaseMeta = document.getElementById('update-release-meta');
   const releaseNotes = document.getElementById('update-release-notes');
 
-  // Версия берётся ТОЛЬКО из API. Раньше номер был зашит в разметке и в
-  // запасном значении: подъём версии в коде до интерфейса не доходил, и
-  // владелец видел старый номер при новой сборке.
   const curVer = (latestUpdateInfo && latestUpdateInfo.current_version) || (currentSettings && currentSettings.version) || '';
   const cDisplay = installedCommit ? installedCommit.slice(0, 7) : 'неизвестно';
   if (updateInfoDesc) {
@@ -2573,9 +2600,11 @@ function renderUpdateUI() {
       detailsBlock.classList.add('hidden');
     }
   }
+
+  checkPostUpdateNotification();
 }
 
-function openUpdateModal() {
+function openUpdateModal(mode = 'details') {
   if (!latestUpdateInfo) {
     checkUpdates(false);
     return;
@@ -2585,62 +2614,196 @@ function openUpdateModal() {
     ? latestUpdateInfo.installed_commit.slice(0, 7)
     : 'неизвестно';
   const latC = latestUpdateInfo.latest_commit ? latestUpdateInfo.latest_commit.slice(0, 7) : (latestUpdateInfo.release_tag || '—');
+  const curVer = latestUpdateInfo.current_version || (currentSettings && currentSettings.version) || '0.1.3';
+  const newVer = latestUpdateInfo.latest_version || latestUpdateInfo.release_tag || curVer;
+  const versionKey = latestUpdateInfo.latest_commit ? latestUpdateInfo.latest_commit.slice(0, 7) : (latestUpdateInfo.latest_version || latestUpdateInfo.release_tag || '');
 
-  if (elements.modalTitle) elements.modalTitle.textContent = 'Обновление Hermes Hub';
-  if (elements.modalBody) {
-    elements.modalBody.innerHTML = `
-      <div class="update-modal-body">
-        <div style="display:flex; justify-content:space-between; margin-bottom:12px; padding:10px; background:var(--surface-muted); border-radius:var(--radius-sm);">
-          <div>
-            <div style="font-size:11px; color:var(--text-muted);">Текущая сборка:</div>
-            <div style="font-weight:600; font-family:var(--font-mono); font-size:13px;">${escapeHtml(instC)}</div>
-          </div>
-          <div style="text-align:right;">
-            <div style="font-size:11px; color:var(--text-muted);">Новая сборка:</div>
-            <div style="font-weight:600; font-family:var(--font-mono); font-size:13px; color:var(--status-warning);">${escapeHtml(latC)}</div>
-          </div>
-        </div>
-        <div style="margin-bottom:8px; font-size:12px; color:var(--text-muted);">
-          Тег: <strong>${escapeHtml(latestUpdateInfo.release_tag || latestUpdateInfo.latest_version || '—')}</strong>
-          ${latestUpdateInfo.published_at ? ` &bull; Дата: ${escapeHtml(latestUpdateInfo.published_at)}` : ''}
-        </div>
-        <div style="font-weight:600; font-size:12px; margin-bottom:4px;">Список изменений (Release Notes):</div>
-        <div style="max-height:200px; overflow-y:auto; font-size:12px; line-height:1.4; white-space:pre-wrap; background:var(--surface-muted); padding:10px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); font-family:var(--font-mono);">
-          ${escapeHtml(latestUpdateInfo.changelog || latestUpdateInfo.release_notes || 'Описание изменений отсутствует.')}
-        </div>
-      </div>
-    `;
+  // Блок «Что нового»: брать из changelog / release_notes; если пусто — выводить Н/Д: описание не приложено
+  const rawNotes = (latestUpdateInfo.changelog || latestUpdateInfo.release_notes || '').trim();
+  const notesText = rawNotes || 'Н/Д: описание не приложено';
+
+  // Размер загрузки: размер файла из assets / заголовков; если неизвестен — Н/Д: размер не указан
+  let sizeText = 'Н/Д: размер не указан';
+  if (latestUpdateInfo.download_size && latestUpdateInfo.download_size > 0) {
+    sizeText = (latestUpdateInfo.download_size / 1048576).toFixed(1) + ' МБ';
+  } else if (latestUpdateInfo.asset_sizes) {
+    const sizes = Object.values(latestUpdateInfo.asset_sizes);
+    if (sizes.length > 0 && sizes[0] > 0) {
+      sizeText = (sizes[0] / 1048576).toFixed(1) + ' МБ';
+    }
   }
-  if (elements.modalFooter) {
-    elements.modalFooter.innerHTML = `
-      <button class="btn btn-secondary" onclick="closeModal()">Закрыть</button>
-      <button class="btn btn-primary" id="btn-modal-install-update" onclick="handleInstallUpdateFromModal()">Установить обновление</button>
-    `;
+
+  if (elements.modalTitle) elements.modalTitle.textContent = 'Доступно обновление Hermes Hub';
+
+  if (mode === 'details') {
+    if (elements.modalBody) {
+      elements.modalBody.innerHTML = `
+        <div class="update-modal-body">
+          <div style="display:flex; justify-content:space-between; margin-bottom:12px; padding:10px; background:var(--surface-muted); border-radius:var(--radius-sm);">
+            <div>
+              <div style="font-size:11px; color:var(--text-muted);">Текущая сборка:</div>
+              <div style="font-weight:600; font-family:var(--font-mono); font-size:13px;">${escapeHtml(curVer)} (${escapeHtml(instC)})</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:11px; color:var(--text-muted);">Новая версия:</div>
+              <div style="font-weight:600; font-family:var(--font-mono); font-size:13px; color:var(--status-warning);">${escapeHtml(newVer)} (${escapeHtml(latC)})</div>
+            </div>
+          </div>
+          <div style="display:flex; justify-content:space-between; margin-bottom:10px; font-size:12px; color:var(--text-muted);">
+            <div>Размер загрузки: <strong style="color:var(--text-primary);">${escapeHtml(sizeText)}</strong></div>
+            ${latestUpdateInfo.published_at ? `<div>Дата: <strong>${escapeHtml(latestUpdateInfo.published_at.slice(0, 10))}</strong></div>` : ''}
+          </div>
+          <div style="font-weight:600; font-size:12px; margin-bottom:4px;">Что нового:</div>
+          <div style="max-height:180px; overflow-y:auto; font-size:12px; line-height:1.4; white-space:pre-wrap; background:var(--surface-muted); padding:10px; border-radius:var(--radius-sm); border:1px solid var(--border-subtle); font-family:var(--font-mono); margin-bottom:12px;">${escapeHtml(notesText)}</div>
+        </div>
+      `;
+    }
+    if (elements.modalFooter) {
+      elements.modalFooter.innerHTML = `
+        <button class="btn btn-secondary" id="btn-modal-dismiss-update" onclick="dismissUpdateModal('${escapeHtml(versionKey)}')">Напомнить позже</button>
+        <button class="btn btn-primary" id="btn-modal-start-update" onclick="startUpdateProcess()">Обновить сейчас</button>
+      `;
+    }
+  } else if (mode === 'progress') {
+    if (elements.modalTitle) elements.modalTitle.textContent = 'Обновление Hermes Hub';
+    renderUpdateProgressView({
+      status: 'downloading',
+      filename: '',
+      downloaded_bytes: 0,
+      total_bytes: null,
+      progress_percent: null,
+      message: 'Подготовка к загрузке пакета обновления...',
+    });
   }
   showModal();
 }
 
-async function handleInstallUpdateFromModal() {
-  const btn = document.getElementById('btn-modal-install-update');
-  if (btn) {
-    btn.disabled = true;
-    btn.textContent = 'Установка...';
+function dismissUpdateModal(versionKey) {
+  if (versionKey) {
+    localStorage.setItem('hermes_dismissed_update_' + versionKey, '1');
   }
-  await applyUpdate();
   closeModal();
 }
 
-async function applyUpdate() {
-  showToast('Загрузка и запуск обновления...', 'info');
+async function startUpdateProcess() {
+  openUpdateModal('progress');
+  executeAction('apply_update', {});
+  stopUpdateProgressPolling();
+  updateProgressInterval = setInterval(pollUpdateProgress, 500);
+}
+
+async function pollUpdateProgress() {
   try {
-    const res = await executeAction('apply_update', {});
-    if (res && res.ok) {
-      showToast(res.message || 'Обновление запущено успешно!', 'success');
-    } else {
-      showToast((res && res.message) || 'Ошибка установки обновления', 'error');
+    const res = await executeAction('get_update_progress', {});
+    if (res && res.ok && res.data) {
+      const p = res.data;
+      renderUpdateProgressView(p);
+      if (p.status === 'completed' || p.status === 'failed' || p.status === 'cancelled' || p.status === 'restarting') {
+        stopUpdateProgressPolling();
+      }
     }
   } catch (err) {
-    showToast(`Ошибка установки: ${err.message}`, 'error');
+    console.debug('Failed polling update progress:', err);
+  }
+}
+
+function renderUpdateProgressView(p) {
+  if (!elements.modalBody) return;
+
+  const status = p.status || 'downloading';
+  const filename = p.filename || 'Пакет обновления';
+  const downloaded = p.downloaded_bytes || 0;
+  const total = p.total_bytes;
+  const percent = p.progress_percent;
+  const msg = p.message || '';
+  const error = p.error;
+
+  let progressDetail = '';
+  let barWidth = '0%';
+  let isIndeterminate = false;
+
+  const dlMb = (downloaded / 1048576).toFixed(1);
+  if (total && total > 0) {
+    const totMb = (total / 1048576).toFixed(1);
+    const pctVal = percent !== null && percent !== undefined ? percent.toFixed(1) : ((downloaded / total) * 100).toFixed(1);
+    progressDetail = `${dlMb} МБ из ${totMb} МБ (${pctVal}%)`;
+    barWidth = `${Math.min(100, Math.max(0, percent || (downloaded / total * 100)))}%`;
+  } else {
+    // Honest: no content-length
+    progressDetail = `${dlMb} МБ скачано (Н/Д: сервер не сообщил размер)`;
+    isIndeterminate = true;
+    barWidth = downloaded > 0 ? '100%' : '20%';
+  }
+
+  let statusBadge = `<span class="badge badge-status warning">Загрузка</span>`;
+  if (status === 'verifying') statusBadge = `<span class="badge badge-status warning">Проверка SHA-256</span>`;
+  else if (status === 'installing') statusBadge = `<span class="badge badge-status warning">Установка</span>`;
+  else if (status === 'restarting') statusBadge = `<span class="badge badge-status healthy">Перезапуск</span>`;
+  else if (status === 'completed') statusBadge = `<span class="badge badge-status healthy">Завершено</span>`;
+  else if (status === 'failed') statusBadge = `<span class="badge badge-status danger">Ошибка</span>`;
+  else if (status === 'cancelled') statusBadge = `<span class="badge badge-status">Отменено</span>`;
+
+  elements.modalBody.innerHTML = `
+    <div class="update-progress-body" style="padding:4px 0;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <div style="font-weight:600; font-size:13px; color:var(--text-primary); word-break:break-all;">
+          ${escapeHtml(filename)}
+        </div>
+        <div>${statusBadge}</div>
+      </div>
+
+      <div style="margin-bottom:8px; font-size:12px; color:var(--text-muted);">${escapeHtml(msg)}</div>
+
+      <div style="background:var(--surface-muted); border-radius:var(--radius-sm); overflow:hidden; height:12px; margin-bottom:8px; border:1px solid var(--border-subtle); position:relative;">
+        <div style="background:${status === 'failed' ? 'var(--status-danger)' : (status === 'cancelled' ? 'var(--text-muted)' : 'var(--accent)')}; height:100%; width:${barWidth}; transition:width 0.3s ease; ${isIndeterminate && status === 'downloading' ? 'opacity:0.8;' : ''}"></div>
+      </div>
+
+      <div style="font-size:12px; color:var(--text-muted); font-family:var(--font-mono); margin-bottom:12px; display:flex; justify-content:space-between;">
+        <span>${escapeHtml(progressDetail)}</span>
+      </div>
+
+      ${error ? `
+        <div style="background:rgba(239, 68, 68, 0.1); border:1px solid var(--status-danger); border-radius:var(--radius-sm); padding:10px; font-size:12px; color:var(--status-danger); margin-bottom:12px; white-space:pre-wrap;">
+          ❌ ${escapeHtml(error)}
+        </div>
+      ` : ''}
+
+      ${status === 'restarting' || status === 'completed' ? `
+        <div style="background:rgba(34, 197, 94, 0.1); border:1px solid var(--status-healthy); border-radius:var(--radius-sm); padding:10px; font-size:12px; color:var(--status-healthy); margin-bottom:12px;">
+          ✓ ${escapeHtml(msg || 'Обновление успешно установлено!')}
+        </div>
+      ` : ''}
+    </div>
+  `;
+
+  if (elements.modalFooter) {
+    if (status === 'downloading') {
+      elements.modalFooter.innerHTML = `
+        <button class="btn btn-secondary" id="btn-cancel-update" onclick="cancelUpdateProcess()">Отменить загрузку</button>
+      `;
+    } else if (status === 'failed' || status === 'cancelled') {
+      elements.modalFooter.innerHTML = `
+        <button class="btn btn-secondary" onclick="closeModal()">Закрыть</button>
+        <button class="btn btn-primary" onclick="startUpdateProcess()">Повторить</button>
+      `;
+    } else if (status === 'restarting' || status === 'installing' || status === 'verifying') {
+      elements.modalFooter.innerHTML = `
+        <button class="btn btn-secondary" disabled>Установка в процессе...</button>
+      `;
+    } else {
+      elements.modalFooter.innerHTML = `
+        <button class="btn btn-secondary" onclick="closeModal()">Закрыть</button>
+      `;
+    }
+  }
+}
+
+async function cancelUpdateProcess() {
+  stopUpdateProgressPolling();
+  await executeAction('cancel_update', {});
+  const res = await executeAction('get_update_progress', {});
+  if (res && res.ok && res.data) {
+    renderUpdateProgressView(res.data);
   }
 }
 
