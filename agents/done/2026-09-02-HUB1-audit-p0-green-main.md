@@ -6,20 +6,20 @@
 |---|---|
 | Ветка | `hub/audit-p0-green-main` |
 | `START_HEAD` | `93da1b22fd2e0385f46b71a1e220fa1e4e716545` |
-| `FINAL_HEAD` | `1982342f42283a6c2be91ceed8d8aa2f6e8a2ace` |
+| Последний рабочий коммит | `f061961600dd2eb3d6901cc154dbf5a82456dd14` |
 | `origin/main` на момент сдачи | `93da1b2` (не двигался) |
 | PR | https://github.com/ochenstarik-ui/hermes-hub/pull/2 |
-| Зелёный прогон CI на `FINAL_HEAD` | https://github.com/ochenstarik-ui/hermes-hub/actions/runs/33670815897 |
+| Зелёный прогон CI | https://github.com/ochenstarik-ui/hermes-hub/actions/runs/33729660525 |
 | `git status` | чисто (вне репозитория лежит посторонний `gyoza_shorts.mp4`, не мой и не тронут) |
 
 ### Зелёный CI — все четыре джоба
 
-| Джоб | Итог | Тесты |
-|---|---|---|
-| Clean Runner Test (windows-latest) | **pass** | 774 passed, 3 skipped, 4 deselected |
-| Clean Runner Test (ubuntu-latest) | **pass** | 773 passed, 4 skipped, 4 deselected |
-| Headless Run (windows-latest) | **pass** | 774 passed, 3 skipped, 4 deselected |
-| Headless Run (ubuntu-latest) | **pass** | 773 passed, 4 skipped, 4 deselected |
+| Джоб | Итог |
+|---|---|
+| Clean Runner Test (windows-latest) | **pass** |
+| Clean Runner Test (ubuntu-latest) | **pass** |
+| Headless Run (windows-latest) | **pass** |
+| Headless Run (ubuntu-latest) | **pass** |
 
 `ruff check .` — чисто. Release Gate — PASSED на обеих системах.
 
