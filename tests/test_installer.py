@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import sys
 from pathlib import Path
 import pytest
 
@@ -39,12 +40,22 @@ def test_silent_installer_execution_with_hermes(tmp_path):
     if not SETUP_EXE.is_file():
         pytest.skip("HermesHubSetup.exe not built yet")
 
-    # Set up mock Hermes Agent structure in temp home
+    # Set up mock Hermes Agent structure in temp home pointing to the active venv
     agent_dir = tmp_path / "hermes" / "hermes-agent"
-    venv_scripts = agent_dir / "venv" / "Scripts"
-    venv_scripts.mkdir(parents=True, exist_ok=True)
-    (venv_scripts / "python.exe").touch()
-    (venv_scripts / "hermes.exe").touch()
+    agent_dir.mkdir(parents=True, exist_ok=True)
+    real_venv = Path(sys.prefix)
+    target_venv = agent_dir / "venv"
+    try:
+        import _winapi
+        _winapi.CreateJunction(str(real_venv), str(target_venv))
+    except Exception:
+        try:
+            os.symlink(str(real_venv), str(target_venv), target_is_directory=True)
+        except Exception:
+            venv_scripts = target_venv / "Scripts"
+            venv_scripts.mkdir(parents=True, exist_ok=True)
+            (venv_scripts / "python.exe").touch()
+            (venv_scripts / "hermes.exe").touch()
 
     env = dict(os.environ)
     env["HERMES_HOME"] = str(tmp_path / "hermes")
@@ -54,7 +65,7 @@ def test_silent_installer_execution_with_hermes(tmp_path):
     env["HERMES_HUB_NO_REGISTRY"] = "1"
 
     res = subprocess.run([str(SETUP_EXE), "/silent"], env=env, capture_output=True, text=True)
-    assert res.returncode == 0, f"Expected returncode 0, got {res.returncode}. Stderr: {res.stderr}"
+    assert res.returncode == 0, f"Expected returncode 0, got {res.returncode}. Stderr: {res.stderr}. Stdout: {res.stdout}"
 
 
 @pytest.mark.installer

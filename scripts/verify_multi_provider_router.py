@@ -141,8 +141,9 @@ def run_checks() -> int:
     # Проверяем изоляцию пути, а не побочное создание каталога: запрос пути
     # каталогов больше не плодит, иначе любая проверка засоряла бы диск
     # десятком пустых слотов.
-    pdir = get_profile_env_dir("ag-w2")
-    assert "ag-w2" in str(pdir)
+    probe_id = "ag-probe-isolation-test"
+    pdir = get_profile_env_dir(probe_id)
+    assert probe_id in str(pdir)
     assert "agy_profiles" in str(pdir)
     assert not pdir.exists(), "запрос пути не должен создавать каталог"
     print(f"   [PASS] Profile directory isolated at {pdir} (не создан)")

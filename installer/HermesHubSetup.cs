@@ -18,7 +18,7 @@ namespace HermesHubSetup
         // Подставляется сборщиком из фактического git-коммита. Раньше здесь
         // жил зашитый "8cddc9f", то есть манифест сообщал неправду о том, из
         // какого кода собран установщик.
-        public const string BuildCommit = "e431e39";
+        public const string BuildCommit = "9e2afe1";
         public const string MIN_HERMES_VERSION = "0.20.0";
         public const string MAX_TESTED_HERMES = "0.20.4";
 
@@ -86,7 +86,12 @@ namespace HermesHubSetup
                 }
             }
 
-            string defaultTarget = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\HermesHub");
+            string localAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+            if (string.IsNullOrEmpty(localAppData))
+            {
+                localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            }
+            string defaultTarget = Path.Combine(localAppData, @"Programs\HermesHub");
             TargetInstallDir = defaultTarget;
 
             // Check if already installed
@@ -595,6 +600,7 @@ namespace HermesHubSetup
 
         private static void CreateStartMenuShortcut()
         {
+            if (Environment.GetEnvironmentVariable("HERMES_HUB_NO_REGISTRY") == "1") return;
             try
             {
                 string startMenu = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
@@ -641,6 +647,7 @@ namespace HermesHubSetup
 
         private static void RemoveStartMenuShortcut()
         {
+            if (Environment.GetEnvironmentVariable("HERMES_HUB_NO_REGISTRY") == "1") return;
             try
             {
                 string startMenu = Environment.GetFolderPath(Environment.SpecialFolder.Programs);

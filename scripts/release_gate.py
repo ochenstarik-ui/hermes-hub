@@ -11,7 +11,9 @@ Strictly checks all criteria before allowing a release build:
 """
 from __future__ import annotations
 
+import argparse
 import ast
+import hashlib
 import json
 import os
 import re
@@ -283,7 +285,81 @@ def check_production_update_feed() -> tuple[bool, str]:
     return True, "Production update feed verified"
 
 
-def run_release_gate():
+def check_release_assets(assets_dir: Path | str, min_size: int = 5 * 1024 * 1024) -> tuple[bool, str]:
+    """Verify release assets in assets_dir (HermesHubSetup.exe and checksums.txt)."""
+    p = Path(assets_dir)
+    exe_path = p / "HermesHubSetup.exe"
+    if not exe_path.is_file():
+        return False, f"HermesHubSetup.exe missing in {assets_dir}"
+
+    checksum_file = p / "checksums.txt"
+    if not checksum_file.is_file():
+        return False, f"checksums.txt missing in {assets_dir}"
+
+    size = exe_path.stat().st_size
+    if size < min_size:
+        return False, f"HermesHubSetup.exe size {size} bytes is suspiciously small (< {min_size})"
+
+    expected_hash: str | None = None
+    try:
+        content = checksum_file.read_text(encoding="utf-8-sig", errors="ignore")
+        for line in content.splitlines():
+            line = line.strip().lstrip("\ufeff")
+            if not line or line.startswith("#"):
+                continue
+            parts = [p.lstrip("\ufeff") for p in line.split()]
+            if len(parts) >= 2:
+                target_name = parts[-1].lstrip("*")
+                if target_name.lower() == "hermeshubsetup.exe":
+                    expected_hash = parts[0].strip()
+                    break
+            elif len(parts) == 1 and len(parts[0]) == 64:
+                expected_hash = parts[0].strip()
+                break
+    except Exception as exc:
+        return False, f"Failed to read checksums.txt: {exc}"
+
+    if not expected_hash:
+        return False, f"HermesHubSetup.exe SHA-256 hash not found in {checksum_file.name}"
+
+    hasher = hashlib.sha256()
+    with open(exe_path, "rb") as f:
+        while chunk := f.read(65536):
+            hasher.update(chunk)
+    actual = hasher.hexdigest().lower()
+
+    if actual != expected_hash.lower():
+        return False, f"SHA-256 mismatch: expected {expected_hash}, got {actual}"
+
+    size_mb = size / (1024 * 1024)
+    return True, f"Assets verified: HermesHubSetup.exe ({size_mb:.2f} MB), SHA-256 {actual} matches checksums.txt"
+
+
+def run_assets_gate(assets_dir: str | Path) -> int:
+    print("=" * 70)
+    print(" Hermes Hub - Release Assets Verification Suite")
+    print(f" Target Directory: {assets_dir}")
+    print("=" * 70)
+
+    ok, msg = check_release_assets(assets_dir)
+    if ok:
+        print(f"\n  [ASSETS VERIFIED] {msg}")
+        print("\n" + "=" * 70)
+        print(" [RELEASE GATE: PASSED] Release assets verified.")
+        print("=" * 70)
+        return 0
+    else:
+        print(f"\n  [FAIL] {msg}")
+        print("\n" + "=" * 70)
+        print(" [RELEASE GATE: FAILED] Release assets verification failed.")
+        print("=" * 70)
+        return 1
+
+
+def run_release_gate(assets_dir: str | Path | None = None):
+    if assets_dir:
+        sys.exit(run_assets_gate(assets_dir))
+
     print("=" * 70)
     print(f" Hermes Hub — Release Gate Verification Suite (Target: v{__version__})")
     print("=" * 70)
@@ -319,5 +395,17 @@ def run_release_gate():
         sys.exit(1)
 
 
+def main():
+    parser = argparse.ArgumentParser(description="Hermes Hub — Automated Release Gate & Verification Engine.")
+    parser.add_argument(
+        "--assets",
+        type=str,
+        default=None,
+        help="Verify release assets in specified directory (e.g. dist)",
+    )
+    args = parser.parse_args()
+    run_release_gate(assets_dir=args.assets)
+
+
 if __name__ == "__main__":
-    run_release_gate()
+    main()

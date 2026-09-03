@@ -1001,6 +1001,13 @@ class UpdateManager:
                     chosen_url = a_url
                     break
 
+        if not chosen_url:
+            for s_name in ("hermes-hub-setup.sh", "install-linux.sh", "HermesHubSetup.exe"):
+                if s_name in assets:
+                    chosen_asset_name = s_name
+                    chosen_url = assets[s_name]
+                    break
+
         if not chosen_url and check_result.manifest and check_result.manifest.package_url:
             chosen_url = check_result.manifest.package_url
             chosen_asset_name = Path(chosen_url).name or f"hermes-hub-{check_result.latest_version}.zip"

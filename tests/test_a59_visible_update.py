@@ -250,9 +250,13 @@ def test_p0_2_sha256_mismatch_aborts_and_sets_failed_status(tmp_path, monkeypatc
 
 # ── TEST 5: P0-3 Process Isolation stop_running_hub ──
 @pytest.mark.unit
-def test_p0_3_stop_running_hub_isolates_user_and_excludes_current_pid():
+def test_p0_3_stop_running_hub_isolates_user_and_excludes_current_pid(monkeypatch):
     """stop_running_hub filters by current UID on Linux and never targets own PID."""
     current_pid = os.getpid()
+
+    monkeypatch.setattr("antigravity_provider.updater.update_manager.sys.platform", "linux")
+    if not hasattr(os, "getuid"):
+        monkeypatch.setattr(os, "getuid", lambda: 1000, raising=False)
 
     # Mock subprocess.run for pgrep
     with patch("subprocess.run") as mock_run:

@@ -17,9 +17,14 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 import pytest
+
+SCRIPTS_DIR = Path(__file__).resolve().parent.parent / "scripts"
+if str(SCRIPTS_DIR) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS_DIR))
 
 from antigravity_provider.paths import get_hermes_home, get_profile_dir
 from antigravity_provider.router.auto_assigner import AutoAssigner, CANONICAL_ROLE_MAP
@@ -461,3 +466,125 @@ def test_s4_secret_scanner_ast_detection(tmp_path):
     clean_file.write_text('def hello(): return "world"\n', encoding="utf-8")
     v3 = scan_file_for_secrets(clean_file)
     assert len(v3) == 0
+
+
+# ═══════════════════════════════════════════════════════════════
+#  A61: Release Assets Verification Gate (check_release_assets)
+# ═══════════════════════════════════════════════════════════════
+
+
+@pytest.mark.unit
+def test_check_release_assets_valid(tmp_path):
+    """A61: Verify check_release_assets succeeds on valid HermesHubSetup.exe and checksums.txt."""
+    import hashlib
+    from release_gate import check_release_assets
+
+    assets_dir = tmp_path / "valid_assets"
+    assets_dir.mkdir()
+
+    exe_content = b"MOCK_HERMES_SETUP_EXE_DATA" * (250 * 1024)  # ~6.75 MB (> 5 MB)
+    exe_file = assets_dir / "HermesHubSetup.exe"
+    exe_file.write_bytes(exe_content)
+
+    actual_sha = hashlib.sha256(exe_content).hexdigest()
+    checksum_file = assets_dir / "checksums.txt"
+    checksum_file.write_text(f"{actual_sha.upper()}  HermesHubSetup.exe\n", encoding="utf-8")
+
+    ok, msg = check_release_assets(assets_dir)
+    assert ok is True
+    assert "Assets verified: HermesHubSetup.exe" in msg
+    assert actual_sha in msg
+    assert "matches checksums.txt" in msg
+
+    # Also verify dist/ if present in repo
+    dist_dir = Path(__file__).resolve().parent.parent / "dist"
+    if (dist_dir / "HermesHubSetup.exe").is_file() and (dist_dir / "checksums.txt").is_file():
+        ok_dist, msg_dist = check_release_assets(dist_dir)
+        assert ok_dist is True
+        assert "Assets verified: HermesHubSetup.exe" in msg_dist
+
+
+@pytest.mark.unit
+def test_check_release_assets_missing_exe(tmp_path):
+    """A61: Verify check_release_assets rejects missing HermesHubSetup.exe."""
+    from release_gate import check_release_assets
+
+    assets_dir = tmp_path / "no_exe"
+    assets_dir.mkdir()
+    (assets_dir / "checksums.txt").write_text("dummy_hash  HermesHubSetup.exe\n", encoding="utf-8")
+
+    ok, msg = check_release_assets(assets_dir)
+    assert ok is False
+    assert "HermesHubSetup.exe missing in" in msg
+
+
+@pytest.mark.unit
+def test_check_release_assets_missing_checksums(tmp_path):
+    """A61: Verify check_release_assets rejects missing checksums.txt."""
+    from release_gate import check_release_assets
+
+    assets_dir = tmp_path / "no_checksums"
+    assets_dir.mkdir()
+    exe_file = assets_dir / "HermesHubSetup.exe"
+    exe_file.write_bytes(b"X" * (6 * 1024 * 1024))
+
+    ok, msg = check_release_assets(assets_dir)
+    assert ok is False
+    assert "checksums.txt missing in" in msg
+
+
+@pytest.mark.unit
+def test_check_release_assets_too_small(tmp_path):
+    """A61: Verify check_release_assets rejects suspiciously small installer (< 5 MB)."""
+    import hashlib
+    from release_gate import check_release_assets
+
+    assets_dir = tmp_path / "small_exe"
+    assets_dir.mkdir()
+    small_data = b"TINY_STUB_INSTALLER_100_BYTES"
+    exe_file = assets_dir / "HermesHubSetup.exe"
+    exe_file.write_bytes(small_data)
+
+    actual_sha = hashlib.sha256(small_data).hexdigest()
+    (assets_dir / "checksums.txt").write_text(f"{actual_sha}  HermesHubSetup.exe\n", encoding="utf-8")
+
+    ok, msg = check_release_assets(assets_dir)
+    assert ok is False
+    assert "suspiciously small" in msg
+    assert str(len(small_data)) in msg
+
+
+@pytest.mark.unit
+def test_check_release_assets_hash_mismatch(tmp_path):
+    """A61: Verify check_release_assets rejects SHA-256 mismatch."""
+    from release_gate import check_release_assets
+
+    assets_dir = tmp_path / "hash_mismatch"
+    assets_dir.mkdir()
+    exe_file = assets_dir / "HermesHubSetup.exe"
+    exe_file.write_bytes(b"DATA" * (2 * 1024 * 1024))  # 8 MB
+
+    expected_bad_sha = "0" * 64
+    (assets_dir / "checksums.txt").write_text(f"{expected_bad_sha}  HermesHubSetup.exe\n", encoding="utf-8")
+
+    ok, msg = check_release_assets(assets_dir)
+    assert ok is False
+    assert "SHA-256 mismatch" in msg
+    assert f"expected {expected_bad_sha}" in msg
+
+
+@pytest.mark.unit
+def test_check_release_assets_hash_not_found(tmp_path):
+    """A61: Verify check_release_assets rejects checksums.txt missing hash for HermesHubSetup.exe."""
+    from release_gate import check_release_assets
+
+    assets_dir = tmp_path / "hash_not_found"
+    assets_dir.mkdir()
+    exe_file = assets_dir / "HermesHubSetup.exe"
+    exe_file.write_bytes(b"DATA" * (2 * 1024 * 1024))  # 8 MB
+
+    (assets_dir / "checksums.txt").write_text("abc123def456  SomeOtherFile.zip\n", encoding="utf-8")
+
+    ok, msg = check_release_assets(assets_dir)
+    assert ok is False
+    assert "SHA-256 hash not found" in msg

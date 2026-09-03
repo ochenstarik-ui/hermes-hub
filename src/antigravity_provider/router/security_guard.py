@@ -330,7 +330,11 @@ class WorkspaceBoundaryGuard:
                     # путём отклонялась. То есть самый естественный способ
                     # написать опасную команду обходил защиту ровно там, ради
                     # чего она и делалась — на каталоге учётных данных.
-                    expanded = os.path.expandvars(os.path.expanduser(target_arg))
+                    exp_arg = target_arg
+                    if "$HOME" in exp_arg and "HOME" not in os.environ:
+                        home_dir = os.environ.get("USERPROFILE") or str(Path.home())
+                        exp_arg = exp_arg.replace("$HOME", home_dir)
+                    expanded = os.path.expandvars(os.path.expanduser(exp_arg))
                     target_path = Path(expanded) if Path(expanded).is_absolute() else (base_cwd / expanded)
                     ok, reason, alt = self.validate_path(target_path, operation="delete")
                     if not ok:
