@@ -241,6 +241,13 @@ CHECKSUMS_ASSET_NAME = "checksums.txt"
 # ассет не должен превращать ворота в отказ в обслуживании самим себе.
 MAX_PACKAGE_BYTES = 512 * 1024 * 1024
 
+# Нижняя граница размера установщика — защита от усечённой сборки. Найдено
+# живым прогоном на Windows (A61): собранный HermesHubSetup.exe считался
+# готовым к публикации даже будучи почти пустым — сборка прервалась, а файл
+# остался. 1 МБ — заведомо меньше любого настоящего установщика (несёт
+# исходники плагина вшитым ресурсом), но отличает пустышку от файла.
+MIN_PACKAGE_BYTES = 1024 * 1024
+
 
 def is_publication_mode() -> bool:
     """Требуется ли блокирующая проверка публикации."""
@@ -268,6 +275,21 @@ def _download_and_hash(url: str) -> tuple[str, int]:
             size += len(chunk)
             if size > MAX_PACKAGE_BYTES:
                 raise ValueError(f"пакет превышает {MAX_PACKAGE_BYTES} байт")
+            digest.update(chunk)
+    return digest.hexdigest(), size
+
+
+def _hash_local_file(path: Path) -> tuple[str, int]:
+    """Посчитать SHA-256 локального файла целиком. Размер — побочный продукт."""
+    import hashlib
+    digest = hashlib.sha256()
+    size = 0
+    with open(path, "rb") as f:
+        while True:
+            chunk = f.read(1024 * 256)
+            if not chunk:
+                break
+            size += len(chunk)
             digest.update(chunk)
     return digest.hexdigest(), size
 
@@ -390,6 +412,12 @@ def check_publishable_assets(dist_dir: Path) -> tuple[bool, str]:
     на тех же двух дефектах, что и CI: каждый его прогон завершался ошибкой, а
     релизы публиковались мимо него. Как только тесты позеленели, случайная
     защита исчезла — поэтому набор проверяется явно.
+
+    Помимо присутствия файлов — размер и хеш КАЖДОГО найденного установщика
+    против локального checksums.txt. Найдено живым прогоном на Windows
+    (A61): сборка может прерваться на середине и оставить усечённый файл, а
+    checksums.txt и сам установщик могут разойтись ещё до всякой публикации.
+    Проверка одного присутствия этого не ловит.
     """
     if not dist_dir.is_dir():
         return False, f"Каталог сборки не найден: {dist_dir}"
@@ -413,7 +441,26 @@ def check_publishable_assets(dist_dir: Path) -> tuple[bool, str]:
             f"installer/build_installer.ps1 и installer/build_installer_linux.sh"
         )
 
-    return True, f"Набор ассетов пригоден для публикации: {installers} + {CHECKSUMS_ASSET_NAME}"
+    local_checksums = _parse_checksums((dist_dir / CHECKSUMS_ASSET_NAME).read_text(encoding="utf-8-sig", errors="replace"))
+    verified = []
+    for name in installers:
+        actual_hash, size = _hash_local_file(dist_dir / name)
+        if size < MIN_PACKAGE_BYTES:
+            return False, (
+                f"{name} подозрительно мал ({size} байт, ожидался хотя бы {MIN_PACKAGE_BYTES}) "
+                f"— похоже на прерванную сборку"
+            )
+        expected_hash = local_checksums.get(name)
+        if not expected_hash:
+            return False, f"Для {name} нет строки в {CHECKSUMS_ASSET_NAME} — сверить хеш не с чем"
+        if actual_hash != expected_hash:
+            return False, (
+                f"SHA-256 {name} не сошёлся с {CHECKSUMS_ASSET_NAME}: "
+                f"файл {actual_hash}, записан {expected_hash}"
+            )
+        verified.append(f"{name} ({size} байт, SHA-256 сошёлся)")
+
+    return True, f"Набор ассетов пригоден для публикации: {', '.join(verified)}"
 
 
 def run_release_gate():
