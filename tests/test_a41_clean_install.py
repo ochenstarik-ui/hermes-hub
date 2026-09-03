@@ -249,7 +249,14 @@ def test_p0_5_verification_script_runs_clean_and_filled(clean_a41_env):
     env["HERMES_HOME"] = str(hermes_home)
 
     script_path = Path(__file__).resolve().parent.parent / "scripts" / "verify_multi_provider_router.py"
-    proc = subprocess.run([sys.executable, str(script_path)], env=env, capture_output=True, text=True)
+
+    # Кодировка задаётся явно с обеих сторон трубы. Скрипт печатает по-русски и
+    # сам переводит вывод на UTF-8; родитель же на Windows по умолчанию читает
+    # трубу в кодировке системы (cp1252) и разваливается на UnicodeDecodeError,
+    # оставляя proc.stdout равным None — падал разбор вывода, а не проверки.
+    run_kwargs = dict(env=env, capture_output=True, text=True, encoding="utf-8", errors="replace")
+
+    proc = subprocess.run([sys.executable, str(script_path)], **run_kwargs)
     assert proc.returncode == 0, f"Verification failed on clean config: {proc.stderr}\n{proc.stdout}"
     assert "10/10 CHECKS PASSED" in proc.stdout
 
@@ -259,6 +266,6 @@ def test_p0_5_verification_script_runs_clean_and_filled(clean_a41_env):
     AutoAssigner.assign_profile_to_role("codex-1", "manager", is_primary=True)
     AutoAssigner.assign_profile_to_role("ag-1", "manager", is_primary=False)
 
-    proc_filled = subprocess.run([sys.executable, str(script_path)], env=env, capture_output=True, text=True)
+    proc_filled = subprocess.run([sys.executable, str(script_path)], **run_kwargs)
     assert proc_filled.returncode == 0, f"Verification failed on filled config: {proc_filled.stderr}\n{proc_filled.stdout}"
     assert "10/10 CHECKS PASSED" in proc_filled.stdout

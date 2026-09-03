@@ -135,6 +135,117 @@ DESTRUCTIVE_COMMAND_NAMES: Set[str] = {
 }
 
 
+# ── Единый конвейер разбора пути ────────────────────────────────
+#
+# Граница вокруг агентских shell-действий обязана работать одинаково на всех
+# поддерживаемых системах, иначе доказанной она не является ни на одной.
+# Измерено: "rm -rf $HOME/.hermes" отклонялось на Linux и проходило на Windows,
+# потому что переменной HOME в окружении Windows нет — os.path.expandvars
+# оставлял "$HOME" как есть, путь переставал быть абсолютным, склеивался с
+# каталогом проекта и оказывался "внутри разрешённого корня". Зеркальная дыра
+# на Linux: "%USERPROFILE%\.hermes" и "C:\Windows" тоже проходили.
+#
+# Порядок шагов: классификация диалекта → раскрытие распознанных переменных →
+# нормализация разделителей → канонизация → сравнение с корнями. Каждый шаг,
+# который не удался, закрывает проход: непроверяемый путь не считается
+# разрешённым.
+
+_HOME_VARIABLE_NAMES = frozenset({"HOME", "USERPROFILE"})
+
+_VARIABLE_REFERENCE = re.compile(
+    r"\$\{(?P<brace>[A-Za-z_][A-Za-z0-9_]*)\}"
+    r"|\$(?P<bare>[A-Za-z_][A-Za-z0-9_]*)"
+    r"|%(?P<percent>[A-Za-z_][A-Za-z0-9_]*)%"
+)
+
+_WINDOWS_DRIVE_PREFIX = re.compile(r"^[A-Za-z]:[\\/]")
+
+# Признаки записи в диалекте cmd/PowerShell: %VAR%, буква диска, разделитель "\".
+_WINDOWS_DIALECT_MARKERS = re.compile(r"%[A-Za-z_][A-Za-z0-9_]*%|[A-Za-z]:[\\/]|\\[A-Za-z0-9_.]")
+
+
+def looks_like_windows_dialect(cmd_line: str) -> bool:
+    """Записана ли команда в диалекте Windows.
+
+    Диалект определяется по самой строке, а не по системе-хозяину: команду в
+    записи cmd могут прислать и на Linux, и разобрать её posix-правилами нельзя —
+    shlex съест "\" как экранирование и разделитель пути исчезнет.
+    """
+    return bool(_WINDOWS_DIALECT_MARKERS.search(cmd_line))
+
+
+def expand_path_argument(raw: str) -> Tuple[str, Optional[str]]:
+    """Раскрыть "~" и переменные окружения обоих диалектов.
+
+    Возвращает (раскрытая строка, причина нераскрытия | None). Имена HOME и
+    USERPROFILE разрешаются в домашний каталог даже тогда, когда их нет в
+    окружении: команда, написанная в чужом диалекте, целит ровно туда же.
+    Всё, что раскрыть не удалось, возвращается причиной — вызывающий обязан
+    закрыться, а не гадать.
+    """
+    unresolved: List[str] = []
+
+    def _substitute(match: "re.Match[str]") -> str:
+        name = match.group("brace") or match.group("bare") or match.group("percent")
+        value = os.environ.get(name)
+        if value is None and name.upper() in _HOME_VARIABLE_NAMES:
+            try:
+                value = str(Path.home())
+            except Exception:
+                value = None
+        if value is None:
+            unresolved.append(name)
+            return match.group(0)
+        return value
+
+    expanded = _VARIABLE_REFERENCE.sub(_substitute, raw)
+    expanded = os.path.expanduser(expanded)
+    if expanded.startswith("~"):
+        # expanduser не смог определить домашний каталог: оставлять "~" внутри
+        # пути нельзя — он перестанет быть абсолютным и уедет внутрь проекта.
+        unresolved.append("~")
+
+    if unresolved:
+        return expanded, "не раскрыты: " + ", ".join(sorted(set(unresolved)))
+    return expanded, None
+
+
+def canonical_path(raw: Path | str, base_cwd: Optional[Path | str] = None) -> Tuple[Optional[Path], Optional[str]]:
+    """Привести аргумент к каноническому пути или объяснить отказ.
+
+    Ровно одно из двух возвращаемых значений не None. Отказ — это отказ в
+    доступе: путь, который нельзя достоверно разрешить, нельзя и признать
+    находящимся внутри разрешённого корня.
+    """
+    text = str(raw)
+    if not text:
+        return None, "пустой путь"
+
+    expanded, unresolved_reason = expand_path_argument(text)
+    if unresolved_reason:
+        return None, f"путь '{raw}' невозможно раскрыть ({unresolved_reason})"
+
+    normalized = expanded.replace("\\", "/")
+
+    if _WINDOWS_DRIVE_PREFIX.match(normalized) and not Path(normalized).is_absolute():
+        # Путь с буквой диска на не-Windows: канонизировать его нечем. resolve()
+        # припишет ему текущий каталог, и "C:/Windows" окажется внутри проекта.
+        return None, f"путь '{raw}' записан в диалекте другой системы и здесь не проверяем"
+
+    candidate = Path(normalized)
+    if not candidate.is_absolute() and not normalized.startswith("/"):
+        try:
+            base = Path(base_cwd) if base_cwd is not None else paths.get_repo_root()
+        except Exception as exc:
+            return None, f"не определён базовый каталог для '{raw}': {exc}"
+        candidate = base / normalized
+
+    try:
+        return candidate.resolve(), None
+    except Exception as exc:
+        return None, f"путь '{raw}' не разрешается: {exc}"
+
+
 class WorkspaceBoundaryGuard:
     """Enforces explicit workspace boundaries, defends credential directories, and inspects destructive operations."""
 
@@ -206,7 +317,11 @@ class WorkspaceBoundaryGuard:
     def is_inside_allowed_root(self, path: Path | str) -> bool:
         """Check whether the given path resolves within any allowed root."""
         try:
-            target = Path(path).expanduser().resolve()
+            target, resolve_error = canonical_path(path)
+            if target is None:
+                # Путь не разрешается — считать его находящимся внутри
+                # разрешённого корня нельзя.
+                return False
             for root in self.get_allowed_roots():
                 try:
                     target.relative_to(root)
@@ -220,7 +335,9 @@ class WorkspaceBoundaryGuard:
     def is_forbidden_path(self, path: Path | str) -> Tuple[bool, Optional[str]]:
         """Check whether the path touches an unconditionally protected directory or file."""
         try:
-            target = Path(path).expanduser().resolve()
+            target, resolve_error = canonical_path(path)
+            if target is None:
+                return True, resolve_error
             # 1. Exact match or child of forbidden directory
             for fpath in self.get_forbidden_paths():
                 if target == fpath:
@@ -252,10 +369,9 @@ class WorkspaceBoundaryGuard:
 
         Returns: (is_allowed: bool, reason: str, safe_alternative: Optional[str])
         """
-        try:
-            target = Path(path).expanduser().resolve()
-        except Exception as exc:
-            return False, f"Недопустимый путь '{path}': {exc}", "Используйте стандартный относительный путь"
+        target, resolve_error = canonical_path(path)
+        if target is None:
+            return False, f"Недопустимый путь: {resolve_error}", "Укажите путь внутри проекта явно, без нераскрытых переменных"
 
         # Check unconditional forbidden paths for mutating/deleting operations
         if operation in {"delete", "write", "truncate", "move"}:
@@ -290,12 +406,18 @@ class WorkspaceBoundaryGuard:
         # Parse command tokens
         if isinstance(cmd_line, list):
             tokens = list(cmd_line)
+            windows_dialect = any(looks_like_windows_dialect(str(t)) for t in tokens)
         else:
+            # Диалект берётся из самой команды: строку в записи cmd нельзя
+            # разбирать posix-правилами — shlex съест "\\" как экранирование,
+            # и разделитель пути исчезнет ещё до проверки.
+            windows_dialect = looks_like_windows_dialect(cmd_line)
             try:
-                # Windows and POSIX-compatible shlex split
-                tokens = shlex.split(cmd_line, posix=(os.name != "nt"))
+                tokens = shlex.split(cmd_line, posix=not windows_dialect)
             except Exception:
                 tokens = cmd_line.split()
+            if windows_dialect:
+                tokens = [t[1:-1] if len(t) > 1 and t[0] == t[-1] and t[0] in "\"'" else t for t in tokens]
 
         if not tokens:
             return True, "OK", None
@@ -310,7 +432,7 @@ class WorkspaceBoundaryGuard:
             # Extract target arguments (skip flags starting with - or /)
             targets = []
             for arg in tokens[1:]:
-                if arg.startswith("-") or (os.name == "nt" and arg.startswith("/") and len(arg) == 2):
+                if arg.startswith("-") or (windows_dialect and arg.startswith("/") and len(arg) == 2):
                     continue
                 targets.append(arg)
 
@@ -321,17 +443,23 @@ class WorkspaceBoundaryGuard:
                     return False, f"Команда {cmd_name} запущена в недопустимом каталоге: {reason}", alt
             else:
                 for target_arg in targets:
-                    # Тильда и переменные окружения раскрываются ДО проверки.
+                    # Тильда и переменные окружения раскрываются ДО проверки, и
+                    # одинаково для обоих диалектов.
                     #
                     # Без этого "rm -rf ~/.hermes/agy_profiles" не считался
                     # абсолютным путём, склеивался с каталогом проекта в путь с
-                    # буквальным "~" внутри и признавался допустимым. Проверено:
-                    # команда с тильдой проходила, та же команда с абсолютным
-                    # путём отклонялась. То есть самый естественный способ
-                    # написать опасную команду обходил защиту ровно там, ради
-                    # чего она и делалась — на каталоге учётных данных.
-                    expanded = os.path.expandvars(os.path.expanduser(target_arg))
-                    target_path = Path(expanded) if Path(expanded).is_absolute() else (base_cwd / expanded)
+                    # буквальным "~" внутри и признавался допустимым; а
+                    # "rm -rf $HOME/.hermes" ровно так же проходил на Windows,
+                    # где переменной HOME в окружении нет. Самый естественный
+                    # способ написать опасную команду обходил защиту ровно там,
+                    # ради чего она и делалась — на каталоге учётных данных.
+                    target_path, resolve_error = canonical_path(target_arg, base_cwd=base_cwd)
+                    if target_path is None:
+                        return (
+                            False,
+                            f"Команда '{cmd_name}' обращается к непроверяемому пути: {resolve_error}",
+                            "Укажите путь внутри проекта явно, без нераскрытых переменных",
+                        )
                     ok, reason, alt = self.validate_path(target_path, operation="delete")
                     if not ok:
                         return False, f"Команда '{cmd_name}' пытается удалить недопустимый путь '{target_arg}': {reason}", alt

@@ -6,11 +6,22 @@ on:
   pull_request:
     branches: [ main ]
 
+# Матрица из двух систем.
+#
+# Обе джобы стояли на windows-latest, и это дорого обошлось: инвариант A37 не
+# держался на Windows, а тесты установки и остановки процессов молча
+# предполагали Linux. Прогон на одной системе не показывал ни того, ни другого.
+# Проект работает на Linux и активно получает Linux-правки, поэтому обе системы
+# проверяются одинаковым набором.
 jobs:
   test:
-    name: Clean Windows Runner Test
-    runs-on: windows-latest
+    name: Clean Runner Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
 
     steps:
       - name: Checkout repository
@@ -40,9 +51,13 @@ jobs:
           python scripts/release_gate.py
 
   headless:
-    name: Headless Run (no GUI dependencies)
-    runs-on: windows-latest
+    name: Headless Run (${{ matrix.os }}, no GUI dependencies)
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4

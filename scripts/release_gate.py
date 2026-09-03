@@ -23,8 +23,13 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT / "src") not in sys.path:
     sys.path.insert(0, str(ROOT / "src"))
 
+from antigravity_provider.console_encoding import force_utf8_output
 from antigravity_provider.version import __version__, get_version
 from antigravity_provider import paths
+
+# Отчёт ворот печатается по-русски, а консоль Windows-раннера — cp1252.
+# Ставится до первого вывода: иначе падает вывод, а не проверки.
+force_utf8_output()
 
 
 def check_version_consistency() -> tuple[bool, str]:
@@ -204,88 +209,218 @@ def check_security_zero_secrets() -> tuple[bool, str]:
     return True, "Zero secret files, live tokens, or obfuscated secret assignments in src/"
 
 
-def check_production_update_feed() -> tuple[bool, str]:
-    """Live verification of public release feed manifest and package URL."""
+# ═══════════════════════════════════════════════════════════════
+#  Publication Gate
+# ═══════════════════════════════════════════════════════════════
+#
+# Проверка публикации отделена от офлайновой части, потому что раньше они были
+# смешаны и обе были беззубыми. Измерено на прежней реализации:
+#   - при полном обрыве сети возвращался PASS ("check skipped");
+#   - при 404 на манифест возвращался PASS ("not yet published");
+#   - при 404 на пакет возвращался PASS ("pending upload");
+#   - при живом пакете печаталось PACKAGE_HASH_VERIFIED=True, хотя hashlib в
+#     файле не вызывался ни разу: скачивались байты 0-10 через заголовок Range,
+#     и этого хватало, чтобы объявить хеш проверенным.
+# То есть ворота публикации пропускали релиз при любом исходе, включая полное
+# отсутствие релиза.
+#
+# Теперь: офлайновые проверки (1-6) блокируют всегда; публикация проверяется
+# по-настоящему — релиз есть, ассеты есть, пакет скачан целиком, SHA-256
+# сошёлся с опубликованным. Блокирует она в режиме публикации (--publication
+# или HERMES_RELEASE_PUBLICATION_GATE=1); в обычном прогоне CI, где релиза для
+# ветки нет и быть не должно, результат сообщается как есть и не блокирует.
+# Неизмеренное называется "Н/Д" с причиной, а не выдаётся за проверенное.
+
+PUBLICATION_MODE_ENV = "HERMES_RELEASE_PUBLICATION_GATE"
+
+# Имена ассетов-установщиков; совпадают с выбором в update_manager.
+PACKAGE_ASSET_NAMES = ("HermesHubSetup.exe", "hermes-hub-setup.sh", "install-linux.sh")
+CHECKSUMS_ASSET_NAME = "checksums.txt"
+
+# Пакет качается целиком, поэтому размер ограничен: подставленный гигантский
+# ассет не должен превращать ворота в отказ в обслуживании самим себе.
+MAX_PACKAGE_BYTES = 512 * 1024 * 1024
+
+
+def is_publication_mode() -> bool:
+    """Требуется ли блокирующая проверка публикации."""
+    return "--publication" in sys.argv or os.environ.get(PUBLICATION_MODE_ENV, "") == "1"
+
+
+def _http_get(url: str, timeout: int = 30):
     import urllib.request
-    import urllib.error
+    req = urllib.request.Request(
+        url, headers={"User-Agent": f"HermesHub-ReleaseGate/{__version__}"}
+    )
+    return urllib.request.urlopen(req, timeout=timeout)
+
+
+def _download_and_hash(url: str) -> tuple[str, int]:
+    """Скачать поток целиком и посчитать SHA-256. Никаких частичных диапазонов."""
+    import hashlib
+    digest = hashlib.sha256()
+    size = 0
+    with _http_get(url, timeout=120) as resp:
+        while True:
+            chunk = resp.read(1024 * 256)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > MAX_PACKAGE_BYTES:
+                raise ValueError(f"пакет превышает {MAX_PACKAGE_BYTES} байт")
+            digest.update(chunk)
+    return digest.hexdigest(), size
+
+
+def _parse_checksums(text: str) -> dict[str, str]:
+    """Разобрать строки вида '<sha256>  <имя файла>'."""
+    table: dict[str, str] = {}
+    for line in text.splitlines():
+        parts = line.strip().split()
+        if len(parts) >= 2 and re.fullmatch(r"[0-9a-fA-F]{64}", parts[0]):
+            table[parts[-1].lstrip("*")] = parts[0].lower()
+    return table
+
+
+def check_offline_update_contract() -> tuple[bool, str]:
+    """Офлайновая часть: адрес обновления входит в список разрешённых."""
     from antigravity_provider.updater.update_manager import DEFAULT_UPDATE_URL, is_allowed_update_host
 
     if not is_allowed_update_host(DEFAULT_UPDATE_URL):
-        return False, f"Default update URL host not in allowlist: {DEFAULT_UPDATE_URL}"
+        return False, f"Адрес обновления вне списка разрешённых: {DEFAULT_UPDATE_URL}"
+    return True, f"Адрес обновления в списке разрешённых: {DEFAULT_UPDATE_URL}"
 
+
+def check_publication_gate() -> tuple[bool, str]:
+    """Релиз опубликован, ассеты на месте, SHA-256 пакета сошёлся.
+
+    В режиме публикации любой недостижимый шаг — отказ. Вне его отказ не
+    блокирует релиз, но и не выдаётся за успех.
+    """
+    import urllib.error
+    from antigravity_provider.updater.update_manager import DEFAULT_UPDATE_URL
+
+    blocking = is_publication_mode()
+
+    def verdict(ok: bool, msg: str) -> tuple[bool, str]:
+        if ok:
+            return True, msg
+        if blocking:
+            return False, msg
+        return True, f"[НЕ БЛОКИРУЕТ: режим публикации не запрошен] {msg}"
+
+    # 1. Манифест релиза
     try:
-        req = urllib.request.Request(
-            DEFAULT_UPDATE_URL,
-            headers={"User-Agent": f"HermesHub-ReleaseGate/{__version__}"}
-        )
-        with urllib.request.urlopen(req, timeout=6) as resp:
-            if resp.status == 200:
-                data = json.loads(resp.read().decode("utf-8-sig"))
-                p_ver = data.get("version") or data.get("tag_name", "").lstrip("v")
-                p_url = data.get("package_url")
-                if not p_url and data.get("assets"):
-                    p_url = data["assets"][0].get("browser_download_url")
-                if not p_url:
-                    p_url = data.get("html_url") or DEFAULT_UPDATE_URL
-
-                if not p_ver:
-                    return False, "Public update manifest is missing version or tag_name"
-
-                # Verify package URL reachability
-                pkg_live = False
-                pkg_status = "UNKNOWN"
-                try:
-                    head_req = urllib.request.Request(
-                        p_url,
-                        headers={"User-Agent": f"HermesHub-ReleaseGate/{__version__}"}
-                    )
-                    # Use Range header to avoid downloading huge binaries
-                    head_req.add_header("Range", "bytes=0-10")
-                    with urllib.request.urlopen(head_req, timeout=6) as pkg_resp:
-                        if pkg_resp.status in (200, 206, 302):
-                            pkg_live = True
-                            pkg_status = "PACKAGE_LIVE"
-                except urllib.error.HTTPError as pkg_he:
-                    if pkg_he.code == 404:
-                        pkg_status = "PENDING_RELEASE_UPLOAD_404"
-                    else:
-                        pkg_status = f"HTTP_{pkg_he.code}"
-                except Exception as pkg_ex:
-                    pkg_status = f"CHECK_SKIPPED_{pkg_ex}"
-
-                manifest_live = True
-                package_live = False
-                hash_verified = False
-
-                if pkg_live:
-                    package_live = True
-                    # If package is live, verify hash on partial bytes or full stream
-                    hash_verified = True
-                    return True, f"[MANIFEST_LIVE=True, PACKAGE_LIVE=True, PACKAGE_HASH_VERIFIED=True] Manifest live (v{p_ver}) and release asset verified at {p_url}"
-                elif pkg_status == "PENDING_RELEASE_UPLOAD_404":
-                    return True, (
-                        f"[MANIFEST_LIVE=True, PACKAGE_LIVE=False (Pending Upload 404), PACKAGE_HASH_VERIFIED=Offline Validated] "
-                        f"Manifest is live (v{p_ver}), release zip ready for GitHub Release asset upload. Offline updater tests passed."
-                    )
-                else:
-                    return True, (
-                        f"[MANIFEST_LIVE=True, PACKAGE_LIVE=False ({pkg_status}), PACKAGE_HASH_VERIFIED=Offline Validated] "
-                        f"Manifest live (v{p_ver}). Offline updater tests passed."
-                    )
-
+        with _http_get(DEFAULT_UPDATE_URL) as resp:
+            if resp.status != 200:
+                return verdict(False, f"Манифест релиза ответил HTTP {resp.status}")
+            data = json.loads(resp.read().decode("utf-8-sig"))
     except urllib.error.HTTPError as he:
-        if he.code == 404:
-            return True, f"[MANIFEST_LIVE=False, PACKAGE_LIVE=False] Public manifest not yet published (HTTP 404). Offline updater tests passed."
-        return False, f"HTTP Error checking update feed: {he}"
+        return verdict(False, f"Манифест релиза недоступен: HTTP {he.code} ({DEFAULT_UPDATE_URL})")
     except Exception as exc:
-        return True, f"[MANIFEST_LIVE=Unknown, PACKAGE_LIVE=Unknown] Public feed check skipped ({exc}). Offline updater tests passed."
+        return verdict(False, f"Манифест релиза недоступен: {type(exc).__name__}: {exc}")
 
-    return True, "Production update feed verified"
+    version = data.get("version") or str(data.get("tag_name", "")).lstrip("v")
+    if not version:
+        return verdict(False, "В манифесте релиза нет ни version, ни tag_name")
+
+    # 2. Ассеты
+    assets: dict[str, str] = {}
+    for asset in data.get("assets") or []:
+        name = asset.get("name")
+        url = asset.get("browser_download_url")
+        if name and url:
+            assets[name] = url
+    if not assets and data.get("package_url"):
+        assets[Path(data["package_url"]).name] = data["package_url"]
+
+    if not assets:
+        return verdict(False, f"У релиза v{version} нет ни одного ассета")
+
+    packages = [n for n in PACKAGE_ASSET_NAMES if n in assets]
+    if not packages:
+        return verdict(
+            False,
+            f"У релиза v{version} нет ни одного пакета установки "
+            f"{PACKAGE_ASSET_NAMES}; опубликованы: {sorted(assets)}",
+        )
+
+    # 3. Опубликованные контрольные суммы
+    if CHECKSUMS_ASSET_NAME not in assets:
+        return verdict(False, f"У релиза v{version} нет {CHECKSUMS_ASSET_NAME}: сверять хеш не с чем")
+    try:
+        with _http_get(assets[CHECKSUMS_ASSET_NAME]) as resp:
+            published = _parse_checksums(resp.read().decode("utf-8", errors="replace"))
+    except Exception as exc:
+        return verdict(False, f"{CHECKSUMS_ASSET_NAME} не скачивается: {type(exc).__name__}: {exc}")
+    if not published:
+        return verdict(False, f"{CHECKSUMS_ASSET_NAME} не содержит ни одной строки с SHA-256")
+
+    # 4. Полное скачивание и сверка хеша каждого пакета
+    verified = []
+    for name in packages:
+        expected = published.get(name)
+        if not expected:
+            return verdict(False, f"Для {name} нет строки в {CHECKSUMS_ASSET_NAME}")
+        try:
+            actual, size = _download_and_hash(assets[name])
+        except Exception as exc:
+            return verdict(False, f"{name} не скачивается целиком: {type(exc).__name__}: {exc}")
+        if actual != expected:
+            return verdict(False, f"SHA-256 {name} не сошёлся: опубликован {expected}, посчитан {actual}")
+        verified.append(f"{name} ({size} байт)")
+
+    return True, (
+        f"[RELEASE_LIVE=True, PACKAGES={len(verified)}, PACKAGE_HASH_VERIFIED=True] "
+        f"Релиз v{version}: пакеты скачаны целиком и сверены с {CHECKSUMS_ASSET_NAME} — "
+        + ", ".join(verified)
+    )
+
+
+def check_publishable_assets(dist_dir: Path) -> tuple[bool, str]:
+    """Собранный набор ассетов действительно устанавливается обновлением.
+
+    Проверяется до публикации. Причина: update_manager ищет в релизе строго
+    HermesHubSetup.exe или hermes-hub-setup.sh/install-linux.sh, а release.yml
+    собирает hermes-hub-<версия>.zip и update_manifest.json. Такой релиз
+    становится "latest", и на любой попытке обновиться владелец получает
+    "В релизе не найден подходящий файл обновления для текущей платформы".
+
+    Раньше это не проявлялось лишь потому, что весь релизный конвейер падал
+    на тех же двух дефектах, что и CI: каждый его прогон завершался ошибкой, а
+    релизы публиковались мимо него. Как только тесты позеленели, случайная
+    защита исчезла — поэтому набор проверяется явно.
+    """
+    if not dist_dir.is_dir():
+        return False, f"Каталог сборки не найден: {dist_dir}"
+
+    present = {item.name for item in dist_dir.iterdir() if item.is_file()}
+    installers = sorted(present & set(PACKAGE_ASSET_NAMES))
+    problems = []
+    if not installers:
+        problems.append(
+            f"нет ни одного установщика {list(PACKAGE_ASSET_NAMES)} — "
+            f"обновление такой релиз поставить не сможет"
+        )
+    if CHECKSUMS_ASSET_NAME not in present:
+        problems.append(f"нет {CHECKSUMS_ASSET_NAME} — сверять хеш пакета будет не с чем")
+
+    if problems:
+        return False, (
+            f"Набор ассетов в {dist_dir} непригоден для публикации: "
+            + "; ".join(problems)
+            + f". Собрано: {sorted(present)}. Установщики собираются скриптами "
+            f"installer/build_installer.ps1 и installer/build_installer_linux.sh"
+        )
+
+    return True, f"Набор ассетов пригоден для публикации: {installers} + {CHECKSUMS_ASSET_NAME}"
 
 
 def run_release_gate():
     print("=" * 70)
     print(f" Hermes Hub — Release Gate Verification Suite (Target: v{__version__})")
+    mode = "публикация (проверки 1-8 блокируют)" if is_publication_mode() else "офлайн (блокируют 1-7)"
+    print(f" Режим: {mode}")
     print("=" * 70)
 
     checks = [
@@ -295,7 +430,8 @@ def run_release_gate():
         ("4. Full Offline Pytest Suite", "[INTEGRATION VERIFIED]", check_full_test_suite),
         ("5. Zero Hardcoded Developer Paths", "[STATIC VERIFIED]", check_zero_hardcoded_paths),
         ("6. Zero Credentials & AST Secret Scan", "[SECURITY VERIFIED]", check_security_zero_secrets),
-        ("7. Public Production Update Feed", "[LIVE STATUS]", check_production_update_feed),
+        ("7. Update Contract (offline)", "[STATIC VERIFIED]", check_offline_update_contract),
+        ("8. Publication Gate", "[LIVE VERIFIED]", check_publication_gate),
     ]
 
     all_passed = True
@@ -319,5 +455,24 @@ def run_release_gate():
         sys.exit(1)
 
 
+def _run_single(title: str, check) -> None:
+    """Выполнить одну проверку и завершиться её итогом."""
+    print("=" * 70)
+    print(f" Hermes Hub — {title}")
+    print("=" * 70)
+    ok, msg = check()
+    print(f"  {'[OK]' if ok else '[FAIL]'} {msg}")
+    sys.exit(0 if ok else 1)
+
+
 if __name__ == "__main__":
-    run_release_gate()
+    if "--assets" in sys.argv:
+        index = sys.argv.index("--assets")
+        target = Path(sys.argv[index + 1]) if len(sys.argv) > index + 1 else ROOT / "dist"
+        _run_single("Publishable Assets Check", lambda: check_publishable_assets(target))
+    elif "--publication-only" in sys.argv:
+        # Запускается ПОСЛЕ публикации: проверяет опубликованный релиз, а не сборку.
+        os.environ[PUBLICATION_MODE_ENV] = "1"
+        _run_single("Publication Gate", check_publication_gate)
+    else:
+        run_release_gate()

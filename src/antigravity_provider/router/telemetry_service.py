@@ -161,7 +161,11 @@ class TelemetryService:
             if p.is_file():
                 try:
                     import yaml
-                    data = yaml.safe_dump(p.read_text(encoding="utf-8"))
+                    # safe_load, а не safe_dump: dump сериализует текст обратно
+                    # в строку, isinstance(data, dict) никогда не выполнялось, и
+                    # таблица цен из pricing.yaml не загружалась ни разу. Тихо:
+                    # ошибку глушил except.
+                    data = yaml.safe_load(p.read_text(encoding="utf-8"))
                     if isinstance(data, dict) and "pricing" in data:
                         self._pricing_table = dict(data["pricing"])
                         return
