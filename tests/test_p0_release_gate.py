@@ -621,3 +621,44 @@ def test_offline_run_does_not_claim_publication_verified(monkeypatch):
     assert ok is True, "обычный прогон CI не должен блокироваться отсутствием релиза"
     assert "НЕ БЛОКИРУЕТ" in msg
     assert "PACKAGE_HASH_VERIFIED=True" not in msg, "непроверенное не должно объявляться проверенным"
+
+
+@pytest.mark.unit
+def test_publishable_assets_check_rejects_uninstallable_release(tmp_path):
+    """Набор без установщика не должен уходить в публикацию.
+
+    update_manager ищет в релизе HermesHubSetup.exe или hermes-hub-setup.sh, а
+    release.yml собирает только zip и манифест. Такой релиз становится
+    «latest», и обновление отвечает «в релизе не найден подходящий файл
+    обновления для текущей платформы». Раньше это не проявлялось лишь потому,
+    что весь релизный конвейер падал на шаге Release Gate — на тех же двух
+    дефектах, что и CI, — и до публикации не доходил ни один его прогон.
+    """
+    release_gate = _load_release_gate()
+
+    as_built_today = tmp_path / "dist_zip_only"
+    as_built_today.mkdir()
+    (as_built_today / "hermes-hub-0.1.3.zip").write_bytes(b"zip")
+    (as_built_today / "update_manifest.json").write_text("{}", encoding="utf-8")
+
+    ok, msg = release_gate.check_publishable_assets(as_built_today)
+    assert ok is False, "набор без установщика признан пригодным к публикации"
+    assert "HermesHubSetup.exe" in msg
+    assert "checksums.txt" in msg
+
+    without_checksums = tmp_path / "dist_no_sums"
+    without_checksums.mkdir()
+    (without_checksums / "HermesHubSetup.exe").write_bytes(b"exe")
+    ok, msg = release_gate.check_publishable_assets(without_checksums)
+    assert ok is False, "набор без checksums.txt признан пригодным"
+    assert "checksums.txt" in msg
+
+    as_published_really = tmp_path / "dist_full"
+    as_published_really.mkdir()
+    for name in ("HermesHubSetup.exe", "hermes-hub-setup.sh", "checksums.txt"):
+        (as_published_really / name).write_bytes(b"x")
+    ok, msg = release_gate.check_publishable_assets(as_published_really)
+    assert ok is True, msg
+
+    ok, msg = release_gate.check_publishable_assets(tmp_path / "нет-такого")
+    assert ok is False, "отсутствующий каталог сборки должен быть отказом"

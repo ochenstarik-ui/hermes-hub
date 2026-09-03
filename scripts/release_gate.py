@@ -377,6 +377,45 @@ def check_publication_gate() -> tuple[bool, str]:
     )
 
 
+def check_publishable_assets(dist_dir: Path) -> tuple[bool, str]:
+    """Собранный набор ассетов действительно устанавливается обновлением.
+
+    Проверяется до публикации. Причина: update_manager ищет в релизе строго
+    HermesHubSetup.exe или hermes-hub-setup.sh/install-linux.sh, а release.yml
+    собирает hermes-hub-<версия>.zip и update_manifest.json. Такой релиз
+    становится "latest", и на любой попытке обновиться владелец получает
+    "В релизе не найден подходящий файл обновления для текущей платформы".
+
+    Раньше это не проявлялось лишь потому, что весь релизный конвейер падал
+    на тех же двух дефектах, что и CI: каждый его прогон завершался ошибкой, а
+    релизы публиковались мимо него. Как только тесты позеленели, случайная
+    защита исчезла — поэтому набор проверяется явно.
+    """
+    if not dist_dir.is_dir():
+        return False, f"Каталог сборки не найден: {dist_dir}"
+
+    present = {item.name for item in dist_dir.iterdir() if item.is_file()}
+    installers = sorted(present & set(PACKAGE_ASSET_NAMES))
+    problems = []
+    if not installers:
+        problems.append(
+            f"нет ни одного установщика {list(PACKAGE_ASSET_NAMES)} — "
+            f"обновление такой релиз поставить не сможет"
+        )
+    if CHECKSUMS_ASSET_NAME not in present:
+        problems.append(f"нет {CHECKSUMS_ASSET_NAME} — сверять хеш пакета будет не с чем")
+
+    if problems:
+        return False, (
+            f"Набор ассетов в {dist_dir} непригоден для публикации: "
+            + "; ".join(problems)
+            + f". Собрано: {sorted(present)}. Установщики собираются скриптами "
+            f"installer/build_installer.ps1 и installer/build_installer_linux.sh"
+        )
+
+    return True, f"Набор ассетов пригоден для публикации: {installers} + {CHECKSUMS_ASSET_NAME}"
+
+
 def run_release_gate():
     print("=" * 70)
     print(f" Hermes Hub — Release Gate Verification Suite (Target: v{__version__})")
@@ -416,5 +455,24 @@ def run_release_gate():
         sys.exit(1)
 
 
+def _run_single(title: str, check) -> None:
+    """Выполнить одну проверку и завершиться её итогом."""
+    print("=" * 70)
+    print(f" Hermes Hub — {title}")
+    print("=" * 70)
+    ok, msg = check()
+    print(f"  {'[OK]' if ok else '[FAIL]'} {msg}")
+    sys.exit(0 if ok else 1)
+
+
 if __name__ == "__main__":
-    run_release_gate()
+    if "--assets" in sys.argv:
+        index = sys.argv.index("--assets")
+        target = Path(sys.argv[index + 1]) if len(sys.argv) > index + 1 else ROOT / "dist"
+        _run_single("Publishable Assets Check", lambda: check_publishable_assets(target))
+    elif "--publication-only" in sys.argv:
+        # Запускается ПОСЛЕ публикации: проверяет опубликованный релиз, а не сборку.
+        os.environ[PUBLICATION_MODE_ENV] = "1"
+        _run_single("Publication Gate", check_publication_gate)
+    else:
+        run_release_gate()

@@ -57,6 +57,21 @@ jobs:
           $manifest | ConvertTo-Json -Depth 5 | Out-File -FilePath "$distDir/update_manifest.json" -Encoding utf8
           Write-Host "Generated update_manifest.json with SHA256: $hash"
 
+      # Набор проверяется ДО публикации.
+      #
+      # update_manager ищет в релизе строго HermesHubSetup.exe или
+      # hermes-hub-setup.sh, а шаг выше собирает только zip и манифест. Такой
+      # релиз становится "latest", и любая попытка обновиться отвечает «в
+      # релизе не найден подходящий файл обновления для текущей платформы».
+      #
+      # Раньше это не проявлялось лишь потому, что весь конвейер падал на шаге
+      # Release Gate — на тех же двух дефектах, что и CI; ни один его прогон не
+      # доходил до публикации, а релизы выкладывались мимо него. Как только
+      # тесты позеленели, случайная защита исчезла.
+      - name: Built assets must be installable by the updater
+        run: |
+          python scripts/release_gate.py --assets dist
+
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -68,3 +83,12 @@ jobs:
           prerelease: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Ворота публикации: проверяют опубликованный релиз, а не сборку.
+      # Релиз есть, ассеты есть, пакет скачан целиком, SHA-256 сошёлся с
+      # опубликованным checksums.txt. Здесь они блокируют: раньше эта проверка
+      # возвращала PASS при обрыве сети, при 404 на манифест и при 404 на
+      # пакет, то есть пропускала релиз при любом исходе.
+      - name: Publication Gate (published release must be verifiable)
+        run: |
+          python scripts/release_gate.py --publication-only
