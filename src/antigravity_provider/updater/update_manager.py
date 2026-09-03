@@ -1031,6 +1031,19 @@ class UpdateManager:
                     chosen_url = assets[linux_name]
                     break
 
+        # Платформа не распознана штатной веткой (is_win разошёлся с тем, что
+        # реально есть в релизе) — переберём любое известное имя установщика,
+        # прежде чем сдаваться на .zip. Найдено живым прогоном (A61): без
+        # этой подстраховки единственная опечатка в определении платформы
+        # роняла обновление с «не найден подходящий файл», хотя нужный
+        # установщик в релизе был.
+        if not chosen_url:
+            for known_name in ("hermes-hub-setup.sh", "install-linux.sh", "HermesHubSetup.exe"):
+                if known_name in assets:
+                    chosen_asset_name = known_name
+                    chosen_url = assets[known_name]
+                    break
+
         # Fallback to any .zip package in assets or manifest package_url
         if not chosen_url:
             for a_name, a_url in assets.items():

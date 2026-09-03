@@ -653,12 +653,59 @@ def test_publishable_assets_check_rejects_uninstallable_release(tmp_path):
     assert ok is False, "набор без checksums.txt признан пригодным"
     assert "checksums.txt" in msg
 
-    as_published_really = tmp_path / "dist_full"
-    as_published_really.mkdir()
-    for name in ("HermesHubSetup.exe", "hermes-hub-setup.sh", "checksums.txt"):
-        (as_published_really / name).write_bytes(b"x")
-    ok, msg = release_gate.check_publishable_assets(as_published_really)
-    assert ok is True, msg
-
     ok, msg = release_gate.check_publishable_assets(tmp_path / "нет-такого")
     assert ok is False, "отсутствующий каталог сборки должен быть отказом"
+
+
+def _write_installer_with_checksum(directory, name: str, content: bytes) -> None:
+    """Собрать <name> + checksums.txt с настоящим SHA-256 для теста."""
+    import hashlib
+
+    (directory / name).write_bytes(content)
+    digest = hashlib.sha256(content).hexdigest()
+    (directory / "checksums.txt").write_text(f"{digest}  {name}\n", encoding="utf-8")
+
+
+@pytest.mark.unit
+def test_publishable_assets_check_verifies_size_and_hash(tmp_path):
+    """A61: присутствия файлов мало — размер и хеш проверяются по-настоящему.
+
+    Найдено живым прогоном на Windows: сборка может прерваться на середине и
+    оставить усечённый файл, а checksums.txt и сам установщик — разойтись ещё
+    до всякой публикации. Проверка одного присутствия этого не ловит.
+    """
+    release_gate = _load_release_gate()
+
+    # 1. Настоящий размер, настоящий хеш — проходит.
+    good = tmp_path / "dist_good"
+    good.mkdir()
+    _write_installer_with_checksum(good, "HermesHubSetup.exe", b"X" * release_gate.MIN_PACKAGE_BYTES)
+    ok, msg = release_gate.check_publishable_assets(good)
+    assert ok is True, msg
+    assert "SHA-256 сошёлся" in msg
+
+    # 2. Файл меньше нижней границы — похоже на прерванную сборку.
+    truncated = tmp_path / "dist_truncated"
+    truncated.mkdir()
+    _write_installer_with_checksum(truncated, "HermesHubSetup.exe", b"x" * 10)
+    ok, msg = release_gate.check_publishable_assets(truncated)
+    assert ok is False, "усечённый установщик признан пригодным к публикации"
+    assert "мал" in msg
+
+    # 3. Хеш в checksums.txt не совпадает с настоящим файлом.
+    mismatched = tmp_path / "dist_mismatch"
+    mismatched.mkdir()
+    content = b"Y" * release_gate.MIN_PACKAGE_BYTES
+    (mismatched / "HermesHubSetup.exe").write_bytes(content)
+    (mismatched / "checksums.txt").write_text("0" * 64 + "  HermesHubSetup.exe\n", encoding="utf-8")
+    ok, msg = release_gate.check_publishable_assets(mismatched)
+    assert ok is False, "разошедшийся хеш признан пригодным к публикации"
+    assert "не сошёлся" in msg
+
+    # 4. checksums.txt не называет установленный файл вовсе.
+    unnamed = tmp_path / "dist_unnamed"
+    unnamed.mkdir()
+    (unnamed / "HermesHubSetup.exe").write_bytes(b"Z" * release_gate.MIN_PACKAGE_BYTES)
+    (unnamed / "checksums.txt").write_text("0" * 64 + "  other-file.bin\n", encoding="utf-8")
+    ok, msg = release_gate.check_publishable_assets(unnamed)
+    assert ok is False, "checksums.txt без нужной строки признан достаточным"

@@ -86,7 +86,17 @@ namespace HermesHubSetup
                 }
             }
 
-            string defaultTarget = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Programs\HermesHub");
+            // GetFolderPath(LocalApplicationData) не всегда возвращает то, что
+            // ждёт установщик — найдено живым прогоном (A61): в некоторых
+            // окружениях (изолированный тестовый профиль, нестандартный
+            // пользовательский куст реестра) значение расходится с
+            // фактическим %LOCALAPPDATA%. Читаем переменную окружения первой.
+            string localAppData = Environment.GetEnvironmentVariable("LOCALAPPDATA");
+            if (string.IsNullOrEmpty(localAppData))
+            {
+                localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            }
+            string defaultTarget = Path.Combine(localAppData, @"Programs\HermesHub");
             TargetInstallDir = defaultTarget;
 
             // Check if already installed
@@ -595,6 +605,12 @@ namespace HermesHubSetup
 
         private static void CreateStartMenuShortcut()
         {
+            // Изолированные прогоны (HERMES_HUB_NO_REGISTRY=1) уже не пишут в
+            // реестр (см. HERMES_HUB_NO_REGISTRY ниже), но ярлык в настоящем
+            // меню Пуск владельца этим не перекрывался — найдено живым
+            // прогоном тестов на A61: /silent-тест с этой переменной всё
+            // равно оставлял значок в реальном Пуск.
+            if (Environment.GetEnvironmentVariable("HERMES_HUB_NO_REGISTRY") == "1") return;
             try
             {
                 string startMenu = Environment.GetFolderPath(Environment.SpecialFolder.Programs);
@@ -641,6 +657,7 @@ namespace HermesHubSetup
 
         private static void RemoveStartMenuShortcut()
         {
+            if (Environment.GetEnvironmentVariable("HERMES_HUB_NO_REGISTRY") == "1") return;
             try
             {
                 string startMenu = Environment.GetFolderPath(Environment.SpecialFolder.Programs);

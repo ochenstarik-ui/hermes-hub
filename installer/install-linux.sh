@@ -49,51 +49,8 @@ echo ""
 # крутить старый код в памяти, и владелец видел прежний интерфейс при новом
 # номере сборки. Три сборки подряд ставились в файлы, но не в работу.
 echo "[0/6] Остановка работающего Hermes Hub..."
-
-stop_running_hub() {
-    local pattern="antigravity_provider.router.web|hermes_hub_web_entry"
-    local pids
-    # Только процессы ЭТОГО пользователя и только те, что относятся к хабу.
-    pids="$(pgrep -u "$(id -u)" -f "$pattern" 2>/dev/null | tr '
-' ' ')"
-
-    if [ -z "$pids" ]; then
-        echo "      Работающий хаб не найден — останавливать нечего."
-        return 0
-    fi
-
-    echo "      Найдены процессы хаба: $pids"
-    # shellcheck disable=SC2086
-    kill $pids 2>/dev/null || true
-
-    local waited=0
-    while [ "$waited" -lt 10 ]; do
-        sleep 1
-        waited=$((waited + 1))
-        pids="$(pgrep -u "$(id -u)" -f "$pattern" 2>/dev/null | tr '
-' ' ')"
-        [ -z "$pids" ] && break
-    done
-
-    if [ -n "$pids" ]; then
-        echo "      Не завершились за 10 секунд, снимаю принудительно: $pids"
-        # shellcheck disable=SC2086
-        kill -9 $pids 2>/dev/null || true
-        sleep 1
-        pids="$(pgrep -u "$(id -u)" -f "$pattern" 2>/dev/null | tr '
-' ' ')"
-    fi
-
-    if [ -n "$pids" ]; then
-        # Не прерываем установку: файлы обновятся, а владельцу скажем правду.
-        echo "      ⚠ Остались процессы: $pids. Снимите их вручную, иначе будет работать старый код."
-        return 1
-    fi
-
-    echo "      Хаб остановлен."
-    return 0
-}
-
+# shellcheck source=./lib_stop_running_hub.sh
+. "$SCRIPT_DIR/lib_stop_running_hub.sh"
 stop_running_hub || true
 echo ""
 
@@ -266,9 +223,35 @@ mkdir -p "$HERMES_HOME/bin"
 cp "$LAUNCHER_SRC" "$HERMES_HOME/bin/hermes-hub-web"
 chmod +x "$HERMES_HOME/bin/hermes-hub-web"
 
+# Лаунчер остановки — эквивалент «Exit» из системного трея Windows.
+#
+# На Windows сервер стартует из HermesHubWeb.exe, который держит значок в
+# трее: закрыть его оттуда может сам владелец. На Linux сервер после закрытия
+# окна остаётся в фоне без единого способа его остановить — ни кнопки в
+# интерфейсе (её нет ни на одной платформе), ни трея, ни пункта меню. Кладём
+# lib_stop_running_hub.sh рядом со скриптом остановки: он ищет её сначала
+# рядом с собой.
+STOP_LAUNCHER_SRC="$REPO_ROOT/launcher/hermes-hub-stop.sh"
+if [ ! -f "$STOP_LAUNCHER_SRC" ]; then
+    STOP_LAUNCHER_SRC="$SCRIPT_DIR/../launcher/hermes-hub-stop.sh"
+fi
+STOP_LAUNCHER_BIN="$HOME/.local/bin/hermes-hub-stop"
+if [ -f "$STOP_LAUNCHER_SRC" ]; then
+    cp "$STOP_LAUNCHER_SRC" "$STOP_LAUNCHER_BIN"
+    chmod +x "$STOP_LAUNCHER_BIN"
+    cp "$SCRIPT_DIR/lib_stop_running_hub.sh" "$HOME/.local/bin/lib_stop_running_hub.sh"
+fi
+
 # Create .desktop file
+#
+# Иконка — PNG, не .ico. Измерено на настоящем GTK-рабочем столе:
+# GdkPixbuf.Pixbuf.new_from_file на HermesHub.ico падает с "Compressed icons
+# are not supported", а .desktop-файл с несуществующей или неподдерживаемой
+# иконкой Nautilus и меню приложений просто показывают пустое место — без
+# ошибки, молча. Значок был бы вечно пустым на любом GTK-окружении (GNOME,
+# большинство производных). PNG в тех же ассетах уже есть и загружается.
 DESKTOP_FILE="$HOME/.local/share/applications/hermes-hub-web.desktop"
-ICON_PATH="$HERMES_HOME/plugins/antigravity-provider/assets/branding/app/HermesHub.ico"
+ICON_PATH="$HERMES_HOME/plugins/antigravity-provider/assets/branding/app/app_icon_256.png"
 if [ ! -f "$ICON_PATH" ]; then
     ICON_PATH="utilities-terminal"
 fi
@@ -289,6 +272,28 @@ StartupWMClass=hermes-hub-web
 EOF
 
 chmod +x "$DESKTOP_FILE"
+
+# Второй пункт меню — «Остановить». Terminal=true: без окна владелец не
+# увидит, остановился ли хаб на самом деле, и не заметит «⚠ Остались
+# процессы» из lib_stop_running_hub.sh, если что-то пошло не так.
+if [ -f "$STOP_LAUNCHER_BIN" ]; then
+    STOP_DESKTOP_FILE="$HOME/.local/share/applications/hermes-hub-stop.desktop"
+    cat <<EOF > "$STOP_DESKTOP_FILE"
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Stop Hermes Hub
+GenericName=Stop the Hermes Hub background server
+Comment=Останавливает фоновый сервер Hermes Hub
+Exec=$STOP_LAUNCHER_BIN
+Icon=$ICON_PATH
+Terminal=true
+Categories=Development;Utility;
+StartupNotify=false
+EOF
+    chmod +x "$STOP_DESKTOP_FILE"
+fi
+
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "$HOME/.local/share/applications" 2>/dev/null || true
 fi

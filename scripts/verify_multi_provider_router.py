@@ -148,8 +148,15 @@ def run_checks() -> int:
     # Проверяем изоляцию пути, а не побочное создание каталога: запрос пути
     # каталогов больше не плодит, иначе любая проверка засоряла бы диск
     # десятком пустых слотов.
-    pdir = get_profile_env_dir("ag-w2")
-    assert "ag-w2" in str(pdir)
+    #
+    # ID заведомо не боевой. Было "ag-w2" — на живой машине владельца это
+    # существующий подключённый профиль, и "assert not pdir.exists()" падал
+    # не из-за бага, а потому что каталог реального аккаунта и так был на
+    # месте. Найдено прогоном на настоящей установке (A61): скрипт возвращал
+    # код 12, хотя изоляция путей работала верно.
+    probe_id = "ag-probe-isolation-test"
+    pdir = get_profile_env_dir(probe_id)
+    assert probe_id in str(pdir)
     assert "agy_profiles" in str(pdir)
     assert not pdir.exists(), "запрос пути не должен создавать каталог"
     print(f"   [PASS] Profile directory isolated at {pdir} (не создан)")
